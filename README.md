@@ -38,8 +38,65 @@ protected your PC" — **More info**, then **Run anyway**. On desktop, put
 everything else works without them. On Android, FFmpeg is already inside the
 APK.
 
-Checksums are on the [release](https://github.com/IRAS-LABS/facet/releases/latest).
 Prefer to build it yourself? See [Build from source](#build-from-source).
+
+### Installing the APK on Android
+
+There is no Play Store listing — sideload it.
+
+1. Download `facet-0.1.0-arm64.apk` onto the phone.
+2. Open it. Android asks permission to install from this source; grant it, and
+   revoke it afterwards if you prefer.
+3. Launch Facet. It asks for storage on first run — see
+   [Android permissions](#android-permissions-and-why) for what it wants and
+   why.
+
+Requires **Android 7.0 (API 24) or newer** on an **arm64** phone, which is
+every Android phone sold for years. There is no 32-bit or x86 build.
+
+### Verify what you downloaded
+
+The APK is signed with the project key. Check the *certificate*, rather than
+trusting the file or wherever you got it:
+
+```
+apksigner verify --print-certs facet-0.1.0-arm64.apk
+```
+
+```
+Signer #1 certificate DN: CN=Facet, OU=IRAS Labs, O=IRAS Labs, C=US
+Signer #1 certificate SHA-256 digest: 9758cfbb55512376bdf8c8e373de860afef23e33ed1a7e3bb1b0bb5bc0bfa286
+```
+
+On Windows that command is `apksigner.bat`; a bare `apksigner` does not exist
+there. The certificate digest is the part that matters and it does not change
+between releases — an APK signed with any other key did not come from this
+project, whoever handed it to you.
+
+File hashes do change every release. For 0.1.0:
+
+```
+75dedade62f8766e066a9992cf069997a26a3a285269ebb4477fbe283fa31ca8  facet-0.1.0-arm64.apk
+d1df51d032aa6d9d9ee147f246a6ded66ea6c6a0652b9b9a4f6c36c0247fc9d2  Facet_0.1.0_x64-setup.exe
+```
+
+Both are published as
+[`SHA256SUMS.txt`](https://github.com/IRAS-LABS/facet/releases/latest/download/SHA256SUMS.txt)
+on the release, so `sha256sum -c SHA256SUMS.txt` checks them together.
+
+### Upgrading
+
+An APK you built yourself is signed with a different key than the release, so
+Android refuses to install either one over the other
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). Uninstall first:
+
+```
+adb uninstall com.iraslabs.facet
+```
+
+Uninstalling clears app storage, so export your settings beforehand if you want
+to keep them. Release-to-release upgrades install straight over the top and
+keep everything.
 
 ## Everything it does
 
@@ -354,6 +411,31 @@ folder you point `FACET_FIXTURE_SRC` at. Run it with no arguments and it
 lists exactly which files it wants. A harness whose fixture is missing says
 so and names the script; nothing fails silently, and nothing else in the
 repository depends on them.
+
+## Android permissions, and why
+
+The APK declares these. Android prompts for the sensitive ones rather than
+granting them silently, and refusing a prompt disables that feature instead of
+breaking the app.
+
+| Permission | Why |
+| --- | --- |
+| `MANAGE_EXTERNAL_STORAGE` | **All-files access.** Facet is a file manager, so it browses and edits across the whole card, not the sandbox folder Android would otherwise hand it. This is the broadest storage permission Android has, and it is worth refusing in any app that cannot justify it. Refuse it here and the photos, albums and audio tabs still work through the media permissions below — the files tab does not. |
+| `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO` | the photos roll, albums and the audio dock, on Android 13 and newer |
+| `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` | the same thing on Android 12 and older, where the per-type media permissions do not exist |
+| `CAMERA` | the in-app capture screen, and nothing else |
+| `RECORD_AUDIO` | voice recording and live transcription |
+| `MODIFY_AUDIO_SETTINGS` | audio routing while recording and during playback |
+| `INTERNET` | the **loopback** server that hands video to the app's own player |
+
+`INTERNET` is the one to be suspicious of in an app that claims to be offline,
+so to be concrete about it: Android's video player takes a URL, so Facet serves
+the file to itself over `127.0.0.1`. There is no remote endpoint in the app.
+Check that the way you would check any such claim — watch its traffic, or grep
+the source for a hostname.
+
+Camera and microphone are declared `required="false"`, so Facet installs on
+hardware that lacks them and hides those features instead of refusing to run.
 
 ## Contributing
 
