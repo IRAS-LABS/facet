@@ -31,6 +31,7 @@ import {
   desktopMediaRoots,
   type GalleryItem,
 } from "@core/phone/gallery";
+import { perf } from "@core/phone/mark";
 import { dropFav } from "./favorites";
 import { el, fill } from "./dom";
 import { icon } from "./icons";
@@ -299,7 +300,7 @@ export class PhoneShell {
     tab.activate();
     this.body.scrollTop = this.scrollMemo.get(id) ?? 0;
     requestAnimationFrame(() => {
-      console.log(`[fct-perf] ${performance.now().toFixed(1)}ms tab ${id} shown -> painted ${(performance.now() - switchAt).toFixed(1)}ms`);
+      perf(`tab ${id} shown -> painted ${(performance.now() - switchAt).toFixed(1)}ms`);
     });
   }
 

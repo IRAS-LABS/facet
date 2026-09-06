@@ -1,0 +1,60 @@
+# Two jobs, on the two things that can actually break independently.
+#
+# `web` is the TypeScript front end: `npm run build` is already
+# `tsc --noEmit && vite build`, so one command type-checks and bundles.
+#
+# `desktop` is the Rust side. It runs on windows-latest because that is the
+# target FACET ships for — the crate has `cfg(windows)` code (the WinRT share
+# sheet, CF_HDROP clipboard, DoDragDrop) that a Linux runner would silently
+# skip. `cargo check` rather than a full `tauri build`: it catches every
+# compile error in a couple of minutes instead of bundling an installer no
+# one downloads from CI.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check and bundle
+        run: npm run build
+
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # tauri-build reads ../dist at compile time, so the front end has to
+      # exist before cargo runs.
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --all-targets

@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest something FACET should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please read [SCOPE.md](../../SCOPE.md) first. FACET deliberately does
+        not do some things — nothing leaves the device, there is no account and
+        no telemetry, and it is not a cloud sync tool. A request that needs a
+        server is very likely a no, and that is not personal.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task, not the feature. It often has a shorter answer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: offline
+    attributes:
+      label: Confirm
+      options:
+        - label: This works entirely on the device — no server, no account, no upload.
+          required: true

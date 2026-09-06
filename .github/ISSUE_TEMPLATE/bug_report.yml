@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in FACET does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you paste anything:** FACET works on your own files, so a log
+        or a screenshot can easily contain folder names, file names and photo
+        contents you did not mean to publish. Blank out anything private —
+        nobody needs your real paths to fix a bug.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where
+      options:
+        - Windows (desktop app)
+        - Android (APK)
+        - Both
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: FACET version
+      description: Settings → About, or the release you downloaded.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS version
+      placeholder: "Windows 11 23H2, or Android 14 on a Pixel 7"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: |
+        Android: `adb logcat -d | grep FACET` gives FACET's own timing marks.
+        Read what you paste first — see the warning above.
+      render: text
