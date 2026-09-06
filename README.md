@@ -271,6 +271,115 @@ interface — it is not a remote control for the desktop.
   tools, automatic face/plate/screen blur, metadata viewing and removal.
 - **Trash sheet**, audio dock, and the OS share sheet.
 
+## File formats
+
+Every extension Facet recognises, and what it actually does with each. Anything
+not listed still appears in the file list, previews as text if it turns out to
+be textual, and opens in the hex inspector or in whatever your OS uses.
+
+Two things are worth knowing before reading the tables. Pictures and video are
+decoded by the system webview, so that column is a platform capability, not a
+bundled codec. Editing video and audio is FFmpeg, which is inside the APK on
+Android but has to be on your `PATH` on the desktop.
+
+### Pictures
+
+| | |
+| --- | --- |
+| **View, edit, redact, export** | `jpg` `jpeg` `jpe` `jfif` `png` `apng` `gif` `webp` `avif` `avifs` `bmp` `ico` `svg` |
+| **View, metadata, EXIF removal** | `heic` `heif` `heics` — decoded in-app |
+| **RAW — view, metadata, EXIF removal** | `dng` `cr2` `nef` `arw` `raf` `orf` `rw2` `srw` `pef` `3fr` |
+| **Recognised, no decoder** | `jxl` `cr3` `tif` `tiff` `psd` `ai` |
+
+RAW files are shown from the full-size JPEG the camera already embedded for its
+own screen, rather than by demosaicing the sensor data. It is the picture the
+photographer saw, it costs a read instead of a decode, and it is why a folder
+of raws scrolls at the same speed as a folder of JPEGs.
+
+### Video
+
+| | |
+| --- | --- |
+| **Play, trim, speed, blur, re-encode** | `mp4` `mkv` `mov` `webm` `avi` `m4v` `wmv` `flv` `f4v` `mts` `m2ts` `3gp` `3g2` `mpg` `mpeg` `m2v` `ogv` `vob` `divx` `insv` |
+| **Thumbnail from a decoded frame** | `mp4` `webm` `m4v` `mov` `ogv` — the rest show the kind glyph until opened |
+
+### Audio
+
+`mp3` `wav` `flac` `aac` `ogg` `opus` `m4a` `wma` `aiff` `alac` `amr` `mid` —
+play, trim, gain, noise and voice filtering, transcription, cover art.
+
+### 3D
+
+| | |
+| --- | --- |
+| **Orbit, inspect, export** | `glb` `gltf` `obj` `stl` `ply` |
+| **Recognised, refused with a reason** | `fbx` `blend` `usd` `usdz` `dae` `3mf` |
+
+The second row is deliberate rather than unfinished: `.blend` is a Blender
+session and not a mesh, FBX is Autodesk's format, and USD needs a runtime
+larger than the rest of Facet put together. Facet says which one applies
+instead of showing an empty scene.
+
+### Tables and data
+
+| | |
+| --- | --- |
+| **Table view — sortable, virtualised** | `csv` `tsv` `tab` `xlsx` `xlsm` `parquet` `pq` |
+| **Classified as data, previewed as text** | `json` `jsonl` `ndjson` |
+| **Classified as data, handed to the OS** | `xls` `ods` `db` `sqlite` `duckdb` |
+
+Parquet is read one row group at a time off the footer, so a multi-gigabyte
+file opens as fast as a small one.
+
+### Documents
+
+`pdf` `docx` `doc` `odt` `rtf` `txt` `md` `epub` `pptx` `ppt`
+
+PDFs render their first page as the preview and can be OCR'd. Office files are
+zips, so a document with no saved thumbnail still previews as its own opening
+words. Opening a document for real hands it to your OS — Facet is not a word
+processor.
+
+### Archives
+
+`zip` `7z` `rar` `tar` `gz` `bz2` `xz` `zst` `iso`
+
+Zip-family containers list their contents in the preview panel without being
+extracted: `zip` `docx` `xlsx` `pptx` `odt` `ods` `odp` `epub` `apk` `jar`
+`ipa` `vsix`. The rest are recognised and handed to your OS.
+
+### Subtitles
+
+`srt` and `vtt` are parsed and written — transcription and burn-in both target
+them. `ass` previews as text but is not parsed.
+
+### Text and code
+
+Previewed as their own first lines, syntax-agnostic:
+
+`txt` `md` `markdown` `rst` `log` `csv` `tsv` `json` `jsonl` `ndjson` `xml`
+`yaml` `yml` `toml` `ini` `cfg` `conf` `env` `properties` `ts` `tsx` `js` `jsx`
+`mjs` `cjs` `rs` `py` `rb` `go` `java` `kt` `kts` `c` `h` `cpp` `hpp` `cc` `cs`
+`swift` `php` `sh` `bash` `zsh` `ps1` `psm1` `bat` `cmd` `sql` `css` `scss`
+`less` `html` `htm` `vue` `svelte` `lua` `r` `m` `pl` `diff` `patch`
+`gitignore` `dockerfile` `makefile` `gradle` `srt` `vtt` `ass` `cube` `obj`
+`mtl` `ply` `gcode`
+
+A file with no extension, or one Facet has never heard of, gets one cheap read
+to decide whether it is text before falling back to the hex inspector.
+
+### Byte-level structure trees
+
+The inspector maps regions rather than just dumping bytes for `jpeg`, `png`,
+`gif`, `riff` (WebP and WAV), and ISO-BMFF (`mp4`, `mov`, `m4a`, `heic`).
+
+### Anything else
+
+Every file, of every type, can be renamed, moved, tagged, hashed, batch-
+processed, opened in the hex inspector, inspected for metadata, and handed to
+the default application. Nothing is hidden because Facet does not understand
+it.
+
 ## Build from source
 
 ### What you need
