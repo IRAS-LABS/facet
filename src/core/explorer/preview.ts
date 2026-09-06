@@ -85,7 +85,10 @@ const ZIP_MEMBER_MAX = 24 * 1024 * 1024;
 const HEIC_MAX = 48 * 1024 * 1024;
 
 /** Images a webview can decode. Anything else needs a module we have not built. */
-const WEB_IMAGE = new Set(["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg", "ico"]);
+const WEB_IMAGE = new Set([
+  "jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "avif", "avifs",
+  "bmp", "svg", "ico",
+]);
 const WEB_VIDEO = new Set(["mp4", "webm", "m4v", "mov", "ogv"]);
 
 /**

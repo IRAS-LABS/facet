@@ -13,6 +13,11 @@
              instead of only the media store.
            - API 33+: the granular READ_MEDIA_* trio, needed even with the above
              for the photo/video/audio modules.
+           - API 34+: READ_MEDIA_VISUAL_USER_SELECTED, which is what Android 14
+             grants when the user picks "Select photos" instead of "Allow all".
+             MediaBridge.access() tests for it to word the empty state honestly,
+             and an undeclared permission always reports denied — so leaving it
+             out made a partial grant read as no grant at all.
          All of these are runtime grants; nothing is taken silently at install. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
@@ -22,6 +27,7 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
     <!-- The camera and voice-recorder panels use getUserMedia. Tauri's
          WebChromeClient already answers the WebView's PermissionRequest by

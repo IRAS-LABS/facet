@@ -79,7 +79,7 @@ export const HANDLERS: readonly Handler[] = [
   { id: "viewer", label: "Picture viewer", blurb: "Zoom, pan, blur and draw. Arrow keys walk the folder." },
   { id: "player", label: "Player", blurb: "Video and audio, with the speed and timelapse controls." },
   { id: "scene", label: "3D viewer", blurb: "Orbit a model. glTF, GLB, OBJ, STL and PLY." },
-  { id: "table", label: "Table view", blurb: "Rows and columns, for CSV, TSV, Parquet and SQLite." },
+  { id: "table", label: "Table view", blurb: "Rows and columns, for CSV, TSV, Excel and Parquet." },
   { id: "vedit", label: "Video editor", blurb: "Trim, speed, blur faces, re-encode." },
   { id: "aedit", label: "Audio editor", blurb: "Trim, gain, noise and voice filtering." },
   { id: "inspector", label: "Hex inspector", blurb: "The bytes, for when nothing else will tell you." },
