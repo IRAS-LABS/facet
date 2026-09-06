@@ -1,0 +1,176 @@
+/* Video and audio player.
+   Shares the viewer's full-bleed layering so switching between a photo and a
+   clip does not shift the chrome around under the cursor. */
+
+.media {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: color-mix(in srgb, var(--fct-bg) 96%, black);
+  color: var(--fct-text);
+}
+.media[hidden] { display: none; }
+
+/* ── Title bar ─────────────────────────────────────────────────────────── */
+
+.media-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.media-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--fct-text-dim);
+}
+
+.media-btn {
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--fct-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fct-surface-raised) 70%, transparent);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.media-btn:hover {
+  border-color: var(--fct-accent);
+  color: var(--fct-text);
+  background: color-mix(in srgb, var(--fct-accent) 22%, transparent);
+}
+.media-btn[data-on="true"] {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  background: var(--fct-accent);
+}
+.media-play { min-width: 40px; font-size: 13px; }
+
+/* ── Stage ─────────────────────────────────────────────────────────────── */
+
+.media-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 14px;
+  background: var(--fct-canvas-bg);
+}
+.media-video {
+  max-width: 100%;
+  max-height: 100%;
+  /* No native controls: the transport below owns loop points, frame-stepping
+     and the 1/16x .. 16x ladder, none of which the built-in bar can express. */
+  background: black;
+  border-radius: 8px;
+  box-shadow: var(--fct-shadow);
+}
+.media-audio { width: 0; height: 0; opacity: 0; pointer-events: none; }
+
+/* The waveform is the audio mode's whole picture, so it takes the stage.
+   In video mode it is not drawn at all — a second scrubber under a moving
+   image is noise. */
+.media-wave { display: none; width: min(1100px, 92%); height: 46%; }
+.media[data-mode="audio"] .media-video { display: none; }
+.media[data-mode="audio"] .media-wave { display: block; }
+.media[data-mode="video"] .media-wave { display: none; }
+
+/* ── Transport ─────────────────────────────────────────────────────────── */
+
+.media-foot {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+
+.media-seek {
+  position: relative;
+  height: 16px;
+  cursor: pointer;
+  /* Padding is inside the track so the hit area is a finger tall while the
+     drawn bar stays thin — a 4px bar you have to hit exactly is the single
+     most annoying thing about hand-rolled players. */
+  display: flex;
+  align-items: center;
+  touch-action: none;
+}
+.media-seek::before {
+  content: "";
+  position: absolute;
+  inset: 6px 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fct-border) 70%, transparent);
+}
+.ms-buffered,
+.ms-played,
+.ms-loop {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.ms-buffered { background: color-mix(in srgb, var(--fct-text-muted) 40%, transparent); }
+.ms-played { background: var(--fct-accent); }
+.ms-loop {
+  background: color-mix(in srgb, var(--fct-warning) 34%, transparent);
+  box-shadow:
+    inset 1px 0 0 var(--fct-warning),
+    inset -1px 0 0 var(--fct-warning);
+}
+.ms-loop[hidden] { display: none; }
+.ms-cursor {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--fct-text);
+  pointer-events: none;
+}
+
+.media-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.media-clock {
+  min-width: 118px;
+  padding: 0 6px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fct-text-dim);
+}
+.media-rate {
+  min-width: 48px;
+  text-align: center;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fct-text);
+}
+.media-vol {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+.media-vol input[type="range"] { width: 92px; accent-color: var(--fct-accent); }

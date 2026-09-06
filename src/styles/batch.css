@@ -1,0 +1,219 @@
+/* The batch drawer (item 26).
+
+   Anchored right, full height, and deliberately narrow. It takes real space
+   from the shell rather than floating over it: the point of a queue is that you
+   keep working while it runs, and a panel parked on top of the right-hand
+   column of files defeats the feature it is implementing. `#app` gives up the
+   width instead, so the folder simply narrows and the stage's ResizeObserver
+   relays it.
+
+   The exception is a window too narrow to lose 360px, where reserving the space
+   would leave a sliver of file list and nothing usable. There the drawer
+   overlays — checking on the queue is a moment, and the folder comes straight
+   back. */
+
+:root {
+  --bq-w: min(360px, 92vw);
+}
+
+@media (min-width: 760px) {
+  [data-bq="open"] #app {
+    padding-right: var(--bq-w);
+  }
+}
+
+.bq {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 55;
+  width: var(--bq-w);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--fct-surface);
+  border-left: 1px solid var(--fct-border);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 0.35);
+  color: var(--fct-text);
+}
+
+/* `display: grid` above beats the browser's own rule for the `hidden`
+   attribute. The video editor shipped once with an empty panel pinned over the
+   file list because this line was missing there. */
+.bq[hidden] {
+  display: none;
+}
+
+.bq-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+}
+
+.bq-title {
+  margin: 0;
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+}
+
+.bq-summary {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bq-x,
+.bq-btn,
+.bq-act {
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+
+.bq-x:hover,
+.bq-btn:hover,
+.bq-act:hover {
+  background: var(--fct-surface-overlay);
+  border-color: var(--fct-border-strong);
+}
+
+.bq-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.bq-x {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
+.bq-list {
+  overflow-y: auto;
+  padding: var(--fct-sp-2);
+}
+
+.bq-empty {
+  margin: 0;
+  padding: var(--fct-sp-4);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  text-align: center;
+}
+
+/* Two columns: everything about the task, and the one button that acts on it.
+   The button keeps the same place in every row whatever state it is in, so
+   "stop this one" and "show the file" are the same target. */
+.bq-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-areas:
+    "title act"
+    "detail act"
+    "bar bar";
+  gap: 2px var(--fct-sp-2);
+  align-items: center;
+  padding: var(--fct-sp-2);
+  border-radius: var(--fct-radius);
+  border: 1px solid transparent;
+}
+
+.bq-row + .bq-row {
+  margin-top: var(--fct-sp-1);
+}
+
+.bq-row[data-state="running"] {
+  background: var(--fct-surface-raised);
+  border-color: var(--fct-border);
+}
+
+.bq-row[data-state="failed"] {
+  border-color: color-mix(in srgb, var(--fct-danger) 45%, transparent);
+}
+
+/* Finished work fades back rather than disappearing. "Did that one work?" is a
+   question people ask after the fact, and a queue that empties itself cannot
+   answer it. */
+.bq-row[data-state="done"],
+.bq-row[data-state="cancelled"] {
+  opacity: 0.6;
+}
+
+.bq-row-title {
+  grid-area: title;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bq-row-detail {
+  grid-area: detail;
+  min-width: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bq-row[data-state="failed"] .bq-row-detail {
+  color: var(--fct-danger);
+}
+
+.bq-act {
+  grid-area: act;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
+/* Present in every row, even a queued one, so the row does not change height
+   the moment it starts — a list that reflows as tasks begin is unreadable. */
+.bq-bar {
+  grid-area: bar;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--fct-canvas-bg);
+}
+
+.bq-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--fct-accent);
+  transition: width var(--fct-t-fast);
+}
+
+.bq-row[data-state="failed"] .bq-bar-fill {
+  background: var(--fct-danger);
+}
+
+.bq-foot {
+  display: flex;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-top: 1px solid var(--fct-border);
+}
+
+.bq-btn {
+  height: 28px;
+  padding: 0 var(--fct-sp-2);
+}

@@ -1,0 +1,331 @@
+/*
+ * Signature pad.
+ *
+ * Same rules as the rest: no hex literals, every colour a --fct-* token, every
+ * size derived from --fct-ui-scale / --fct-density.
+ *
+ * The layout inverts at 820px, and the breakpoint is doing real work rather
+ * than tidying. On a desktop the controls sit beside the pad, because a mouse
+ * user tunes thickness while watching the ink change and needs both in view at
+ * once. On a phone there is no width for that, so the pad takes the top half
+ * and the controls scroll underneath — and the pad still gets the larger share,
+ * because a cramped pad is what makes a signature look nothing like your own.
+ */
+
+.fct-sign {
+  position: fixed;
+  inset: 0;
+  /* Above the signing surface (58): the pad is opened from it, and a pad that
+     appears behind the document it is for is a dead screen. */
+  z-index: 62;
+  display: flex;
+  flex-direction: column;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font-family: var(--fct-font-ui);
+}
+
+.fct-sign[hidden] {
+  display: none;
+}
+
+/* ── Head ─────────────────────────────────────────────────────────────────── */
+
+.fct-sign-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  flex: 0 0 auto;
+}
+
+.fct-sign-title {
+  margin: 0;
+  font-size: var(--fct-fs-lg);
+  font-weight: 600;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fct-sign-head-actions {
+  display: flex;
+  gap: var(--fct-sp-1);
+  flex: 0 0 auto;
+}
+
+.fct-sign-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 40px, not 28: this row is reached with a thumb on the phone build, and a
+     28px target beside a drawing surface is a mis-tap that clears the pad. */
+  width: calc(40px * var(--fct-density));
+  height: calc(40px * var(--fct-density));
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-dim);
+  cursor: pointer;
+  transition: color var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+
+.fct-sign-icon:hover {
+  color: var(--fct-text);
+  border-color: var(--fct-border-strong);
+}
+
+.fct-sign-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+
+.fct-sign-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-3);
+}
+
+.fct-sign-pad {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: calc(200px * var(--fct-density));
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  /* Paper, not surface. Ink is chosen from ink colours — black, navy, forest,
+     oxblood — and every one of them disappears against a dark panel, so the
+     pad is the one place in Facet that is deliberately white. The tokens below
+     are redefined for the same reason: the guide rules and the hint are read
+     back from this subtree and have to survive on white. */
+  background: #fff;
+  --fct-border: #c9cdd6;
+  --fct-border-strong: #8d94a3;
+  --fct-text-muted: #6b7280;
+  overflow: hidden;
+}
+
+.fct-sign-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The canvas owns every gesture inside it — without this, a finger stroke
+     scrolls the sheet instead of drawing, and the first line of a signature is
+     lost to a pan. */
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.fct-sign-hint {
+  position: absolute;
+  inset: auto 0 var(--fct-sp-3) 0;
+  text-align: center;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  pointer-events: none;
+}
+
+.fct-sign-hint[hidden] {
+  display: none;
+}
+
+/* ── Controls ─────────────────────────────────────────────────────────────── */
+
+.fct-sign-controls {
+  flex: 0 0 calc(320px * var(--fct-density));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: var(--fct-sp-1);
+}
+
+.fct-sign-group-title {
+  font-size: var(--fct-fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-muted);
+  margin: var(--fct-sp-4) 0 var(--fct-sp-2);
+}
+
+.fct-sign-group-title:first-child {
+  margin-top: 0;
+}
+
+.fct-sign-row {
+  display: grid;
+  /* Fixed label and value columns so the sliders line up in a stack — ragged
+     track starts make a panel of six sliders read as noise. */
+  grid-template-columns: calc(96px * var(--fct-density)) 1fr calc(44px * var(--fct-density));
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-1) 0;
+}
+
+.fct-sign-label {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+}
+
+.fct-sign-val {
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fct-sign-range {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--fct-accent);
+  /* Tall enough to grab with a thumb; the native track stays its own height. */
+  height: calc(28px * var(--fct-density));
+}
+
+.fct-sign-swatches {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  flex-wrap: wrap;
+}
+
+.fct-sign-swatch {
+  width: calc(32px * var(--fct-density));
+  height: calc(32px * var(--fct-density));
+  border-radius: 50%;
+  border: 2px solid var(--fct-border);
+  cursor: pointer;
+  padding: 0;
+}
+
+.fct-sign-swatch[aria-pressed="true"] {
+  border-color: var(--fct-accent);
+  box-shadow: 0 0 0 2px var(--fct-bg), 0 0 0 4px var(--fct-accent);
+}
+
+.fct-sign-colour {
+  width: calc(40px * var(--fct-density));
+  height: calc(32px * var(--fct-density));
+  padding: 0;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  cursor: pointer;
+}
+/* Without these the control shows a white plate with the colour shrunk inside
+   it, so the one swatch that is supposed to report the current ink is the one
+   that does not. */
+.fct-sign-colour::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.fct-sign-colour::-webkit-color-swatch {
+  border: none;
+  border-radius: calc(var(--fct-radius-sm) - 1px);
+}
+
+.fct-sign-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fct-sp-2);
+}
+
+.fct-sign-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.fct-sign-toggle[aria-pressed="true"] {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+}
+
+.fct-sign-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── Foot ─────────────────────────────────────────────────────────────────── */
+
+.fct-sign-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-3);
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  flex: 0 0 auto;
+}
+
+.fct-sign-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-md);
+}
+
+.fct-sign-name::placeholder {
+  color: var(--fct-text-muted);
+}
+
+.fct-sign-save {
+  flex: 0 0 auto;
+  padding: var(--fct-sp-2) var(--fct-sp-5);
+  border: 1px solid var(--fct-accent);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font: inherit;
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fct-sign-save:hover {
+  background: var(--fct-accent-hover);
+  border-color: var(--fct-accent-hover);
+}
+
+/* ── Narrow ───────────────────────────────────────────────────────────────── */
+
+@media (max-width: 820px) {
+  .fct-sign-body {
+    flex-direction: column;
+  }
+
+  .fct-sign-pad {
+    /* The pad keeps the larger share of a short screen. A signature drawn in a
+       120px strip is not the signature you sign with. */
+    flex: 1 1 55%;
+    min-height: calc(180px * var(--fct-density));
+  }
+
+  .fct-sign-controls {
+    flex: 1 1 45%;
+    min-height: 0;
+  }
+
+  .fct-sign-row {
+    grid-template-columns: calc(88px * var(--fct-density)) 1fr calc(40px * var(--fct-density));
+  }
+}

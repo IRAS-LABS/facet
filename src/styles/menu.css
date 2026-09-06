@@ -1,0 +1,502 @@
+/* The right-click menu and its builder (item 39).
+
+   Two surfaces in one file because they are one feature. The menu is the only
+   floating thing in FACET that is positioned in script rather than by layout —
+   `left`/`top` are written by `ContextMenu.place`, so everything here has to
+   leave those alone and only describe how it looks. */
+
+/* ── the menu ── */
+
+.ctx {
+  position: fixed;
+  /* Above everything, and it has to be: a menu is always opened from
+     something, so whatever the topmost surface is, the menu is above that.
+     90 was above every panel in the app until the viewer went to 500, which
+     silently hid every menu the editor rail opens. 900 leaves room. */
+  z-index: 900;
+  min-width: 200px;
+  max-width: 340px;
+  padding: var(--fct-sp-1);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.55);
+  color: var(--fct-text);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* `display: grid` on the container would outrank `[hidden]`; this does not set
+   one, but the rule is here for the same reason it is in every other sheet —
+   the next person to add `display` here will not think of it. */
+.ctx[hidden] {
+  display: none;
+}
+
+.ctx:focus {
+  outline: none;
+}
+
+.ctx-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  width: 100%;
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover and keyboard share one look on purpose: a menu where arrowing down
+   highlights differently from the mouse makes you check which one is live. */
+.ctx-row:hover,
+.ctx-row[data-on="true"] {
+  background: var(--fct-accent);
+  color: var(--fct-bg);
+}
+
+.ctx-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ctx-hint {
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+}
+
+.ctx-row:hover .ctx-hint,
+.ctx-row[data-on="true"] .ctx-hint {
+  color: inherit;
+  opacity: 0.7;
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: var(--fct-sp-1) var(--fct-sp-2);
+  background: var(--fct-border);
+}
+
+.ctx-edit {
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+}
+
+/* ── the builder ── */
+
+.mnu {
+  position: fixed;
+  inset: 0;
+  z-index: 74;
+  display: grid;
+  place-items: center;
+  padding: var(--fct-sp-4);
+  background: rgb(0 0 0 / 0.55);
+}
+
+.mnu[hidden] {
+  display: none;
+}
+
+.mnu-sheet {
+  width: min(620px, 100%);
+  max-height: min(720px, 100%);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  color: var(--fct-text);
+  overflow: hidden;
+}
+
+.mnu-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: var(--fct-sp-3);
+}
+
+.mnu-title {
+  margin: 0;
+  font-size: var(--fct-fs-lg);
+  font-weight: 600;
+}
+
+.mnu-x {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mnu-x:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+.mnu-blurb {
+  margin: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+}
+
+.mnu-body {
+  overflow-y: auto;
+  padding-right: var(--fct-sp-1);
+}
+
+.mnu-sub {
+  margin: var(--fct-sp-3) 0 var(--fct-sp-1);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mnu-list {
+  display: grid;
+  gap: 2px;
+}
+
+.mnu-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px 24px 24px;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  height: calc(32px * var(--fct-density));
+  padding-left: var(--fct-sp-2);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+}
+
+.mnu-row:hover {
+  background: var(--fct-surface-raised);
+}
+
+/* A row naming something the current selection does not offer, or an action too
+   incomplete to run. Still legible — it is a row you have to be able to find in
+   order to delete it. */
+.mnu-row[data-off="true"] .mnu-name,
+.mnu-row[data-off="true"] .mnu-actname {
+  color: var(--fct-text-muted);
+  font-style: italic;
+}
+
+.mnu-row[data-sep="true"] .mnu-name {
+  color: var(--fct-text-muted);
+  letter-spacing: 0.2em;
+}
+
+.mnu-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fct-fs-sm);
+}
+
+.mnu-actname {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.mnu-actname:hover {
+  color: var(--fct-accent);
+}
+
+.mnu-tick {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+}
+
+.mnu-tick:hover:not(:disabled) {
+  background: var(--fct-surface);
+  color: var(--fct-text);
+}
+
+.mnu-tick:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.mnu-rest {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2px;
+}
+
+.mnu-addrow {
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.mnu-addrow:hover {
+  border-color: var(--fct-accent);
+  color: var(--fct-text);
+}
+
+.mnu-addrow[data-sep="true"] {
+  color: var(--fct-text-muted);
+}
+
+.mnu-none {
+  margin: 0;
+  padding: var(--fct-sp-2);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+}
+
+/* ── one action, expanded ── */
+
+.mnu-act {
+  display: grid;
+  gap: 2px;
+}
+
+.mnu-form {
+  display: grid;
+  gap: var(--fct-sp-2);
+  margin: 0 0 var(--fct-sp-2);
+  padding: var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+}
+
+.mnu-field {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--fct-sp-2);
+}
+
+.mnu-flabel {
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+}
+
+.mnu-input {
+  min-width: 0;
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.mnu-input:focus {
+  outline: none;
+  border-color: var(--fct-accent);
+}
+
+.mnu-tokens {
+  margin: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.7;
+}
+
+/* The chips flow rather than sitting one per row — ten kinds down the sheet
+   would push the arguments box off the bottom of it. The label keeps the same
+   120px column as the fields above so the left edge of the form is one line. */
+.mnu-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fct-sp-1) var(--fct-sp-2);
+}
+
+.mnu-kinds > .mnu-flabel {
+  width: 120px;
+  flex: 0 0 120px;
+}
+
+.mnu-kind {
+  height: calc(24px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mnu-kind:hover {
+  border-color: var(--fct-accent);
+  color: var(--fct-text);
+}
+
+.mnu-kind[data-on="true"] {
+  border-color: var(--fct-accent);
+  background: var(--fct-accent);
+  color: var(--fct-bg);
+}
+
+.mnu-problem {
+  margin: 0;
+  color: var(--fct-warn, #e5a44b);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+}
+
+.mnu-ok {
+  margin: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+}
+
+.mnu-add {
+  width: 100%;
+  margin-top: var(--fct-sp-2);
+  height: calc(28px * var(--fct-density));
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+}
+
+.mnu-add:hover {
+  border-color: var(--fct-accent);
+  color: var(--fct-text);
+}
+
+/* ── foot ── */
+
+.mnu-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding-top: var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+}
+
+.mnu-hint {
+  margin: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+}
+
+.mnu-reset {
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mnu-reset:hover {
+  border-color: var(--fct-accent);
+  color: var(--fct-text);
+}
+
+/* ── the View menu ──
+
+   Rides on `.ctx` for the frame and `.ctx-row` for the rows, and adds only what
+   a menu of *state* needs that a menu of commands does not: a fixed gutter for
+   the tick or the dot, and headings that divide it into the things being chosen
+   between. A row here answers "which one is it", so the gutter is always there
+   even when nothing in the section is chosen — a column that appears and
+   disappears makes the labels jump as you arrow down it. */
+
+.vmenu {
+  min-width: 220px;
+}
+
+.vmenu-row {
+  /* Three columns, not `.ctx-row`'s two: mark, label, hint. */
+  grid-template-columns: 1.1em minmax(0, 1fr) auto;
+  gap: var(--fct-sp-2);
+}
+
+.vmenu-mark {
+  color: var(--fct-accent);
+  font-size: var(--fct-fs-xs);
+  line-height: 1;
+  text-align: center;
+}
+
+/* On the highlighted row the accent is the background, so the mark has to stop
+   being the accent or it vanishes into it. */
+.vmenu-row:hover .vmenu-mark,
+.vmenu-row[data-on="true"] .vmenu-mark {
+  color: inherit;
+}
+
+.vmenu-head {
+  padding: var(--fct-sp-2) var(--fct-sp-2) var(--fct-sp-1);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A heading immediately after a separator would sit on a double gap — the rule
+   already draws the division, so the heading only needs to name it. */
+.ctx-sep + .vmenu-head {
+  padding-top: var(--fct-sp-1);
+}

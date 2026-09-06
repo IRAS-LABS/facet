@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- FACET is a file explorer, so it needs to see files it did not create.
+         The scoped-storage ladder means three separate grants:
+           - API <= 29: the classic READ/WRITE pair, plus requestLegacyExternalStorage
+             below so API 29 keeps the flat /storage/emulated/0 view the Rust
+             side lists.
+           - API 30+: MANAGE_EXTERNAL_STORAGE ("All files access"). This is the
+             permission Play restricts to file managers — which is exactly what
+             this is — and it is what makes browsing an arbitrary folder work
+             instead of only the media store.
+           - API 33+: the granular READ_MEDIA_* trio, needed even with the above
+             for the photo/video/audio modules.
+         All of these are runtime grants; nothing is taken silently at install. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- The camera and voice-recorder panels use getUserMedia. Tauri's
+         WebChromeClient already answers the WebView's PermissionRequest by
+         launching a runtime prompt for CAMERA / RECORD_AUDIO — but a runtime
+         prompt for a permission the manifest never declared is denied
+         instantly and silently, which is what "the camera panel opens black
+         and nothing happens" looks like. MODIFY_AUDIO_SETTINGS is in the same
+         list the WebView asks for, so it is declared alongside.
+         Both are still runtime grants; nothing is taken at install. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Declared not-required so a device without a camera can still install
+         and use the other forty-odd tools. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- AndroidTV support -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <!-- `extractNativeLibs` stays true and is NOT redundant: the bundled ffmpeg
+         and ffprobe ship as jniLibs/arm64-v8a/libffmpeg.so and are *executed*
+         from ApplicationInfo.nativeLibraryDir. A compressed-in-APK library has
+         no filesystem path to exec, so turning this off would silently kill
+         every video tool on the phone. -->
+    <application
+        android:extractNativeLibs="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.facet"
+        android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="${usesCleartextTraffic}"
+        android:networkSecurityConfig="@xml/network_security_config">
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:launchMode="singleTask"
+            android:label="@string/main_activity_title"
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- AndroidTV support -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+          android:name="androidx.core.content.FileProvider"
+          android:authorities="${applicationId}.fileprovider"
+          android:exported="false"
+          android:grantUriPermissions="true">
+          <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

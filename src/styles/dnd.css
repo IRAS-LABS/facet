@@ -1,0 +1,100 @@
+/*
+ * Dragging and rubber-band selection.
+ *
+ * One stylesheet rather than a slice in each view's file, because the drop
+ * highlight has to look identical on a list row, a gallery tile, a tree row and
+ * a rail button — four elements that otherwise share nothing. Split across four
+ * files it would be four accents that drift apart, and "is this folder about to
+ * receive my files" is the one question the highlight exists to answer.
+ */
+
+/* ── The drop target ─────────────────────────────────────────────────────── */
+
+/*
+ * An inset outline rather than a border: every one of these elements is already
+ * laid out to the pixel — rows at a fixed height, tiles at a computed one — and
+ * a border would add two pixels and shift the contents on hover.
+ */
+.lv-row[data-drop],
+.gv-tile[data-drop],
+.cv-row[data-drop],
+.card[data-drop],
+.tree-row[data-drop],
+.rail-btn[data-drop] {
+  outline: 2px solid var(--fct-accent);
+  outline-offset: -2px;
+  background: var(--fct-selection);
+  border-radius: var(--fct-radius-sm);
+}
+
+/*
+ * Dropping into the folder already on screen. The whole surface lights, because
+ * there is no single element to point at — the target *is* the background.
+ */
+.lv-scroll[data-drop],
+.gv-scroll[data-drop],
+.cv-list[data-drop],
+[data-view="canvas"][data-drop] {
+  outline: 2px solid var(--fct-accent);
+  outline-offset: calc(-1 * var(--fct-sp-1));
+  border-radius: var(--fct-radius);
+}
+
+/* ── The card under the cursor ───────────────────────────────────────────── */
+
+/*
+ * Positioned off-screen and never seen there. `setDragImage` snapshots it out
+ * of the live document, so it has to be laid out — `display: none` produces no
+ * image at all — but it must not flash in a corner for the frame it exists.
+ */
+.dnd-ghost {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  max-width: 260px;
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font-size: var(--fct-fs-sm);
+  pointer-events: none;
+}
+
+.dnd-ghost-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "and 10 more", without the words. */
+.dnd-ghost-count {
+  flex: none;
+  padding: 0 var(--fct-sp-1);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-accent);
+  color: var(--fct-bg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The rubber band ─────────────────────────────────────────────────────── */
+
+/*
+ * Absolutely positioned in the scrolled layer, in the same content space the
+ * rows and tiles use — so it stays anchored to the content while auto-scroll
+ * moves the view underneath it.
+ *
+ * `pointer-events: none` is load-bearing, not tidiness: the band sits under the
+ * cursor for the whole gesture, and without it every `pointermove` would report
+ * the band as its target and the marquee would be dragging itself.
+ */
+.marquee {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid var(--fct-accent);
+  background: var(--fct-selection);
+  pointer-events: none;
+}

@@ -1,0 +1,514 @@
+/* ── The phone editor ─────────────────────────────────────────────────────
+   Loaded after phone-viewer.css and overrides its edit-mode layout. The
+   picture is a grid row between a slim top bar and a slim dock, so it is
+   always entirely on screen: nothing floats over it, ever. Everything the
+   editor needs beyond the rail is one horizontal row inside the dock.
+
+   Sizes are budgets, not aspirations. Portrait: top 48, strip 60, rail 68
+   plus the safe areas, so the dock is under 130 px before the inset.
+   Landscape (a short viewport): top 40, strip 46, rail 50.
+
+   Insets. The app is edge-to-edge (viewport-fit=cover), so the status bar
+   and the gesture pill are drawn OVER the page. The top bar therefore pads
+   itself down by the status-bar inset and the dock pads itself up by the
+   pill's. Each reads a `--fct-inset-*` variable first — the harness sets
+   those, since a browser cannot fake `env()` — and falls back to `env()`,
+   which the Android WebView reports (27 px top, 15 px bottom on the reference phone).
+   The bottom keeps a 16 px floor: a WebView that reports 0 on a device with
+   a pill would otherwise draw the rail under it.
+
+   The grid names its one column explicitly. Without that the implicit
+   `auto` track grows to the top bar's max-content width — a long filename
+   plus six buttons — and the whole editor overflows the viewport, taking
+   Save and the end of the rail with it. That was the first device build.
+
+   Transitions run on transform and opacity only, and `.fct-no-motion`
+   turns them off. Bars pick up `--fct-glass` the way the shell's do. */
+
+.phv.phe {
+  --phe-top-h: 48px;
+  --phe-strip-h: 60px;
+  --phe-rail-h: 68px;
+  --phe-inset-top: var(--fct-inset-top, env(safe-area-inset-top, 0px));
+  --phe-inset-left: var(--fct-inset-left, env(safe-area-inset-left, 0px));
+  --phe-inset-right: var(--fct-inset-right, env(safe-area-inset-right, 0px));
+  --phe-safe: max(var(--fct-inset-bottom, env(safe-area-inset-bottom, 0px)), 16px);
+  grid-template-rows: calc(var(--phe-top-h) + var(--phe-inset-top)) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 100%);
+  background: var(--fct-bg);
+}
+@media (max-height: 500px) {
+  .phv.phe {
+    --phe-top-h: 40px;
+    --phe-strip-h: 46px;
+    --phe-rail-h: 50px;
+  }
+}
+
+/* The viewer's own chrome steps aside; the editor brings its own. */
+.phv.phe .phv-bar,
+.phv.phe .phv-actions,
+.phv.phe .phv-vbar { display: none; }
+.phv.phe .phv-stage {
+  grid-row: 2;
+  min-height: 0;
+  padding: var(--fct-sp-1);
+  box-sizing: border-box;
+  /* Explicit 100% tracks. The canvas's `max-height: 100%` resolves against
+     its grid area, and an implicit auto row is indefinite there — which in
+     landscape let a wide picture run straight under the dock. */
+  grid-template-rows: minmax(0, 100%);
+  grid-template-columns: minmax(0, 100%);
+}
+.phv.phe .phv-stage canvas {
+  cursor: crosshair;
+  /* The stage is a grid cell now, not the whole screen: the canvas has to
+     fit the cell and not the viewport, or the dock covers its foot. */
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+/* Sits above the dock so a message about an edit is not under the strip. */
+.phv.phe .phv-toast {
+  bottom: calc(var(--phe-strip-h) + var(--phe-rail-h) + var(--phe-safe) + var(--fct-sp-3));
+}
+
+/* ── Top bar ──────────────────────────────────────────────────────────── */
+
+.phe-top {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  min-width: 0;
+  height: calc(var(--phe-top-h) + var(--phe-inset-top));
+  padding: var(--phe-inset-top) calc(var(--fct-sp-1) + var(--phe-inset-right)) 0
+    calc(var(--fct-sp-1) + var(--phe-inset-left));
+  box-sizing: border-box;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fct-bg) calc((1 - var(--fct-glass, 0) * 0.5) * 100%), transparent);
+  border-bottom: 1px solid var(--fct-border);
+  color: var(--fct-text);
+  z-index: 3;
+}
+.phe-top[hidden] { display: none; }
+.fct-glass .phe-top,
+.fct-glass .phe-dock {
+  backdrop-filter: blur(calc(var(--fct-glass) * 20px));
+  -webkit-backdrop-filter: blur(calc(var(--fct-glass) * 20px));
+}
+
+.phe-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  transition: opacity var(--fct-t-fast), transform var(--fct-t-fast);
+}
+.phe-btn .fct-icon { width: 24px; height: 24px; }
+/* Compare is a hold. A long press on a button must not open a context menu
+   or select anything; the hold IS the interaction. */
+.phe-btn {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.phe-btn:active { transform: scale(0.92); }
+.phe-btn:disabled { opacity: 0.32; }
+.phe-btn[aria-pressed="true"] { color: var(--fct-accent); }
+
+.phe-title {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  height: 44px;
+  padding: 0 var(--fct-sp-2);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  border-radius: var(--fct-radius-sm);
+}
+.phe-title-name {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 600 var(--fct-fs-md) var(--fct-font-ui);
+  line-height: 1.2;
+}
+.phe-title-edits {
+  display: block;
+  font: 500 var(--fct-fs-xs) var(--fct-font-ui);
+  color: var(--fct-text-dim, color-mix(in srgb, var(--fct-text) 68%, transparent));
+  line-height: 1.2;
+}
+
+/* Budget at 360 CSS px: back, undo, redo, compare at 44 each, Save at ~62,
+   five 4 px gaps and 8 px of padding leave the title about 90 px — enough
+   for an ellipsised name over the edit count. Save is the one control that
+   must never leave the screen, so the title is the only thing that shrinks. */
+.phe-save {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 var(--fct-sp-4);
+  white-space: nowrap;
+  border: 0;
+  border-radius: 18px;
+  background: var(--fct-accent);
+  color: var(--fct-bg);
+  font: 600 var(--fct-fs-md) var(--fct-font-ui);
+  transition: transform var(--fct-t-fast);
+}
+.phe-save:active { transform: scale(0.95); }
+/* While the save strip is open the pill is the "current group" indicator. */
+.phe-save[aria-pressed="true"] {
+  background: var(--fct-bg);
+  color: var(--fct-accent);
+  box-shadow: inset 0 0 0 2px var(--fct-accent);
+}
+
+/* ── Dock ─────────────────────────────────────────────────────────────── */
+
+.phe-dock {
+  grid-row: 3;
+  display: grid;
+  grid-template-rows: var(--phe-strip-h) var(--phe-rail-h);
+  min-width: 0;
+  padding: 0 var(--phe-inset-right) var(--phe-safe) var(--phe-inset-left);
+  background: color-mix(in srgb, var(--fct-bg) calc((1 - var(--fct-glass, 0) * 0.5) * 100%), transparent);
+  border-top: 1px solid var(--fct-border);
+  color: var(--fct-text);
+  z-index: 3;
+}
+.phe-dock[hidden] { display: none; }
+
+/* Both rows scroll sideways and never wrap. The system's back gesture owns
+   the outer 130 px on Android (EDGE_GESTURE_PX); the rows pad past that so
+   the first and last item can be dragged into the middle before a tap. */
+.phe-strip,
+.phe-rail {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--fct-sp-3);
+  box-sizing: border-box;
+  scroll-padding: 0 130px;
+}
+.phe-strip::-webkit-scrollbar,
+.phe-rail::-webkit-scrollbar { display: none; }
+/* Whatever is past the edge fades out, so a row that continues looks like
+   it continues. The editor sets `data-more` from the row's own scroll
+   position; a row that fits gets no fade at all. Masks, not overlays: an
+   overlay would sit on the last button and eat its tap. */
+.phe-strip[data-more="right"],
+.phe-rail[data-more="right"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 56px), transparent);
+}
+.phe-strip[data-more="left"],
+.phe-rail[data-more="left"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 56px);
+  mask-image: linear-gradient(to right, transparent, #000 56px);
+}
+.phe-strip[data-more="both"],
+.phe-rail[data-more="both"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+}
+.phe-strip::after,
+.phe-rail::after {
+  content: "";
+  flex: 0 0 calc(130px - var(--fct-sp-3));
+}
+
+/* The strip row: chips or one slider. */
+.phe-strip { height: var(--phe-strip-h); }
+
+.phe-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: 20px;
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: 500 var(--fct-fs-sm) var(--fct-font-ui);
+  white-space: nowrap;
+  transition: transform var(--fct-t-fast), opacity var(--fct-t-fast);
+  scroll-snap-align: center;
+}
+.phe-chip:active { transform: scale(0.96); }
+.phe-chip:disabled { opacity: 0.38; }
+.phe-chip[aria-pressed="true"] {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+  background: color-mix(in srgb, var(--fct-accent) 16%, var(--fct-surface));
+}
+.phe-chip-icon { display: inline-flex; }
+.phe-chip-icon .fct-icon { width: 18px; height: 18px; }
+/* A chip whose control is not at rest carries its value and an accent dot. */
+.phe-chip-value {
+  font: 600 var(--fct-fs-xs) var(--fct-font-mono);
+  color: var(--fct-accent);
+  padding-left: 2px;
+}
+.phe-chip-set::before {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fct-accent);
+  top: 5px;
+  left: 9px;
+}
+.phe-chip { position: relative; }
+.phe-chip-danger {
+  border-color: color-mix(in srgb, #d13438 60%, var(--fct-border));
+  color: #ff8a8e;
+}
+
+.phe-divider {
+  flex: 0 0 1px;
+  height: 24px;
+  background: var(--fct-border);
+  margin: 0 var(--fct-sp-1);
+}
+
+.phe-question {
+  flex: 0 0 auto;
+  font: 500 var(--fct-fs-sm) var(--fct-font-ui);
+  color: var(--fct-text);
+  padding-right: var(--fct-sp-2);
+  white-space: nowrap;
+}
+
+.phe-swatch {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--fct-border);
+  padding: 0;
+  transition: transform var(--fct-t-fast);
+}
+.phe-swatch[aria-pressed="true"] {
+  border-color: var(--fct-accent);
+  transform: scale(1.12);
+}
+
+.phe-layer {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+.phe-layer .phe-chip { border-radius: 20px 0 0 20px; border-right: 0; }
+.phe-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 40px;
+  border: 1px solid var(--fct-border);
+  border-radius: 0 20px 20px 0;
+  background: var(--fct-surface);
+  color: var(--fct-text-muted);
+  padding: 0;
+}
+.phe-chip-x .fct-icon { width: 16px; height: 16px; }
+
+.phe-field {
+  flex: 1 1 160px;
+  min-width: 140px;
+  height: 40px;
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: 20px;
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: 500 var(--fct-fs-md) var(--fct-font-ui);
+}
+.phe-field:focus { outline: 2px solid var(--fct-accent); outline-offset: -1px; }
+
+/* One slider fills the row: back chevron, label, the track, the readout. */
+.phe-slider {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  height: 100%;
+}
+/* The strip's trailing spacer is for chip rows; a slider wants the width. */
+.phe-strip:has(.phe-slider)::after { display: none; }
+.phe-slider-back { width: 40px; height: 40px; }
+.phe-slider-label {
+  flex: 0 0 auto;
+  font: 600 var(--fct-fs-sm) var(--fct-font-ui);
+  min-width: 64px;
+}
+.phe-slider-value {
+  flex: 0 0 auto;
+  min-width: 64px;
+  text-align: right;
+  font: 600 var(--fct-fs-sm) var(--fct-font-mono);
+  color: var(--fct-accent);
+  padding-right: var(--fct-sp-2);
+}
+.phe-range {
+  flex: 1 1 auto;
+  min-width: 80px;
+  height: 44px;
+  margin: 0;
+  accent-color: var(--fct-accent);
+  touch-action: pan-x;
+  /* The whole row is a finger target: the thumb is easy to miss on a 6 px
+     track, and a slider you grab beside is a slider you grab. */
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.phe-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fct-border);
+}
+.phe-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -10px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--fct-accent);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
+}
+.phe-range::-moz-range-track { height: 6px; border-radius: 3px; background: var(--fct-border); }
+.phe-range::-moz-range-thumb {
+  width: 26px; height: 26px; border: 0; border-radius: 50%; background: var(--fct-accent);
+}
+
+/* Filter thumbnails: the picture, small, under each look. */
+.phe-filter {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  height: calc(var(--phe-strip-h) - 6px);
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-dim, color-mix(in srgb, var(--fct-text) 72%, transparent));
+  transition: transform var(--fct-t-fast);
+}
+.phe-filter[aria-pressed="true"] { border-color: var(--fct-accent); color: var(--fct-accent); }
+.phe-filter:active { transform: scale(0.96); }
+.phe-filter-thumb {
+  height: calc(var(--phe-strip-h) - 28px);
+  width: auto;
+  max-width: 72px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--fct-surface);
+}
+.phe-filter-label {
+  font: 500 var(--fct-fs-xs) var(--fct-font-ui);
+  line-height: 1;
+}
+
+/* ── Rail ─────────────────────────────────────────────────────────────── */
+
+.phe-rail { height: var(--phe-rail-h); gap: 0; }
+
+.phe-rail-btn {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 64px;
+  height: calc(var(--phe-rail-h) - 8px);
+  padding: 0 var(--fct-sp-2);
+  border: 0;
+  border-radius: var(--fct-radius);
+  background: transparent;
+  /* `--fct-text-dim`, not `--fct-text-muted`: the theme's muted (#5c6478 in
+     Facet Dark) is ~2.6:1 on the dock and the labels were the hardest thing
+     on the screen to read. Dim is ~5.5:1 — quieter than the accent, still a
+     word. The fallback is for a page with no theme applied. */
+  color: var(--fct-text-dim, color-mix(in srgb, var(--fct-text) 72%, transparent));
+  transition: transform var(--fct-t-fast), opacity var(--fct-t-fast);
+}
+.phe-rail-btn:active { transform: scale(0.94); }
+.phe-rail-btn[aria-pressed="true"] { color: var(--fct-accent); }
+.phe-rail-icon { display: inline-flex; }
+.phe-rail-icon .fct-icon { width: 24px; height: 24px; }
+.phe-rail-label {
+  font: 500 var(--fct-fs-xs) var(--fct-font-ui);
+  line-height: 1;
+  white-space: nowrap;
+}
+/* The active marker slides on transform rather than moving a border. */
+.phe-rail-btn::after {
+  content: "";
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--fct-accent);
+  opacity: 0;
+  transform: scaleX(0.4);
+  transition: opacity var(--fct-t-fast), transform var(--fct-t-fast);
+}
+.phe-rail-btn[aria-pressed="true"]::after { opacity: 1; transform: scaleX(1); }
+
+@media (max-height: 500px) {
+  .phe-rail-btn { flex-direction: row; gap: 6px; min-width: 0; }
+  .phe-rail-btn::after { display: none; }
+  .phe-rail-icon .fct-icon { width: 20px; height: 20px; }
+  .phe-chip { height: 36px; }
+  .phe-filter-thumb { height: 22px; }
+  .phe-btn { width: 40px; height: 40px; }
+  .phe-title { height: 40px; }
+  .phe-title-edits { display: none; }
+}
+
+/* ── Motion preference ────────────────────────────────────────────────── */
+
+.fct-no-motion .phe-btn,
+.fct-no-motion .phe-save,
+.fct-no-motion .phe-chip,
+.fct-no-motion .phe-swatch,
+.fct-no-motion .phe-filter,
+.fct-no-motion .phe-rail-btn,
+.fct-no-motion .phe-rail-btn::after { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .phe-btn, .phe-save, .phe-chip, .phe-swatch, .phe-filter,
+  .phe-rail-btn, .phe-rail-btn::after { transition: none; }
+}

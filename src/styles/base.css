@@ -1,0 +1,528 @@
+/*
+ * Base shell styles.
+ *
+ * Rules:
+ *  - No hex literals. Every colour is var(--fct-*), written by theme-engine.
+ *  - No fixed px for anything the user can scale. Sizes derive from
+ *    --fct-ui-scale (fonts) and --fct-density (spacing) so the whole shell
+ *    resizes from two numbers.
+ */
+
+:root {
+  /* Written by theme-engine at init; these are only a pre-paint fallback so
+     there is no white flash if storage is slow. */
+  --fct-bg: #0b0d12;
+  --fct-text: #e8ecf5;
+
+  /* User-configurable typography and rhythm. */
+  --fct-font-ui: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+  --fct-font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --fct-ui-scale: 1;
+  --fct-density: 1;
+
+  --fct-fs-xs: calc(11px * var(--fct-ui-scale));
+  --fct-fs-sm: calc(12.5px * var(--fct-ui-scale));
+  --fct-fs-md: calc(14px * var(--fct-ui-scale));
+  --fct-fs-lg: calc(17px * var(--fct-ui-scale));
+  --fct-fs-xl: calc(22px * var(--fct-ui-scale));
+
+  --fct-sp-1: calc(4px * var(--fct-density));
+  --fct-sp-2: calc(8px * var(--fct-density));
+  --fct-sp-3: calc(12px * var(--fct-density));
+  --fct-sp-4: calc(16px * var(--fct-density));
+  --fct-sp-5: calc(24px * var(--fct-density));
+
+  --fct-radius: calc(10px * var(--fct-density));
+  --fct-radius-sm: calc(6px * var(--fct-density));
+
+  /* 44, down from 76. The width was 76 because every rail button carried a
+     word under its icon, and the word was there because the rail listed every
+     mounted drive and three drives all drew as the same square -- so the only
+     way to tell C: from D: was to read a label. The drives have since moved to
+     the tree, where they were already listed anyway, and what is left is a
+     handful of places with genuinely different glyphs. A label under each one
+     now buys nothing and costs thirty pixels of every folder you look at. The
+     name stays on `title` and `aria-label`, and comes back as a visible label
+     in the phone bottom bar, where the rail is horizontal and has the room. */
+  --fct-rail-w: calc(44px * var(--fct-density));
+  --fct-topbar-h: calc(44px * var(--fct-density));
+  --fct-status-h: calc(26px * var(--fct-density));
+
+  --fct-t-fast: 120ms cubic-bezier(.2, .7, .3, 1);
+  --fct-t-med: 220ms cubic-bezier(.2, .7, .3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font-family: var(--fct-font-ui);
+  font-size: var(--fct-fs-md);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  /* The 2D canvas owns all gestures; the page itself must never rubber-band
+     or pinch-zoom out from under it. */
+  overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
+}
+
+::selection {
+  background: var(--fct-selection);
+}
+
+:focus-visible {
+  outline: 2px solid var(--fct-accent);
+  outline-offset: 2px;
+  border-radius: var(--fct-radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* ── Shell grid ───────────────────────────────────────────────────────────
+   rail | tree | topbar
+        |      | stage
+        |      | status
+   The rail spans all rows so module switching never shifts the layout. The
+   tree spans them too and carries its own header, so its title sits level
+   with the address bar the way an explorer's does — a sidebar that starts
+   below the toolbar reads as content rather than as chrome.
+
+   `--fct-tree-w` is written by the tree itself as you drag the divider, and
+   set to 0 when it is collapsed. Keeping the width in a custom property means
+   the grid is the single source of the layout: nothing else has to be told
+   the sidebar changed size. */
+
+#app {
+  display: grid;
+  /* Two guards, both for the same failure: a window dragged narrower than the
+     panes it contains. `min(..., 34vw)` caps the tree against the viewport
+     rather than against the number the divider saved, so a 400px-wide tree
+     from a maximised session does not leave a 20px stage in a 420px window --
+     and the saved number is left alone, so widening the window restores it.
+     `minmax(0, 1fr)` is the stage's own guard: a bare `1fr` is `minmax(auto,
+     1fr)`, which refuses to shrink below its contents and pushes the overflow
+     off the right edge instead. */
+  grid-template-columns:
+    var(--fct-rail-w)
+    min(var(--fct-tree-w, 240px), 34vw)
+    minmax(0, 1fr);
+  grid-template-rows: var(--fct-topbar-h) 1fr var(--fct-status-h);
+  grid-template-areas:
+    "rail tree topbar"
+    "rail tree stage"
+    "rail tree status";
+  height: 100%;
+  /* Notch / gesture-bar safe areas on Android; 0 on desktop. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  padding: var(--fct-sp-2) 0;
+  background: var(--fct-surface);
+  border-right: 1px solid var(--fct-border);
+}
+
+.topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: 0 var(--fct-sp-3);
+  background: var(--fct-surface);
+  border-bottom: 1px solid var(--fct-border);
+}
+
+.stage {
+  grid-area: stage;
+  position: relative;
+  overflow: hidden;
+  background: var(--fct-canvas-bg);
+}
+
+.status {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: 0 var(--fct-sp-3);
+  background: var(--fct-surface);
+  border-top: 1px solid var(--fct-border);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Narrow, not necessarily a phone.
+   The topbar is a dozen controls in one flex row: back, up, the path, the
+   filter box, copy, share, the palette, settings, the theme picker, one button
+   per view mode and the canvas fit button. That row runs out of width long
+   before a phone does -- a desktop window dragged to 800px overflows it just as
+   surely -- so these rules key on 1000px rather than on the phone breakpoint
+   where they used to live. Until the window minimum came down to 420 the
+   distinction did not exist, because no desktop window could get narrow enough
+   to notice. */
+@media (max-width: 1000px) {
+  /* Wrapping, not sideways scrolling. Scrolling was tried on the device and
+     the phone eats the gesture: a horizontal swipe that begins within about
+     130 px of either edge is Samsung's back gesture, so reaching for the last
+     button navigated back and, at the root, closed the app. There is no way to
+     opt a web view out of that, and the controls that were hardest to reach
+     were exactly the ones nearest the edge. Wrapping puts every control on
+     screen at once and asks for no gesture at all.
+
+     `overflow-x` stays as a floor: wrapping cannot help a single child wider
+     than the viewport, and clipping one would hide it with no way back. */
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--fct-topbar-h);
+    padding: var(--fct-sp-1) var(--fct-sp-2);
+    row-gap: var(--fct-sp-1);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .topbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Without this the controls shrink to fit rather than overflowing, and a row
+     of two-pixel-wide glyphs is worse than a row you have to swipe. */
+  .topbar > * {
+    flex: 0 0 auto;
+  }
+
+  /* The path is the one control that would happily take the whole row, so at
+     this width it gets a fixed slice of it. `.crumbs` already drops the head of
+     a deep path rather than the tail, so a narrow strip still shows the folder
+     you are actually in. */
+  .addr {
+    flex: 0 0 auto;
+    width: 40vw;
+    min-width: 6rem;
+  }
+
+  /* The tree keeps its divider and its saved width, but stops being allowed to
+     own half the window. Below this the phone block hides it outright. */
+  #app {
+    grid-template-columns:
+      var(--fct-rail-w)
+      min(var(--fct-tree-w, 240px), 30vw)
+      minmax(0, 1fr);
+  }
+}
+
+/* Phones: rail becomes a bottom bar, thumbs reach it. */
+@media (max-width: 640px) {
+  #app {
+    grid-template-columns: 1fr;
+    /* `auto` rather than a fixed topbar height: the bar wraps to as many rows
+       as its controls need (see below), and a fixed height would clip the
+       second one. */
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "topbar"
+      "stage"
+      "rail";
+  }
+
+  /* The tree is display:none at this width; its column must go too, or the
+     grid keeps reserving space for a pane that is not there. */
+  .tree { grid-area: stage; }
+
+  /* The rail holds one button per pinned place, so it overflows for the same
+     reason the topbar does -- there is no fixed number of them. It wraps for
+     the same reason too: it sits against the bottom edge, where a sideways
+     swipe is a system gesture rather than a scroll. The buttons keep their
+     size so a long list of places cannot squeeze them below the touch target
+     set further down. */
+  .rail {
+    flex-direction: row;
+    justify-content: space-around;
+    border-right: none;
+    border-top: 1px solid var(--fct-border);
+    flex-wrap: wrap;
+    row-gap: var(--fct-sp-1);
+    padding-bottom: var(--fct-sp-1);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .rail > * {
+    flex: 0 0 auto;
+  }
+
+  /* Horizontal, and wide enough for the word. This is the layout the labels
+     were written for. */
+  .rail-btn {
+    width: calc(64px * var(--fct-density));
+    min-height: calc(46px * var(--fct-density));
+  }
+
+  .rail-label {
+    display: block;
+  }
+
+  .status {
+    display: none;
+  }
+}
+
+/* Android's own guidance is a 48dp minimum touch target; the rail button is
+   40px, which on a 450 dpi phone is a target you miss. Keyed on the pointer
+   rather than the width so a touchscreen laptop gets it too and a merely
+   narrow desktop window does not. */
+@media (pointer: coarse) {
+  .rail-btn {
+    min-width: 48px;
+    min-height: 48px;
+  }
+}
+
+/* ── Primitives ───────────────────────────────────────────────────────── */
+
+/* Icon only in the vertical rail; icon over word in the phone bottom bar. See
+   the note on --fct-rail-w for why the word went away up here. */
+.rail-btn {
+  display: grid;
+  grid-template-rows: auto auto;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  width: calc(36px * var(--fct-density));
+  min-height: calc(36px * var(--fct-density));
+  padding: calc(4px * var(--fct-density)) calc(2px * var(--fct-density));
+  border: 1px solid transparent;
+  border-radius: var(--fct-radius);
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+}
+
+.rail-icon {
+  font-size: calc(17px * var(--fct-ui-scale));
+  line-height: 1;
+}
+
+/* Present in the DOM, not drawn in the vertical rail: the phone block below
+   turns it back on, and rendering it conditionally in script would mean the
+   rail had to be redrawn on a window resize to change shape. */
+.rail-label {
+  display: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fct-fs-xs);
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+
+.rail-btn:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+.rail-btn[aria-current="true"] {
+  background: var(--fct-selection);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+}
+
+.rail-btn svg {
+  width: calc(20px * var(--fct-ui-scale));
+  height: calc(20px * var(--fct-ui-scale));
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+
+.btn:hover {
+  background: var(--fct-surface-overlay);
+  border-color: var(--fct-border-strong);
+}
+
+.btn--accent {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+.btn--accent:hover {
+  background: var(--fct-accent-hover);
+  border-color: var(--fct-accent-hover);
+}
+
+/*
+ * The address strip.
+ *
+ * Crumbs are good for going up and useless for everything else — you cannot
+ * copy them, and a deep path overflows them silently. So the strip flips into
+ * a real text field on a click or Ctrl+L, which is where every other file
+ * manager and browser puts it.
+ */
+.addr {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--fct-radius-sm);
+  cursor: text;
+}
+
+.addr:hover {
+  border-color: var(--fct-border);
+  background: var(--fct-surface-raised);
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  /* A path too deep for the bar loses its head, not its tail: the folder you
+     are actually in is the part worth keeping on screen. Aligning to the end
+     makes the overflow fall off the left, where it matters least. (Not
+     `direction: rtl` — that reverses flex order and prints the path backwards.) */
+  justify-content: flex-end;
+}
+
+.crumbs > * {
+  flex: 0 0 auto;
+}
+
+.crumbs a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--fct-text);
+  text-decoration: underline;
+}
+
+.crumb-sep {
+  opacity: 0.45;
+}
+
+.crumbs b {
+  color: var(--fct-text);
+  font-weight: 600;
+}
+
+.addr-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-accent);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-overlay);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  font-family: var(--fct-font-mono);
+}
+
+/* The full path of the selection, never abbreviated. Selectable text that
+   copies on click — the path is the thing people came to the status bar for. */
+.status-counts {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.status-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: right;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+  user-select: text;
+}
+
+.status-path:hover {
+  color: var(--fct-text);
+}
+
+.status-path[data-copied="true"] {
+  color: var(--fct-success);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ── `hidden` means hidden ──────────────────────────────────────────────────
+   The user-agent rule is `[hidden] { display: none }` -- no class, so every
+   `.thing { display: flex }` in this file outranks it and the element stays on
+   screen while `el.hidden` reads true. That is not a subtlety worth
+   remembering at each call site; state it once, here. */
+[hidden] {
+  display: none !important;
+}

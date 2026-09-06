@@ -1,0 +1,73 @@
+[package]
+name = "facet"
+version = "0.1.0"
+description = "FACET — file explorer and media studio"
+edition = "2021"
+rust-version = "1.77.2"
+license = "MIT"
+repository = "https://github.com/IRAS-LABS/facet"
+
+[lib]
+name = "facet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# No tray-icon: FACET is a window you open and close, not a resident daemon.
+tauri = { version = "2", features = ["protocol-asset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Item 23. The share sheet is a WinRT API reached through a Win32 interop
+# shim, and putting files on the clipboard is CF_HDROP — neither has a
+# crates.io wrapper worth the dependency. Same `windows` version Tauri already
+# pulls in, so this adds features, not a second copy of the bindings.
+# The Android share sheet is an Intent the activity has to raise, and wry's
+# dispatch pipe is the sanctioned way onto that thread from a Tauri command.
+# Same wry version Tauri already builds — a second name for it, not a second
+# copy, and the shared statics inside dispatch depend on that staying true.
+# Item 9: dragging files *out* of FACET, into a browser upload field, into
+# Explorer, into a chat window. HTML5 drag-and-drop cannot do this — the
+# receiving application asks the operating system for a file, and a web page
+# has none to give — so the gesture has to be handed to a real `DoDragDrop`.
+# MIT/Apache-2.0. Desktop only: there is no such thing as dragging out of an
+# application on Android, and the crate does not build for that target.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-drag = "2.1.1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+wry = "0.55"
+# Same crate wry already pulls in (Cargo.lock: 0.21.1); named directly so
+# thumbs.rs can hold the VM and call ThumbBridge off the main thread.
+jni = "0.21"
+
+[target.'cfg(windows)'.dependencies]
+# "Empty trash" on the desktop routes to the OS Recycle Bin, never a permanent
+# unlink — the shell API for that (IFileOperation) is not worth hand-binding.
+trash = "5"
+windows-collections = "0.2"
+windows = { version = "0.61", features = [
+  "ApplicationModel_DataTransfer",
+  "Foundation",
+  "Storage",
+  "Storage_Streams",
+  "Storage_Search",
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

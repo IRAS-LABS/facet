@@ -1,0 +1,270 @@
+/* The sidebar editor (item 38).
+
+   Deliberately the same sheet as the column chooser next door: same ground, same
+   head, same 24px control column down the right so the ▲▼✕ line up in a stripe
+   you can run down without re-aiming. The one visual difference is that the row
+   label here is an editable field rather than static text, because a place's name
+   is yours to set and a column's is not. */
+
+.plcs {
+  position: fixed;
+  inset: 0;
+  z-index: 73;
+  display: grid;
+  place-items: center;
+  padding: var(--fct-sp-4);
+  background: rgb(0 0 0 / 0.55);
+}
+
+/* A stylesheet's `display` outranks the browser's `[hidden]`; anything given one
+   has to say what the other means. Same note as fields.css, same afternoon. */
+.plcs[hidden] {
+  display: none;
+}
+
+.plcs-hidden-wrap[hidden] {
+  display: none;
+}
+
+.plcs-sheet {
+  width: min(500px, 100%);
+  max-height: min(640px, 100%);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  color: var(--fct-text);
+  overflow: hidden;
+}
+
+/* ── head ── */
+
+.plcs-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: var(--fct-sp-3);
+}
+
+.plcs-title {
+  margin: 0;
+  font-size: var(--fct-fs-lg);
+  font-weight: 600;
+}
+
+.plcs-blurb {
+  margin: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+}
+
+.plcs-x {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.plcs-x:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+/* ── body ── */
+
+.plcs-body {
+  overflow-y: auto;
+  padding-right: var(--fct-sp-1);
+}
+
+.plcs-list,
+.plcs-hidden {
+  display: grid;
+  gap: 2px;
+}
+
+.plcs-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px 24px 24px;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  height: calc(32px * var(--fct-density));
+  padding-left: var(--fct-sp-1);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+}
+
+.plcs-row:hover {
+  background: var(--fct-surface-raised);
+}
+
+/* A field that does not look like one until you are in it. The name is the thing
+   you read down this list, so a column of boxed inputs would be all box and no
+   name; the border arrives on hover and focus, when you are about to type. */
+.plcs-name {
+  min-width: 0;
+  height: calc(26px * var(--fct-density));
+  padding: 0 var(--fct-sp-1);
+  border: 1px solid transparent;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  text-overflow: ellipsis;
+}
+
+.plcs-row:hover .plcs-name {
+  border-color: var(--fct-border);
+}
+
+.plcs-name:focus {
+  outline: none;
+  border-color: var(--fct-accent);
+  background: var(--fct-bg);
+}
+
+.plcs-move,
+.plcs-drop {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+}
+
+.plcs-move:hover:not(:disabled),
+.plcs-drop:hover {
+  background: var(--fct-surface);
+  color: var(--fct-text);
+}
+
+/* Dimmed rather than gone — the top row still has a ▲, it just does nothing, and
+   the buttons stay in one column all the way down. */
+.plcs-move:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.plcs-group {
+  margin: var(--fct-sp-3) 0 var(--fct-sp-1);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.plcs-add {
+  width: 100%;
+  margin-top: var(--fct-sp-2);
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.plcs-add:hover:not(:disabled) {
+  border-color: var(--fct-accent);
+  color: var(--fct-text);
+}
+
+/* Disabled says "already there", which is information, so it stays legible
+   rather than fading to the usual quarter opacity. */
+.plcs-add:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* A hidden place is still a row, just a quiet one — you are meant to be able to
+   find it, not to be drawn to it. */
+.plcs-hidden .plcs-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-left: var(--fct-sp-2);
+}
+
+.plcs-gone {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-sm);
+}
+
+.plcs-put {
+  height: calc(24px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  margin-right: var(--fct-sp-1);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.plcs-put:hover {
+  border-color: var(--fct-accent);
+  color: var(--fct-text);
+}
+
+/* ── foot ── */
+
+.plcs-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding-top: var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+}
+
+.plcs-hint {
+  margin: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+}
+
+.plcs-reset {
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.plcs-reset:hover {
+  border-color: var(--fct-accent);
+  color: var(--fct-text);
+}

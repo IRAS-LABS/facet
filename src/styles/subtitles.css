@@ -1,0 +1,468 @@
+/* Subtitles (item 31).
+
+   Same column as the other panels — head, tools, settings, progress, body,
+   status — so the muscle memory carries over. The one thing that is different
+   is that the body is split: the picture on the left, the cues on the right,
+   because a subtitle you cannot see against the picture is a subtitle nobody
+   has actually checked.
+
+   The overlay is styled in per-cent of the stage's height, and the stage is
+   given the video's own aspect ratio the moment it is known — so per-cent of
+   the stage is per-cent of the picture, which is the unit `force_style` uses
+   on the Rust side. Both halves of the preview agreeing is the whole point of
+   having one. */
+
+.subs {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+}
+/* Not optional — `display: grid` beats the browser's own `[hidden]` rule. */
+.subs[hidden] {
+  display: none;
+}
+
+/* ── Head ─────────────────────────────────────────────────────────────────── */
+
+.subs-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.subs-title {
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+.subs-note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subs-note.subs-bad {
+  color: var(--fct-danger);
+}
+
+/* ── Tools and look ───────────────────────────────────────────────────────── */
+
+.subs-tools,
+.subs-look {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.subs-look {
+  background: var(--fct-bg);
+}
+.subs-spacer {
+  flex: 1;
+  min-width: var(--fct-sp-2);
+}
+
+.subs-field {
+  display: grid;
+  gap: var(--fct-sp-1);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+}
+.subs-field select,
+.subs-field input {
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.subs-num {
+  width: calc(78px * var(--fct-density));
+}
+.subs-colour {
+  width: calc(48px * var(--fct-density));
+  padding: 2px;
+}
+
+.subs-check {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  height: calc(30px * var(--fct-density));
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.subs-tools button,
+.subs-bar button,
+.subs-shift button {
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+.subs-tools button:hover,
+.subs-bar button:hover,
+.subs-shift button:hover {
+  background: var(--fct-surface-overlay);
+}
+.subs-go {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font-weight: 600;
+}
+.subs-go:hover {
+  background: var(--fct-accent-hover);
+  border-color: var(--fct-accent-hover);
+}
+.subs-stop {
+  border-color: var(--fct-danger);
+  color: var(--fct-danger);
+}
+.subs-tools button[hidden],
+.subs-shift button[hidden] {
+  display: none;
+}
+
+.subs-shift {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+}
+.subs-shift button {
+  padding: 0 var(--fct-sp-2);
+}
+
+/* ── Progress ─────────────────────────────────────────────────────────────── */
+
+.subs-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.subs-progress[hidden] {
+  display: none;
+}
+.subs-track {
+  flex: 1;
+  min-width: 0;
+  height: calc(6px * var(--fct-density));
+  border-radius: 999px;
+  background: var(--fct-surface-overlay);
+  overflow: hidden;
+}
+.subs-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--fct-accent);
+  transition: width var(--fct-t-med);
+}
+@media (prefers-reduced-motion: reduce) {
+  .subs-fill { transition: none; }
+}
+.subs-barnote {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  min-width: calc(180px * var(--fct-density));
+  text-align: right;
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+
+.subs-body {
+  display: grid;
+  grid-template-columns: 1fr minmax(320px, 34%);
+  min-height: 0;
+}
+
+.subs-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--fct-sp-3);
+  background: #000;
+}
+/* A sidecar opened on its own has no picture. The cue list takes the width
+   rather than sitting beside a black rectangle that will never show anything. */
+.subs-screen:has(.subs-stage[hidden]) {
+  display: none;
+}
+.subs-body:has(.subs-stage[hidden]) {
+  grid-template-columns: 1fr;
+}
+
+.subs-stage {
+  position: relative;
+  container-type: size;
+  aspect-ratio: 16 / 9;
+  max-width: 100%;
+  max-height: 100%;
+  /* Both dimensions must be free to shrink for `max-height` to bite inside a
+     flex line; without this the stage overflows tall windows. */
+  min-width: 0;
+  min-height: 0;
+}
+.subs-stage[hidden] {
+  display: none;
+}
+.subs-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+/* The overlay never eats a click — the video's own controls sit under it. */
+.subs-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+}
+.subs-caption {
+  max-width: 92%;
+  padding: 0.2em 0.5em;
+  border-radius: calc(var(--fct-radius-sm) / 2);
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  white-space: pre-line;
+  /* Words must never be split across lines — the break points are the whole
+     product of the wrapper, and a browser re-breaking them would show the user
+     something other than what gets burned in. */
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+.subs-caption[hidden] {
+  display: none;
+}
+
+/* ── The cue list ─────────────────────────────────────────────────────────── */
+
+.subs-list {
+  overflow: auto;
+  border-left: 1px solid var(--fct-border);
+  background: var(--fct-bg);
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  .subs-list { scroll-behavior: auto; }
+}
+
+.subs-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "num  times acts"
+    "num  text  text";
+  align-items: start;
+  gap: var(--fct-sp-1) var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  transition: background var(--fct-t-fast);
+}
+.subs-row:hover {
+  background: var(--fct-surface);
+}
+/* Chosen is where the user is working; now is where the film is. They are
+   usually the same row and deliberately look different when they are not. */
+.subs-row.subs-chosen {
+  background: var(--fct-surface-raised);
+}
+.subs-row.subs-now {
+  border-left-color: var(--fct-accent);
+}
+.subs-row.subs-warn .subs-times {
+  color: var(--fct-warning, var(--fct-danger));
+}
+
+.subs-num-cell {
+  grid-area: num;
+  min-width: 2.5ch;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+  font-variant-numeric: tabular-nums;
+  padding-top: 3px;
+}
+
+.subs-times {
+  grid-area: times;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+}
+.subs-time {
+  width: calc(84px * var(--fct-density));
+  height: calc(22px * var(--fct-density));
+  padding: 0 var(--fct-sp-1);
+  border: 1px solid transparent;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.subs-time:hover,
+.subs-time:focus {
+  border-color: var(--fct-border);
+  background: var(--fct-surface-raised);
+  outline: none;
+}
+.subs-arrow {
+  opacity: 0.5;
+}
+
+.subs-text {
+  grid-area: text;
+  width: 100%;
+  resize: vertical;
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  line-height: 1.4;
+  overflow: hidden;
+}
+.subs-text:hover {
+  border-color: var(--fct-border);
+}
+.subs-text:focus {
+  border-color: var(--fct-accent);
+  background: var(--fct-surface-raised);
+  outline: none;
+}
+
+.subs-acts {
+  grid-area: acts;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--fct-t-fast);
+}
+/* Kept visible while the row is in use, and while a keyboard is in it — a
+   control that only exists on hover does not exist for anyone tabbing. */
+.subs-row:hover .subs-acts,
+.subs-row.subs-chosen .subs-acts,
+.subs-acts:focus-within {
+  opacity: 1;
+}
+.subs-act {
+  width: calc(22px * var(--fct-density));
+  height: calc(22px * var(--fct-density));
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+.subs-act:hover {
+  border-color: var(--fct-border);
+  background: var(--fct-surface-overlay);
+  color: var(--fct-text);
+}
+
+.subs-flag {
+  width: calc(18px * var(--fct-density));
+  height: calc(18px * var(--fct-density));
+  display: grid;
+  place-items: center;
+  margin-right: var(--fct-sp-1);
+  border-radius: 999px;
+  background: var(--fct-warning, var(--fct-danger));
+  color: var(--fct-bg);
+  font-size: var(--fct-fs-xs);
+  font-weight: 700;
+  cursor: help;
+  /* Always visible — a warning that hides until hover is a warning nobody has
+     seen, and the whole failure mode of a subtitle track is being unnoticed. */
+  opacity: 1;
+}
+
+.subs-empty {
+  padding: var(--fct-sp-4) var(--fct-sp-3);
+  text-align: center;
+  color: var(--fct-text);
+}
+.subs-empty p {
+  margin: 0 0 var(--fct-sp-2);
+}
+.subs-dim {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+}
+
+/* ── Status ───────────────────────────────────────────────────────────────── */
+
+.subs-status {
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Narrow windows stack: picture on top, cues underneath. Below this the two
+   columns are each too small to work in, and a cramped video is worse than a
+   short list. */
+@media (max-width: 900px) {
+  .subs-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 40%) 1fr;
+  }
+  .subs-list {
+    border-left: none;
+    border-top: 1px solid var(--fct-border);
+  }
+}

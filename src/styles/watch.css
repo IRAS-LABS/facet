@@ -1,0 +1,238 @@
+/* Watch folders (item 27).
+
+   A centred sheet over a dimmed shell, not a drawer. Writing a rule is a thing
+   you stop to do; unlike the queue there is nothing to keep half an eye on
+   while you browse. The dim is doing real work here — a rule that fires
+   forever should be written with the rest of the app deliberately out of the
+   way. */
+
+.wf {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: var(--fct-sp-4);
+  background: rgb(0 0 0 / 0.55);
+}
+
+/* Beats the browser's own rule for the `hidden` attribute, which `display:
+   grid` above would otherwise override. */
+.wf[hidden] {
+  display: none;
+}
+
+.wf-sheet {
+  width: min(560px, 100%);
+  max-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  color: var(--fct-text);
+  overflow: hidden;
+}
+
+.wf-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  grid-template-areas:
+    "title x"
+    "blurb x";
+  align-items: start;
+  gap: 2px var(--fct-sp-2);
+}
+
+.wf-title {
+  grid-area: title;
+  margin: 0;
+  font-size: var(--fct-fs-lg);
+  font-weight: 600;
+}
+
+.wf-blurb {
+  grid-area: blurb;
+  margin: 0;
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+}
+
+.wf-x {
+  grid-area: x;
+  width: 26px;
+  height: 26px;
+}
+
+.wf-list {
+  overflow-y: auto;
+  display: grid;
+  gap: var(--fct-sp-1);
+  align-content: start;
+}
+
+.wf-empty {
+  margin: 0;
+  padding: var(--fct-sp-3);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  text-align: center;
+}
+
+/* Rule, in words. Three columns: is it on, what does it do, what can I do to
+   it. The middle column is the only one allowed to shrink. */
+.wf-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface-raised);
+}
+
+/* A paused rule still reads, it just stops claiming to be doing anything. */
+.wf-row[data-on="0"] {
+  opacity: 0.55;
+}
+
+.wf-body {
+  min-width: 0;
+}
+
+.wf-line {
+  font-size: var(--fct-fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-where {
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.wf-count {
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.wf-row-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.wf-form {
+  display: grid;
+  gap: var(--fct-sp-2);
+  padding-top: var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+}
+
+.wf-field {
+  display: grid;
+  gap: 3px;
+}
+
+.wf-field[hidden] {
+  display: none;
+}
+
+.wf-label {
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+}
+
+.wf-input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-canvas-bg);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.wf-input:focus-visible {
+  outline: 2px solid var(--fct-accent);
+  outline-offset: -1px;
+}
+
+.wf-folder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--fct-sp-2);
+}
+
+.wf-actions {
+  display: flex;
+  gap: var(--fct-sp-2);
+  justify-content: flex-end;
+}
+
+.wf-btn,
+.wf-x,
+.wf-icon {
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+
+.wf-btn {
+  height: 30px;
+  padding: 0 var(--fct-sp-3);
+}
+
+.wf-icon {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  line-height: 1;
+}
+
+.wf-btn:hover,
+.wf-x:hover,
+.wf-icon:hover {
+  background: var(--fct-surface-overlay);
+  border-color: var(--fct-border-strong);
+}
+
+.wf-primary {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+.wf-primary:hover {
+  background: var(--fct-accent-hover);
+  border-color: var(--fct-accent-hover);
+}
+
+.wf-status {
+  margin: 0;
+  min-height: 1.2em;
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+}
+
+.wf-status[data-bad="1"] {
+  color: var(--fct-danger);
+}

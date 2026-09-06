@@ -1,0 +1,325 @@
+/*
+ * The recorder (item 29).
+ *
+ * The one rule that shapes this file: **a screen recorder is in its own shot.**
+ * Every other surface in FACET can take the window, because nothing is looking
+ * at the window except the person using it. This one is being photographed
+ * thirty times a second, so it is a card rather than a full-screen sheet, and
+ * once a take starts it shrinks to a strip in the bottom-right corner — small
+ * enough to sit outside most of what is worth recording, and always in the same
+ * place so it can be found without hunting.
+ *
+ * There is no dimmed backdrop for the same reason: a backdrop over the whole
+ * screen is a grey wash over the whole recording.
+ */
+
+.rec {
+  position: fixed;
+  inset: 0;
+  z-index: 42;
+  /* Pointer events go to the card only. The rest of the screen stays live
+     while the recorder is open, because someone recording their screen has to
+     be able to use their screen. */
+  pointer-events: none;
+  color: var(--fct-text);
+  font: var(--fct-fs-md) / 1.45 var(--fct-font-ui);
+}
+
+.rec[hidden] {
+  display: none;
+}
+
+.rec-card {
+  pointer-events: auto;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-4);
+  background: var(--fct-surface-overlay, var(--fct-surface-raised));
+  border: 1px solid var(--fct-border-strong);
+  border-radius: var(--fct-radius);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.45);
+  transition: width var(--fct-t-med), padding var(--fct-t-med);
+}
+
+/* Recording: out of the middle, into the corner, and narrower. */
+.rec-card.rec-small {
+  left: auto;
+  top: auto;
+  right: 16px;
+  bottom: 16px;
+  transform: none;
+  width: min(300px, calc(100vw - 32px));
+  padding: var(--fct-sp-3);
+}
+
+.rec-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+}
+
+.rec-name {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--fct-fs-lg);
+  font-weight: 600;
+}
+
+.rec-x {
+  flex: none;
+  width: 26px;
+  padding: 0;
+}
+
+/* ── Setup ────────────────────────────────────────────────────────────────── */
+
+.rec-setup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fct-sp-2);
+}
+
+.rec-setup[hidden] {
+  display: none;
+}
+
+.rec-check {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: 4px 6px;
+  border-radius: var(--fct-radius-sm);
+  cursor: pointer;
+}
+
+.rec-check:hover {
+  background: var(--fct-card-hover);
+}
+
+.rec-box {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--fct-accent);
+  cursor: pointer;
+}
+
+.rec-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--fct-sp-2);
+  margin-top: 2px;
+}
+
+.rec-sel {
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.rec-sel:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rec-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.rec-btn:hover:not(:disabled) {
+  background: var(--fct-card-hover);
+}
+
+.rec-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.rec-go {
+  height: 36px;
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font-weight: 600;
+}
+
+.rec-go:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.rec-stop {
+  background: var(--fct-danger);
+  border-color: var(--fct-danger);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ── While it runs ────────────────────────────────────────────────────────── */
+
+.rec-live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fct-sp-2);
+}
+
+.rec-live[hidden] {
+  display: none;
+}
+
+.rec-clock {
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+/* A dot that pulses only while actually recording — paused holds it still,
+   because a blinking light next to a paused recorder says the wrong thing. */
+.rec-clock::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--fct-danger);
+  vertical-align: middle;
+  animation: rec-pulse 1.4s ease-in-out infinite;
+}
+
+.rec-paused .rec-clock::before {
+  animation: none;
+  opacity: 0.4;
+}
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.rec-meter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+}
+
+/*
+ * The gradient lives on the track and is *uncovered* by the level, rather than
+ * being painted onto a growing bar.
+ *
+ * Painted onto the bar it would stretch with it, so the colour under a given
+ * loudness would change as the level moved and quiet speech would sit in the
+ * red end of its own short gradient. Fixed to the track it means what a
+ * colour-coded meter is supposed to mean: red is near clipping, always in the
+ * same place.
+ */
+.rec-meter {
+  position: relative;
+  flex: 1 1 auto;
+  height: 10px;
+  border-radius: 5px;
+  background-image: linear-gradient(90deg, #3ddc84 0%, #3ddc84 62%, #e8c547 82%, #ff6b81 100%);
+  border: 1px solid var(--fct-border);
+  overflow: hidden;
+}
+
+/* The *unlit* part: everything to the right of the level is masked back to the
+   surface colour, so `left` is the reading. */
+.rec-meter-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  background: var(--fct-surface);
+  transition: left 60ms linear;
+}
+
+.rec-meter.rec-clip {
+  box-shadow: inset 0 0 0 2px var(--fct-danger);
+}
+
+/* The held peak: a thin line that falls back rather than a bar that flickers. */
+.rec-meter-hold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--fct-text);
+  opacity: 0.75;
+  transition: left 60ms linear;
+}
+
+.rec-db {
+  flex: none;
+  min-width: 62px;
+  text-align: right;
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--fct-text-dim);
+}
+
+.rec-ledger {
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+}
+
+.rec-trouble {
+  color: var(--fct-danger);
+}
+
+.rec-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--fct-sp-2);
+}
+
+.rec-status {
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+  min-height: 1.4em;
+}
+
+/* ── The countdown ────────────────────────────────────────────────────────── */
+
+/* Centred on the screen rather than on the card, because it is a "get ready"
+   for the thing being recorded, not for the recorder. It is also the one part
+   that may end up in the first second of the file, so it is thin and dim. */
+.rec-count {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 120px;
+  font-weight: 200;
+  line-height: 1;
+  color: var(--fct-text);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.rec-count[hidden] {
+  display: none;
+}

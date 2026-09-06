@@ -1,0 +1,833 @@
+/*
+ * The phone viewer and the tool sheet.
+ *
+ * This file exists because of one measurement. `viewer.css` lays the desktop
+ * viewer out as `grid-template-columns: 1fr auto` with a 300px tool panel
+ * beside the picture. On a 1080x2400 phone at 450dpi the viewport is 384 CSS
+ * px, so opening the editor gave the panel 300 of them and the photograph 84 —
+ * which is what "the picture is tiny" was describing. It was not a bug in the
+ * panel's width; it was a side-by-side layout on a screen with no side.
+ *
+ * So on a phone the picture is the screen, and the tools are a sheet that
+ * slides up over it. The picture never goes below 55% of the height, and the
+ * sheet never goes above 45% — those two numbers are the contract, and they are
+ * why the editor is usable here.
+ */
+
+/* ── The viewer ───────────────────────────────────────────────────────────
+   Rows rather than columns, and the stage is `1fr` so it takes everything the
+   chrome does not. In `browse` state the chrome is absolutely positioned over
+   the picture rather than above and below it, so a photo is genuinely full
+   bleed and the bars are a translucent overlay you can dismiss. */
+
+.phv {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  grid-template-rows: 1fr;
+  /* How far through a drag-to-dismiss we are, 0 to 1, written by the viewer
+     on every move (item 4). Declared here so the fades below have a value
+     before the first gesture rather than an invalid one. */
+  --phv-dismiss: 0;
+  /* Fades out as the picture is dragged away, so the grid you are dragging
+     back towards appears behind it. Black, not a token: this is the matte a
+     photograph is viewed against, and it is black in every gallery for the
+     same reason -- any other colour casts onto the picture. */
+  background: rgb(0 0 0 / calc(1 - var(--phv-dismiss) * 0.55));
+  color: #fff;
+  touch-action: none;
+  overflow: hidden;
+  /* Opening from the grid fades rather than pops. The global reduced-motion
+     clamp in base.css cuts this to 1ms for anyone who asked. */
+  animation: phv-in 150ms ease-out;
+}
+.phv[hidden] { display: none; animation: none; }
+
+/* The bars are chrome over a picture that is being thrown away; keeping them
+   at full strength while it shrinks makes the gesture look like a bug. Not
+   `display:none` -- they have to come back on a spring-back, and a layout
+   change mid-gesture would move the picture underneath. */
+.phv-bar,
+.phv-actions,
+.phv-vbar {
+  opacity: calc(1 - var(--phv-dismiss));
+}
+
+@keyframes phv-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.phv-stage {
+  position: relative;
+  grid-row: 1;
+  grid-column: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #000;
+}
+
+.phv-stage img,
+.phv-stage video,
+.phv-stage canvas {
+  max-width: 100%;
+  max-height: 100%;
+  /* `contain`, never `cover`: this is the one place the whole frame matters.
+     A gallery tile may crop; the thing you opened to look at may not. */
+  object-fit: contain;
+  display: block;
+  touch-action: none;
+  will-change: transform;
+}
+
+/* Pictures and video fill the stage both ways: `max-*` alone never scales
+   *up*, and a small file, or the 384 px thumbnail that seeds the stage
+   during a swipe, would sit at its own size in the middle of a dark screen
+   while the pane it took over from had drawn the same file letterboxed to the
+   whole stage. Same box as `.phv-pane` below, so the hand-over from pane to
+   stage moves no pixel, and the sharper copy that follows lands on exactly
+   the box the thumbnail had. `object-fit: contain` above keeps the aspect
+   honest; pinch-zoom scales the element about the stage centre, which is
+   where a centred picture already was. */
+.phv-stage video {
+  width: 100%;
+  height: 100%;
+}
+/* The picture is laid out exactly as a pane is -- absolutely, over the whole
+   stage -- rather than as a grid item with percentage sizes: in a landscape
+   stage Chromium lets a replaced grid item's height follow its aspect from
+   `width: 100%` and ignores the `height: 100%`, and a portrait picture then
+   stands 2.5 stage heights tall and is centred on a different point than the
+   pane that just showed it. Same rule as `.phv-pane`, same box, no drift. */
+.phv-stage > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Not optional. The stage holds all three surfaces at once and switches
+   between them with the `hidden` attribute alone; an author `display` beats
+   the user-agent's `[hidden] { display: none }`, so without this the picture,
+   an empty 300x150 video player and the edit canvas are all in flow together
+   as three rows of a `place-items: center` grid. That is what "the photo is
+   tiny" was: not a sizing rule, a photo sharing the stage with two ghosts. */
+.phv-stage [hidden] { display: none; }
+
+/* ── Chrome, over the picture ─────────────────────────────────────────────
+   Gradients rather than solid bars. A solid bar at each end of a photo is two
+   stripes of furniture; a gradient keeps the picture reading edge to edge
+   while still making white text legible over a white sky. */
+
+.phv-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  padding: max(var(--fct-sp-2), var(--fct-inset-top, env(safe-area-inset-top, 0px))) var(--fct-sp-2) var(--fct-sp-4);
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0.62), transparent);
+  transition: opacity var(--fct-t-med), transform var(--fct-t-med);
+}
+
+.phv-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+}
+
+/* Round, 48px, white-on-photo. Same target as everywhere else in the shell. */
+.phv-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: var(--fct-fs-lg);
+  cursor: pointer;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+  -webkit-tap-highlight-color: transparent;
+}
+.phv-icon:active { background: rgb(255 255 255 / 0.16); }
+
+/* ── The action bar ───────────────────────────────────────────────────────
+   Four actions — Share, Edit, Info, Delete — each an icon with a WORD under
+   it. This is the direct fix for glyph-only buttons that explained themselves
+   through hover tooltips — a tooltip is not reachable from a finger, so on
+   this build every action that is on screen says what it is.
+
+   Four is a deliberate count (Blur was folded into Edit), and four `1fr`
+   columns at 360 px would put Share and Delete in the far corners with a
+   thumb's width of nothing between neighbours. So the columns are capped:
+   each is 64–112 px and the row is centred, which at 360 px gives four
+   88 px targets in a tidy group and at 780 px keeps them a hand's width
+   apart instead of a screen's. The bottom padding keeps a 16 px floor for
+   the gesture pill. */
+
+.phv-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(64px, 112px);
+  justify-content: center;
+  column-gap: var(--fct-sp-1);
+  padding: var(--fct-sp-4) var(--fct-sp-1)
+    max(var(--fct-sp-2), var(--fct-inset-bottom, env(safe-area-inset-bottom, 0px)), 16px);
+  background: linear-gradient(to top, rgb(0 0 0 / 0.72), transparent);
+  transition: opacity var(--fct-t-med), transform var(--fct-t-med);
+}
+
+.phv-action {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 3px;
+  min-height: 54px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 90ms ease;
+}
+.phv-action-icon { font-size: 20px; line-height: 1; text-shadow: 0 1px 3px rgb(0 0 0 / 0.7); }
+.phv-action-label {
+  font-size: calc(10.5px * var(--fct-ui-scale));
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+}
+.phv-action[disabled] { opacity: 0.4; }
+
+/* Tap the picture to get the picture alone. `visibility` rather than
+   `display` so the transition can run, and `pointer-events` so a hidden bar
+   cannot swallow the tap that would bring it back. */
+.phv.chrome-off .phv-bar { opacity: 0; transform: translateY(-8px); pointer-events: none; }
+.phv.chrome-off .phv-actions { opacity: 0; transform: translateY(8px); pointer-events: none; }
+.phv.chrome-off .phv-vbar { opacity: 0; transform: translateY(8px); pointer-events: none; }
+
+/* ── Edit mode ────────────────────────────────────────────────────────────
+   The picture is the whole screen, always — editing included. The sheet is an
+   overlay that floats over the bottom of it, not a second grid row that steals
+   height from the stage. The stage therefore never resizes when the sheet
+   opens, cycles, or closes, which also means the canvas never has to re-fit.
+
+   Three sheet heights and not a free drag. 45% is for reading a grid of fifty
+   labelled tiles; 26% is a slider and its Back button, which is all that needs
+   to be on screen while you are actually painting; the stub is the head alone,
+   for when you want the whole photograph without leaving the edit. Anything the
+   tall sheet covers is one tap of the grabber away. The transition is on the
+   sheet's own height, so it slides without the photograph moving. */
+
+.phv.editing {
+  --phv-sheet-h: 45%;
+}
+.phv.editing[data-sheet="short"] { --phv-sheet-h: 26%; }
+/* Head and grabber, nothing else. Not zero: a sheet you cannot see is a sheet
+   you cannot tap to bring back. */
+.phv.editing[data-sheet="stub"] { --phv-sheet-h: 4.5rem; }
+
+.phv.editing .phv-stage { grid-row: 1; }
+.phv.editing .phv-actions { display: none; }
+.phv.editing .phv-vbar { display: none; }
+.phv.editing .phv-bar {
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0.8), transparent);
+}
+
+/* ── The tool sheet ───────────────────────────────────────────────────────
+   Every tool in the app, as a grid of labelled tiles under section headings.
+   A grid and not a scrolling strip: see the edge-gesture note in phone.css.
+   The sheet scrolls VERTICALLY, which is a gesture the system does not
+   claim. */
+
+.phv-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--phv-sheet-h, 45%);
+  z-index: 3;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  min-height: 0;
+  border-top: 1px solid var(--fct-border);
+  border-radius: 16px 16px 0 0;
+  /* Slightly translucent with a backdrop blur, so the sheet reads as floating
+     over the photograph rather than as the bottom half of the app. The colour
+     stays close enough to opaque that tile labels never fight the picture. */
+  background: color-mix(in srgb, var(--fct-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  color: var(--fct-text);
+  box-shadow: 0 -8px 24px rgb(0 0 0 / 0.45);
+  overflow: hidden;
+  transition: height 180ms ease;
+  /* First appearance slides up from the bottom edge; height changes after
+     that use the transition above. Restarts cleanly because entering edit
+     mode toggles the sheet's display. */
+  animation: phv-sheet-in 200ms ease-out;
+}
+.phv-sheet[hidden] { display: none; animation: none; }
+
+@keyframes phv-sheet-in {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phv-sheet { transition: none; animation: none; }
+}
+
+/* The grabber, which is now the resize control rather than a hint about one.
+   The pill stays 36x4 because that is the shape everyone reads as "sheet"; the
+   button around it is 120x24 because that is what a thumb can hit. Still never
+   the only way out — Done is a labelled button an inch away. */
+.phv-grab {
+  justify-self: center;
+  display: grid;
+  place-items: center;
+  width: 120px;
+  /* 24 px of visible pill, 44 of pressable button. */
+  height: 44px;
+  padding: 0;
+  margin: var(--fct-sp-1) 0 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.phv-grab::before {
+  content: "";
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fct-border-strong);
+}
+.phv-grab:active::before { background: var(--fct-accent); }
+
+/* The info sheet still puts a plain div here, and it is decoration there. */
+div.phv-grab {
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: var(--fct-sp-2) auto var(--fct-sp-1);
+  border-radius: 999px;
+  background: var(--fct-border-strong);
+}
+
+.phv-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: 0 var(--fct-sp-2) var(--fct-sp-1) var(--fct-sp-3);
+}
+.phv-sheet-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-md);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phv-sheet-close {
+  min-height: 48px;
+  padding: 0 var(--fct-sp-3);
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fct-accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.phv-sheet-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* The bottom inset moved to `.phv-cats`, which is now the thing actually
+     sitting against the gesture pill. */
+  padding: 0 var(--fct-sp-2) var(--fct-sp-2);
+}
+
+/* ── The category bar ─────────────────────────────────────────────────────
+   Item 2: the sheet shows one category and this switches between them.
+
+   A WRAPPING GRID, not a horizontal strip. Nine categories do not fit across a
+   phone, and the obvious fix -- let the bar scroll sideways -- is the one thing
+   the phone shell may not do: Android claims a ~130px strip down both edges for
+   its back gesture, so the first and last chips would be unreachable. See the
+   edge-gesture note in `core/phone/env.ts`. Auto-fit gives six across at 384px
+   and nine across on a fold, so it is one row wherever there is room for one.
+
+   Hidden at the two short sheet heights. `short` is a slider and its Back
+   button and has no room to spare; `stub` is deliberately the head alone. */
+.phv-cats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(3.75rem, 1fr));
+  gap: 2px;
+  padding: var(--fct-sp-1) var(--fct-sp-1)
+    max(var(--fct-sp-1), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface-raised);
+}
+.phv.editing[data-sheet="short"] .phv-cats,
+.phv.editing[data-sheet="stub"] .phv-cats { display: none; }
+
+.phv-cat {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: var(--fct-sp-1) 2px;
+  border: none;
+  border-radius: var(--fct-radius);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 90ms ease;
+}
+.phv-cat:active { transform: scale(0.94); }
+/* The selected category is filled, not merely tinted. At a glance across a lit
+   room the fill is the only one of the two that reads. */
+.phv-cat[aria-pressed="true"] {
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+.phv-cat-icon {
+  display: grid;
+  place-items: center;
+  width: 1.375rem;
+  height: 1.375rem;
+}
+.phv-cat-icon svg { width: 100%; height: 100%; }
+.phv-cat-label {
+  font-size: var(--fct-fs-xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.phv-group {
+  padding: var(--fct-sp-3) var(--fct-sp-2) var(--fct-sp-1);
+  font-size: var(--fct-fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fct-text-muted);
+}
+
+/* Four across at 384px gives ~88px per tile: a 30px glyph and a two-word
+   label at 11px, which is the smallest a tool name can be and still be read
+   at arm's length. Auto-fill rather than a fixed 4, so a fold or a tablet
+   uses the room instead of leaving a column of white. */
+.phv-tools {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: var(--fct-sp-1);
+}
+
+.phv-tool {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: var(--fct-sp-1);
+  min-height: 76px;
+  padding: var(--fct-sp-2) 2px;
+  border: none;
+  border-radius: var(--fct-radius);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 90ms ease;
+}
+/* Presses press. The grid cells (`.ph-cat`) established the gesture; every
+   tappable thing in the editor answers the same way. */
+.phv-tool:active,
+.phv-action:active,
+.phv-swatch:active,
+.phv-sheet-close:active {
+  transform: scale(0.96);
+}
+.phv-tool:active { background: var(--fct-surface-raised); }
+.phv-tool[disabled] { opacity: 0.35; cursor: default; }
+
+.phv-tool-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--fct-surface-raised);
+  font-size: 19px;
+}
+.phv-tool[aria-pressed="true"] .phv-tool-icon {
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+/* The label is not optional and does not truncate to a glyph. Two lines, hard
+   wrapped, centred — a tool whose name does not fit gets a shorter name, not a
+   hidden one. */
+.phv-tool-label {
+  font-size: calc(10.5px * var(--fct-ui-scale));
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Sliders inside the sheet ─────────────────────────────────────────────
+   A tool that takes a value swaps the tile grid for one of these. 44px of
+   track so it can be grabbed without precision. */
+
+.phv-ctl { display: grid; gap: var(--fct-sp-1); padding: var(--fct-sp-2) var(--fct-sp-2) 0; }
+.phv-ctl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+}
+.phv-ctl-val { color: var(--fct-text-muted); font-variant-numeric: tabular-nums; }
+
+.phv-ctl input[type="range"] {
+  width: 100%;
+  height: 44px;
+  accent-color: var(--fct-accent);
+  touch-action: pan-x;
+}
+
+/* A line under a slider saying what it will affect. It exists for exactly one
+   sentence — that the value is arming the next blur rather than changing one
+   already on screen — which is otherwise invisible, and makes the slider look
+   like it is doing nothing. */
+.phv-ctl-note {
+  margin: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.35;
+}
+
+/* ── Brush size ─────────────────────────────────────────────────
+   "18 px" means nothing about a photograph you are seeing shrunk to a phone, so
+   the number is backed by a dot drawn at the size the brush will actually paint,
+   on a checkerboard so a pale brush is still visible. The strip is a fixed
+   height so the layout does not jump as the dot grows. */
+
+.phv-brush-preview {
+  display: grid;
+  place-items: center;
+  height: 104px;
+  border-radius: 12px;
+  background:
+    repeating-conic-gradient(var(--fct-surface-raised) 0% 25%, transparent 0% 50%)
+    50% / 16px 16px;
+}
+.phv-brush-dot {
+  display: block;
+  border-radius: 50%;
+  background: var(--fct-accent);
+  opacity: 0.85;
+}
+
+/* Eye / Face / Body. Named for what they cover rather than for a number,
+   because nobody knows what 0.008 of a short edge looks like. */
+.phv-chips {
+  display: flex;
+  gap: var(--fct-sp-2);
+  padding-bottom: var(--fct-sp-2);
+}
+.phv-chip {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fct-sp-1);
+  /* 48, not 40: Android's own guidance, and the chips are the most-tapped
+     controls in the blur panel. */
+  min-height: 48px;
+  padding-inline: var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: 999px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 90ms ease;
+}
+.phv-chip .fct-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.phv-chip:active {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+  transform: scale(0.96);
+}
+
+/* The blur panel's shape and style pickers: seven or eight chips wrap into
+   rows, and the armed one is lit so "what will my drag draw" is answered by
+   looking, not remembering. */
+.phv-chips-wrap { flex-wrap: wrap; }
+.phv-chips-wrap .phv-chip { flex: 1 1 30%; min-width: 6.5rem; }
+.phv-chip[aria-pressed="true"] {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+  background: var(--fct-surface);
+  box-shadow: inset 0 0 0 1px var(--fct-accent);
+}
+
+/* The one line of instruction at the top of the blur panel. */
+.phv-panel-hint { padding: var(--fct-sp-2) var(--fct-sp-2) 0; }
+
+/* ── Info sheet rows ──────────────────────────────────────────────────── */
+
+.phv-facts { display: grid; gap: var(--fct-sp-2); padding: var(--fct-sp-2); margin: 0; }
+.phv-fact {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: var(--fct-sp-3);
+  font-size: var(--fct-fs-sm);
+}
+.phv-fact dt { color: var(--fct-text-muted); }
+.phv-fact dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ── Position counter ─────────────────────────────────────────────────────
+   "3 / 128". The reason the ‹ › buttons beside it are not redundant with
+   swiping: a swipe tells you nothing about where you are, and in four thousand
+   photographs that is the difference between browsing and being lost. */
+
+.phv-count {
+  flex: 0 0 auto;
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: rgb(255 255 255 / 0.8);
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+}
+
+/* ── Toast ────────────────────────────────────────────────────────────────
+   Every message the viewer has to give — "3 faces blurred", "Saved as …",
+   "Can't open this file" — comes out here. Deliberately not `alert()`: a
+   JavaScript modal in an Android WebView blocks the whole bridge until it is
+   dismissed, and there is no way to style or dismiss it from code. */
+
+.phv-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  z-index: 6;
+  transform: translateX(-50%);
+  max-width: 84vw;
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.82);
+  color: #fff;
+  font-size: var(--fct-fs-sm);
+  text-align: center;
+  pointer-events: none;
+}
+.phv-toast[hidden] { display: none; }
+
+/* Sits above the sheet when the sheet is open, so a message about an edit is
+   not hidden behind the tools that produced it. */
+/* Follows the sheet. Pinned at 48% it sat marooned in the middle of the
+   photograph the moment the sheet was anything other than tall. */
+.phv.editing .phv-toast { bottom: calc(var(--phv-sheet-h) + var(--fct-sp-2)); }
+
+/* ── Sheet back button ────────────────────────────────────────────────── */
+
+.phv-note-btn {
+  display: block;
+  width: calc(100% - var(--fct-sp-4));
+  min-height: 48px;
+  margin: var(--fct-sp-3) var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.phv-note-btn:active { background: var(--fct-surface-raised); }
+
+/* The canvas in edit mode gets the same contain treatment as the picture, and
+   a crosshair cursor on the desktop where the editor is being worked on. */
+.phv.editing .phv-stage canvas { cursor: crosshair; }
+
+/* Tint swatches. A grid rather than a row: eight colours in a row on a 384 px
+   screen gives each one 40 px including its gaps, which is under the tap
+   target everything else here is built to. */
+.phv-swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--fct-sp-2);
+  padding-top: var(--fct-sp-2);
+}
+.phv-swatch {
+  min-height: 44px;
+  padding: 0;
+  border: 2px solid var(--fct-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 90ms ease;
+}
+/* The selected swatch cannot be marked with colour -- it is a colour -- so it
+   is marked with a ring the background shows through. */
+.phv-swatch[aria-pressed="true"] {
+  border-color: var(--fct-accent);
+  box-shadow: 0 0 0 2px var(--fct-surface) inset;
+}
+
+/* The rename field. Full width and 16px minimum: any smaller and mobile Safari
+   and the Android WebView both zoom the whole page when it takes focus. */
+.phv-field {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border-strong);
+  border-radius: 10px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: 16px;
+}
+.phv-field:focus {
+  outline: 2px solid var(--fct-accent);
+  outline-offset: 1px;
+}
+
+/* A disabled Apply is the ordinary state of the crop screen before a rectangle
+   exists, so it has to read as "not yet" rather than as broken. */
+.phv-note-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── The video transport ──────────────────────────────────────────
+   Replaces `<video controls>`, which on this shell drew its clock, fullscreen
+   button and overflow menu straight through the action bar and left its scrub
+   thumb on the bottom edge of the screen -- i.e. in Android's back-gesture
+   strip, where a drag to seek exits the app instead.
+
+   So this row sits ABOVE the action bar, and the track's two ends are held off
+   the screen edges by the play button on one side and the duration on the
+   other. The thumb can never reach the gesture strip because the track never
+   gets there. */
+
+.phv-vbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Clear of the action bar: its two icon-plus-word rows plus the safe-area
+     padding it reserves for itself. */
+  bottom: calc(54px + var(--fct-sp-4) + max(var(--fct-sp-2), env(safe-area-inset-bottom)));
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: 0 var(--fct-sp-2);
+  transition: opacity var(--fct-t-med), transform var(--fct-t-med);
+}
+.phv-vbar[hidden] { display: none; }
+
+/* Tabular so the row does not twitch a pixel sideways every second. */
+.phv-time {
+  flex: 0 0 auto;
+  min-width: 5ch;
+  font-size: var(--fct-fs-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+}
+
+/* The whole 48px band is the target, not the 4px line drawn inside it. A rail
+   you have to land a fingertip on is the control the phone already had. */
+.phv-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 48px;
+  touch-action: none;
+  cursor: pointer;
+}
+.phv-track:focus-visible { outline: 2px solid var(--fct-accent); outline-offset: -4px; }
+
+.phv-track-rail,
+.phv-track-fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.phv-track-rail { right: 0; background: rgb(255 255 255 / 0.3); }
+.phv-track-fill { width: 0; background: var(--fct-accent); }
+
+.phv-knob {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--fct-accent);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
+  pointer-events: none;
+  transition: transform 90ms ease;
+}
+/* Grows under the finger, so the thing you are dragging is visible past it. */
+.phv-track.seeking .phv-knob { transform: scale(1.5); }
+
+/* The two neighbour panes of the swipe strip (viewer.ts `stripBegin`). They
+   sit exactly over the stage and are moved a full stage width off to either
+   side by `translate3d`, so a horizontal drag is three compositor layers
+   sliding together and never a layout or a repaint of the picture. No pointer
+   events: the gesture belongs to the stage underneath. */
+.phv-stage .phv-pane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  will-change: transform;
+}

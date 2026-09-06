@@ -1,0 +1,202 @@
+/* The filter box in the top bar (item 37).
+
+   Sized to be ignorable. It sits in the same strip as Back, Up and the address
+   and must not compete with them for attention while it is empty — an explorer
+   whose loudest control is a search field is a search app with folders in it.
+   When it holds something it says so with the accent, because a filtered folder
+   that looks identical to an unfiltered one is how people conclude their files
+   have been deleted. */
+
+.flt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 2px 0 6px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  flex: 0 0 auto;
+  width: 190px;
+  transition: width var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+
+/* Room to read what you typed, only while you are typing it. */
+.flt:focus-within {
+  width: 320px;
+  border-color: var(--fct-accent);
+}
+
+.flt[data-active="true"] {
+  border-color: var(--fct-accent);
+}
+
+.flt-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.flt-input::placeholder {
+  color: var(--fct-text-muted);
+}
+
+.flt-clear,
+.flt-menu-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: none;
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+}
+
+/* The clear button is reserved rather than removed while the box is empty:
+   appearing on the first keystroke would shove the caret sideways mid-word. */
+.flt[data-active="false"] .flt-clear {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.flt-clear:hover,
+.flt-menu-btn:hover {
+  background: var(--fct-selection);
+  color: var(--fct-text);
+}
+
+/* ── the menu ── */
+
+.flt-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  width: 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--fct-sp-1);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface-overlay);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.45);
+}
+
+.flt-menu-h {
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.flt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: center;
+}
+
+.flt-pick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--fct-sp-2);
+  width: 100%;
+  padding: 5px var(--fct-sp-2);
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: none;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.flt-pick:hover {
+  background: var(--fct-selection);
+}
+
+/* The query itself, shown beside every entry — this is where the syntax is
+   taught. Dim, because it is the explanation and not the label. */
+.flt-pick code {
+  color: var(--fct-text-muted);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.flt-drop {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: none;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+}
+
+.flt-drop:hover {
+  background: var(--fct-selection);
+  color: var(--fct-text);
+}
+
+.flt-save {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--fct-sp-1);
+  margin-top: var(--fct-sp-1);
+  padding: var(--fct-sp-1);
+  border-top: 1px solid var(--fct-border);
+}
+
+.flt-name {
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.flt-name:focus {
+  outline: none;
+  border-color: var(--fct-accent);
+}
+
+.flt-save-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.flt-save-btn:hover {
+  border-color: var(--fct-accent);
+}
+
+/* What the filter is doing, in the status bar. Kept out of the box itself so a
+   long explanation cannot push the top bar around. */
+.status-filter {
+  color: var(--fct-accent);
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app's own loopback media server (media_server.rs) speaks plain HTTP on
+     127.0.0.1, which targetSdk >= 28 blocks by default: without this the app
+     cannot fetch from its own server. This permits cleartext to loopback
+     alone; everything off-device stays blocked. This
+     file overrides the usesCleartextTraffic placeholder in BOTH build types,
+     which is fine: the dev server is also reached over loopback (adb reverse).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

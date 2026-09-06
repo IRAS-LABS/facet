@@ -1,0 +1,417 @@
+/*
+ * The details list and its preview pane.
+ *
+ * Geometry that the virtualiser depends on lives here and is duplicated in
+ * list-view.ts: `--lv-row` must equal `ROW` in that file. The virtualiser
+ * computes which rows exist from scroll position arithmetic, so a row that is
+ * taller than the constant says produces gaps and overlaps rather than a
+ * slightly-off layout. If you change one, change the other.
+ *
+ * The column widths are a single custom property shared by the header and every
+ * row. That is the only way the two stay aligned — a header laid out
+ * independently of its rows drifts the moment a font or a density setting
+ * changes.
+ */
+
+.lv {
+  --lv-row: 30px;
+  /* Overwritten from list-view.ts the moment a config arrives (item 36) — the
+     chosen columns decide the tracks. This value is only what a `.lv` painted
+     before that would look like, and it matches the default set. */
+  --lv-cols: 26px minmax(0, 1fr) 74px 88px 148px;
+
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto var(--pane-w, 340px);
+  /* Explicit, and load-bearing. A grid's implicit row is `auto`, which sizes to
+     its content — so without this the single row grew to the height of the
+     whole folder, the scroller inherited that height, and the virtualiser
+     concluded that all forty thousand rows were on screen. */
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font-size: var(--fct-fs-sm);
+}
+
+.lv-left {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  /* Both mins are needed: a grid item's default `min-*: auto` refuses to shrink
+     below its content, which is exactly what a scrolling pane must do. */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+.lv-head {
+  display: grid;
+  grid-template-columns: var(--lv-cols);
+  align-items: stretch;
+  height: calc(26px * var(--fct-density));
+  background: var(--fct-surface);
+  border-bottom: 1px solid var(--fct-border);
+}
+
+/* The first column is the icon, which has no header and is not sortable. */
+.lv-th:first-child {
+  grid-column: 2;
+}
+
+.lv-th {
+  min-width: 0;
+  padding: 0 var(--fct-sp-2);
+  border: 0;
+  border-right: 1px solid var(--fct-border);
+  background: none;
+  color: var(--fct-text-muted);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.lv-th:last-child {
+  border-right: 0;
+}
+
+.lv-th:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+.lv-th[data-align="right"] {
+  text-align: right;
+}
+
+/* A header over a field nothing sorts on still labels its column; it just does
+   not light up or take a click. */
+.lv-th:disabled {
+  cursor: default;
+}
+
+.lv-th:disabled:hover {
+  background: none;
+  color: var(--fct-text-muted);
+}
+
+/* ── Rows ─────────────────────────────────────────────────────────────────── */
+
+.lv-scroll {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  outline: none;
+}
+
+/* Holds the full scroll height so the scrollbar is honest about how big the
+   folder is, while only the visible rows exist inside it. */
+.lv-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.lv-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--lv-row);
+  display: grid;
+  grid-template-columns: var(--lv-cols);
+  align-items: center;
+  padding-right: var(--fct-sp-2);
+  border-bottom: 1px solid transparent;
+  cursor: default;
+  user-select: none;
+}
+
+/* Banded, faintly. Reading across 148px of timestamp back to a name is what
+   the banding is for; anything stronger becomes the thing you see instead of
+   the files. `:nth-child` is wrong here — rows are absolutely positioned and
+   mount and unmount in whatever order scrolling produces, so DOM order says
+   nothing about row order. The stripe comes from the row's own index. */
+.lv-row[data-odd] {
+  background: color-mix(in srgb, var(--fct-text) 3%, transparent);
+}
+
+.lv-row:hover {
+  background: color-mix(in srgb, var(--fct-text) 7%, transparent);
+}
+
+.lv-row[aria-selected="true"] {
+  background: var(--fct-selection);
+}
+
+/* The cursor row and the selection are different facts: with a range selected,
+   the outlined row is the one the pane is showing and the one the next
+   shift+arrow extends from. */
+.lv-row[data-cursor] {
+  border-bottom-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--fct-accent);
+}
+
+.lv-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 3px;
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-muted);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.lv-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lv-icon[data-kind="folder"] {
+  color: var(--fct-accent);
+}
+
+/* Cells are styled by what they are, not by which field they hold: the fields
+   are a table in fields.ts, and a stylesheet that had to name each one would
+   make adding a field a two-file change for no gain. */
+.lv-c {
+  min-width: 0;
+  padding-left: var(--fct-sp-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Everything but the name is a supporting fact — dimmer and a size down, so
+     the column you actually scan is the one that stands out. */
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-c[data-field="name"] {
+  color: inherit;
+  font-size: inherit;
+}
+
+.lv-c[data-align="right"] {
+  text-align: right;
+}
+
+/* ── The grip ─────────────────────────────────────────────────────────────── */
+
+.lv-grip {
+  width: 5px;
+  cursor: col-resize;
+  background: var(--fct-border);
+  touch-action: none;
+}
+
+.lv-grip:hover {
+  background: var(--fct-accent);
+}
+
+/* ── The pane ─────────────────────────────────────────────────────────────── */
+
+.lv-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fct-sp-2);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--fct-sp-3);
+  overflow-y: auto;
+  background: var(--fct-surface);
+  border-left: 1px solid var(--fct-border);
+}
+
+.lv-empty {
+  margin: auto;
+  padding: var(--fct-sp-4);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  text-align: center;
+}
+
+/* A fixed 4:3 box rather than one that shrinks to its content: the pane must
+   not resize itself as you arrow down a folder, or the facts below it walk up
+   and down the screen while you are trying to read them. */
+.lv-face {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-bg);
+  overflow: hidden;
+}
+
+.lv-face-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* Left-aligned, top-aligned, real size. The whole point of the pane for a code
+   or text file is that it is finally legible. */
+.lv-face-text {
+  place-self: stretch;
+  margin: 0;
+  padding: var(--fct-sp-2);
+  overflow: hidden;
+  color: var(--fct-text-dim);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.45;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.lv-face-tiles {
+  place-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
+  padding: 2px;
+}
+
+.lv-face-tiles img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: var(--fct-radius-sm);
+}
+
+.lv-face-more {
+  position: absolute;
+  right: var(--fct-sp-2);
+  bottom: var(--fct-sp-2);
+  padding: 2px 6px;
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-overlay);
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+}
+
+.lv-face-glyph {
+  display: grid;
+  place-items: center;
+  gap: var(--fct-sp-2);
+  color: var(--fct-text-muted);
+  font-size: 44px;
+  line-height: 1;
+}
+
+/* Why there is no picture, in words. A glyph on its own reads as a failure;
+   "no reader for .dll yet" reads as a fact about the file. */
+.lv-face-why {
+  max-width: 80%;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  text-align: center;
+}
+
+.lv-pane-name {
+  color: var(--fct-text);
+  font-size: var(--fct-fs-md);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.lv-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px var(--fct-sp-3);
+  margin: 0;
+  font-size: var(--fct-fs-xs);
+}
+
+.lv-facts dt {
+  color: var(--fct-text-muted);
+}
+
+.lv-facts dd {
+  margin: 0;
+  color: var(--fct-text-dim);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Selectable and wrapping, both deliberately: the complaint that produced this
+   view included not being able to read a long path anywhere, and a path you
+   cannot copy is only half of the fix. */
+.lv-path {
+  margin-top: auto;
+  padding-top: var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+  color: var(--fct-text-muted);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+
+/* Under about 620px the pane and the list are both too narrow to be any use.
+   The list wins — it is the thing you navigate with. */
+@media (max-width: 620px) {
+  .lv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lv-grip,
+  .lv-pane {
+    display: none;
+  }
+}
+
+/* ── Group headings ──
+
+   Exactly `--lv-row` tall, and that is not a style choice: the virtualiser puts
+   every slot at `slot * ROW`, so a heading that grew by one pixel would slide
+   every row below it out from under the arithmetic. Padding and borders stay
+   inside the box for the same reason — hence `box-sizing` being spelled out
+   here rather than trusted to the reset. */
+
+.lv-group {
+  position: absolute;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  height: var(--lv-row);
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: 0 var(--fct-sp-2);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  user-select: none;
+  pointer-events: none;
+}
+
+.lv-group-name {
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lv-group-count {
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+}

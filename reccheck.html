@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- Dev harness for the recorder. See src/dev/reccheck.ts.
+
+     No screen is shared and no microphone is opened: the harness feeds the
+     surface a canvas.captureStream() for the picture and oscillators into
+     MediaStreamDestinations for the two sounds, all of which are real
+     MediaStreamTracks carrying real data through a real MediaRecorder. -->
+<html lang="en" data-theme="facet-dark">
+  <head>
+    <meta charset="utf-8" />
+    <title>recorder check</title>
+  </head>
+  <body>
+    <script type="module" src="/src/dev/reccheck.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,277 @@
+/* The spatial canvas. Colours come from theme tokens; geometry comes from JS. */
+
+/* Gated on the view mode: the grab cursor and the grid belong to the canvas,
+   and the list mounts into the same stage element. */
+.stage[data-view="canvas"] {
+  cursor: grab;
+  background-color: var(--fct-canvas-bg);
+  /* Two grids an octave apart, so there is always texture to read motion
+     against without the fine grid turning into moiré when zoomed out. */
+  background-image:
+    linear-gradient(var(--fct-canvas-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--fct-canvas-grid) 1px, transparent 1px);
+  background-size: 128px 128px, 128px 128px;
+}
+
+.stage[data-view="canvas"]:active {
+  cursor: grabbing;
+}
+
+.world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* The transform is applied from the top-left so world→screen maths in
+     viewport.ts stays a plain affine map with no origin correction. */
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.card {
+  position: absolute;
+  border: 1px solid var(--fct-card-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-card-bg);
+  overflow: hidden;
+  contain: strict; /* card contents can never force a layout of the world */
+  transition: border-color var(--fct-t-fast), background var(--fct-t-fast);
+}
+
+.card:hover {
+  background: var(--fct-card-hover);
+  border-color: var(--fct-border-strong);
+}
+
+.card[aria-selected="true"] {
+  border-color: var(--fct-accent);
+  background: var(--fct-selection);
+  box-shadow: 0 0 0 1px var(--fct-accent);
+}
+
+/* Kept in step with LABEL_BASE / NAME_LH in canvas-view.ts, which reserves the
+   same space in world coordinates when it lays the grid out. */
+.card {
+  --name-lines: 2;
+  --label-h: calc(20px + var(--name-lines) * 14px);
+}
+
+.card-face {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  height: calc(100% - var(--label-h));
+  background: var(--fct-surface);
+  color: var(--fct-text-muted);
+  overflow: hidden;
+}
+
+.card-glyph {
+  font-size: 34px;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.card-meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: var(--label-h);
+  padding: 0 8px;
+  gap: 1px;
+}
+
+/*
+ * File names wrap.
+ *
+ * A single ellipsised line is where a file grid stops being useful: real names
+ * differ at the end — IMG_20240817_193044, take_04_final_v2 — so cutting the
+ * tail cuts exactly the part you were reading. The name gets a line budget and
+ * breaks anywhere, including mid-token, because these names have no spaces to
+ * break at. Hovering or selecting a card lifts the budget entirely.
+ */
+.card-name {
+  font-size: 12px;
+  line-height: 1.15;
+  color: var(--fct-text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--name-lines);
+  line-clamp: var(--name-lines);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* The full name, on demand, without changing the layout of the grid: the meta
+   strip floats above its neighbours instead of pushing them. */
+.card:hover .card-meta,
+.card[aria-selected="true"] .card-meta {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 2;
+  height: auto;
+  min-height: var(--label-h);
+  padding: 4px 8px 5px;
+  background: var(--fct-card-hover);
+  box-shadow: 0 -8px 16px -8px rgb(0 0 0 / 55%);
+}
+
+.card:hover .card-name,
+.card[aria-selected="true"] .card-name {
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+}
+
+.card-sub {
+  font-size: 10px;
+  line-height: 1.1;
+  color: var(--fct-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Level of detail ──────────────────────────────────────────────────────
+   Driven by data-lod on .world, set from the card's on-screen width. The
+   markup for 0/1 is already text-free; these rules handle the rest. */
+
+.world[data-lod="0"] .card {
+  border-radius: 2px;
+  border-color: transparent;
+  background: var(--fct-surface-raised);
+}
+
+.world[data-lod="0"] .card-face,
+.world[data-lod="1"] .card-face {
+  height: 100%;
+}
+
+.world[data-lod="1"] .card {
+  border-radius: 4px;
+}
+
+/* Kind tinting is the only signal at distance, so it carries the whole
+   read at lod 0–1 and stays as a subtle accent bar closer in. */
+.world[data-lod="0"] .card[data-kind="image"],
+.world[data-lod="1"] .card[data-kind="image"] { background: var(--fct-info); }
+.world[data-lod="0"] .card[data-kind="video"],
+.world[data-lod="1"] .card[data-kind="video"] { background: var(--fct-accent); }
+.world[data-lod="0"] .card[data-kind="audio"],
+.world[data-lod="1"] .card[data-kind="audio"] { background: var(--fct-success); }
+.world[data-lod="0"] .card[data-kind="folder"],
+.world[data-lod="1"] .card[data-kind="folder"] { background: var(--fct-border-strong); }
+.world[data-lod="0"] .card[data-kind="model3d"],
+.world[data-lod="1"] .card[data-kind="model3d"] { background: var(--fct-warning); }
+
+.card::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: transparent;
+}
+
+.world[data-lod="2"] .card[data-kind="video"]::after,
+.world[data-lod="3"] .card[data-kind="video"]::after { background: var(--fct-accent); }
+.world[data-lod="2"] .card[data-kind="image"]::after,
+.world[data-lod="3"] .card[data-kind="image"]::after { background: var(--fct-info); }
+.world[data-lod="2"] .card[data-kind="audio"]::after,
+.world[data-lod="3"] .card[data-kind="audio"]::after { background: var(--fct-success); }
+
+.world[data-lod="3"] .card-glyph {
+  font-size: 52px;
+}
+
+/*
+ * Thumbnails.
+ *
+ * `contain` rather than `cover`: a file browser that crops the picture is
+ * lying about what is in the file. Letterboxing is the honest default, and the
+ * viewer is one double-click away for the full frame.
+ */
+.card-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fct-bg) 60%, black);
+}
+
+/*
+ * Text previews.
+ *
+ * The first lines of a file are the best preview a text file can have — a
+ * config, a subtitle track, a source file are all identifiable at a glance and
+ * by nothing else. Set small and tight on purpose: this is a shape to
+ * recognise, not a document to read, and the reader is a double-click away.
+ */
+.card-text {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 8px 9px;
+  overflow: hidden;
+  font-family: var(--fct-font-mono);
+  font-size: 8px;
+  line-height: 1.45;
+  white-space: pre;
+  text-align: left;
+  align-self: stretch;
+  justify-self: stretch;
+  color: var(--fct-text-muted);
+  background: color-mix(in srgb, var(--fct-bg) 70%, black);
+  border-radius: 6px;
+  /* The tail fades instead of stopping at a hard cut, so it reads as "there is
+     more of this file" rather than "the preview is broken". */
+  mask-image: linear-gradient(to bottom, black 62%, transparent 100%);
+}
+
+/* Folder collages: what is inside is what the folder looks like. */
+.card-tiles {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  border-radius: 6px;
+}
+
+.card-tiles img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fct-bg) 60%, black);
+}
+
+/* One image should fill the face rather than sit in a quarter of it. */
+.card-tiles img:only-child {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+}
+
+.card-more {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fct-text);
+  background: rgb(0 0 0 / 62%);
+}
+
+/* Why there is no picture. Worth saying — "HEIC needs a decoder" means the app
+   read the file and understood it, which a bare grey icon does not convey. */
+.card-why {
+  max-width: 92%;
+  font-size: 9px;
+  line-height: 1.25;
+  text-align: center;
+  opacity: 0.62;
+  overflow-wrap: anywhere;
+}

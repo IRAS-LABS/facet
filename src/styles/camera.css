@@ -1,0 +1,377 @@
+/*
+ * The camera (item 28).
+ *
+ * The stage is black rather than themed, and deliberately so: every other
+ * surface in FACET is a document on a background, but this one is a viewfinder,
+ * and a pale surround changes how the exposure of what is in it reads. The
+ * chrome around it stays on the theme tokens like everything else.
+ *
+ * The preview is `object-fit: contain`. A camera that cropped its own preview
+ * to fill the window would be showing a frame that is not the frame it saves —
+ * the single thing a viewfinder must never do.
+ */
+
+.cam {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font: var(--fct-fs-md) / 1.4 var(--fct-font-ui);
+}
+
+.cam[hidden] {
+  display: none;
+}
+
+/* ── Top bar ──────────────────────────────────────────────────────────────── */
+
+.cam-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--fct-surface-raised);
+  border-bottom: 1px solid var(--fct-border);
+}
+
+.cam-gap {
+  flex: 1 1 auto;
+}
+
+.cam-sel {
+  flex: none;
+  max-width: 190px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.cam-sel:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cam-btn {
+  flex: none;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text-dim);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+}
+
+.cam-btn:hover {
+  background: var(--fct-card-hover);
+  color: var(--fct-text);
+}
+
+/* ── Stage ────────────────────────────────────────────────────────────────── */
+
+.cam-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.cam-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/*
+ * The guides sit over the whole stage, not over the picture.
+ *
+ * With `object-fit: contain` and a camera whose aspect does not match the
+ * window there are black bars, and a rule of thirds drawn across them is drawn
+ * in the wrong place. Accepted knowingly: correcting it means measuring the
+ * letterbox every frame, and the guides are a framing aid on a preview that is
+ * almost always the same shape as its window. If the window is dragged to an
+ * extreme shape the lines drift; the photo does not.
+ */
+.cam-guides {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.cam-guides line {
+  stroke: rgb(255 255 255 / 45%);
+  stroke-width: 0.15;
+  vector-effect: non-scaling-stroke;
+}
+
+.cam-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cam-blink {
+  animation: cam-blink 220ms ease-out;
+}
+
+@keyframes cam-blink {
+  from {
+    opacity: 0.85;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+.cam-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 140px;
+  font-weight: 200;
+  color: rgb(255 255 255 / 85%);
+  text-shadow: 0 2px 24px rgb(0 0 0 / 60%);
+  pointer-events: none;
+}
+
+.cam-count[hidden] {
+  display: none;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+
+.cam-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--fct-surface-raised);
+  border-top: 1px solid var(--fct-border);
+}
+
+/* Round, large and centred, because it is the one control on this surface that
+   is pressed without looking at it. */
+.cam-shutter {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  min-width: 0;
+  padding: 0;
+  border: 3px solid var(--fct-text-dim);
+  border-radius: 50%;
+  background: var(--fct-text);
+  cursor: pointer;
+}
+
+.cam-shutter:hover {
+  border-color: var(--fct-accent);
+}
+
+.cam-rec {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  min-width: 0;
+  padding: 0;
+  border: 2px solid var(--fct-text-dim);
+  border-radius: 50%;
+  background: var(--fct-danger);
+  cursor: pointer;
+}
+
+/* Circle to square while recording — the universal stop, and legible at a
+   glance from across a room, which a colour change alone is not. */
+.cam-rec.cam-on {
+  border-radius: 4px;
+  border-color: var(--fct-danger);
+}
+
+.cam-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-danger);
+}
+
+.cam-time[hidden] {
+  display: none;
+}
+
+.cam-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cam-thumb {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  object-fit: cover;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+}
+
+.cam-thumb[hidden] {
+  display: none;
+}
+
+/* ── Look panel ───────────────────────────────────────────────────────────── */
+
+.cam-panel {
+  position: absolute;
+  top: 40px;
+  right: 8px;
+  bottom: 62px;
+  width: 300px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-3);
+  overflow-y: auto;
+  background: var(--fct-surface-overlay);
+  border: 1px solid var(--fct-border-strong);
+  border-radius: var(--fct-radius);
+  box-shadow: var(--fct-shadow);
+}
+
+.cam-panel[hidden] {
+  display: none;
+}
+
+.cam-title {
+  margin: 0;
+  font-size: var(--fct-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fct-text-muted);
+}
+
+.cam-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cam-preset {
+  padding: 4px 9px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.cam-preset:hover {
+  background: var(--fct-card-hover);
+  color: var(--fct-text);
+}
+
+.cam-preset[aria-pressed="true"] {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+.cam-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cam-row {
+  display: grid;
+  grid-template-columns: 74px 1fr 46px;
+  align-items: center;
+  gap: 6px;
+}
+
+.cam-label {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+}
+
+.cam-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--fct-accent);
+}
+
+.cam-row output {
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--fct-text-muted);
+}
+
+.cam-save {
+  display: flex;
+  gap: 4px;
+}
+
+.cam-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.cam-keep,
+.cam-plain {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.cam-keep:hover,
+.cam-plain:hover {
+  background: var(--fct-card-hover);
+  color: var(--fct-text);
+}

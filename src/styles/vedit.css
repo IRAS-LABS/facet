@@ -1,0 +1,346 @@
+@import "./phone-vedit.css";
+
+/* Video editor (item 4). Laid out as one column: stage, timeline, controls,
+   export bar. The stage takes whatever is left over, so the timeline and the
+   controls keep a fixed home and never move as clips of different shapes are
+   opened — a toolbar that shifts under the cursor between files is the fastest
+   way to make an editor feel unreliable. */
+
+.vedit {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+}
+/* `display: grid` above outranks the browser's own rule for the `hidden`
+   attribute, so without this the editor sits open and empty over the shell from
+   the moment the app starts. Every other surface in the app carries the same
+   line for the same reason. */
+.vedit[hidden] {
+  display: none;
+}
+
+.vedit-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.vedit-title {
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vedit-note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vedit-note.bad {
+  color: var(--fct-danger);
+}
+
+/* ── Stage ───────────────────────────────────────────────────────────────── */
+
+.vedit-stage {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #000;
+  min-height: 0;
+}
+.vedit-stage.cropping {
+  cursor: crosshair;
+}
+/* Sized in JS rather than with max-width/max-height, for two reasons that only
+   showed up on screen: a clip smaller than the stage stayed postage-stamp sized
+   in the middle of a black field, and a quarter turn rotated a stage-filling box
+   into one that overflowed. The element is given the stage's box — swapped when
+   the frame is turned — and `contain` does the letterboxing inside it. */
+.vedit-video {
+  object-fit: contain;
+  transition: transform var(--fct-t-med);
+}
+.vedit-crop {
+  position: absolute;
+  border: 1px solid var(--fct-accent);
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.55);
+  pointer-events: none;
+}
+
+/* ── Timeline ────────────────────────────────────────────────────────────── */
+
+.vedit-timeline {
+  padding: var(--fct-sp-2) var(--fct-sp-3) 0;
+  background: var(--fct-surface);
+  border-top: 1px solid var(--fct-border);
+}
+.vedit-strip {
+  display: flex;
+  height: 46px;
+  gap: 1px;
+  border-radius: var(--fct-radius-sm) var(--fct-radius-sm) 0 0;
+  overflow: hidden;
+  background: var(--fct-canvas-bg);
+}
+.vedit-strip img,
+.vedit-strip span {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.75;
+}
+
+.vedit-track {
+  position: relative;
+  height: 18px;
+  cursor: pointer;
+  background: var(--fct-canvas-bg);
+  border-radius: 0 0 var(--fct-radius-sm) var(--fct-radius-sm);
+  touch-action: none;
+}
+/* Kept spans are drawn; the gaps between them are the cuts. Drawing what
+   survives rather than what was removed keeps the picture and the model the
+   same shape. */
+.vedit-span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in oklab, var(--fct-accent) 45%, transparent);
+  border-left: 1px solid var(--fct-accent);
+  border-right: 1px solid var(--fct-accent);
+}
+.vedit-head {
+  position: absolute;
+  top: -46px;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--fct-danger);
+  pointer-events: none;
+}
+.vedit-time {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--fct-sp-1) 0;
+}
+.vedit-clock {
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+
+.vedit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fct-sp-4);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  background: var(--fct-surface);
+}
+.vedit-group {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+}
+.vedit-group-label {
+  font-size: var(--fct-fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-muted);
+  margin-right: var(--fct-sp-1);
+}
+.vedit-btn {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+.vedit-btn:hover {
+  background: var(--fct-surface-overlay);
+  border-color: var(--fct-border-strong);
+}
+.vedit-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* Armed, not pressed: something will happen at export that is not happening on
+   screen, so it has to be visible without the preview showing it. */
+.vedit-btn.on {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+}
+.vedit-speed {
+  min-width: 42px;
+  text-align: center;
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+}
+/* Worded controls need more room between them than glyph buttons do. At the
+   group's own gap, "Frame-exact" and "Quality" sat close enough to read as one
+   phrase — visible in a screenshot, invisible to every assertion. */
+.vedit-check + .vedit-check {
+  margin-left: var(--fct-sp-2);
+}
+.vedit-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  cursor: pointer;
+}
+.vedit-check select {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  padding: 2px var(--fct-sp-1);
+}
+
+/* ── Export ──────────────────────────────────────────────────────────────── */
+
+.vedit-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.vedit-name {
+  flex: 0 1 320px;
+  min-width: 140px;
+  height: 28px;
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.vedit-progress {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--fct-canvas-bg);
+}
+.vedit-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--fct-accent);
+  transition: width var(--fct-t-fast);
+}
+.vedit-go {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font-weight: 600;
+  padding: 0 var(--fct-sp-3);
+}
+.vedit-go:hover {
+  background: var(--fct-accent-hover);
+}
+
+/* ── The control sheet ───────────────────────────────────────────────────────
+   A wrapper around timeline + controls + export bar. On the desktop it is
+   invisible — the three blocks stack exactly as they always did, and the
+   grabber does not exist. On a phone (below) it becomes a floating sheet over
+   a full-bleed stage, the same contract as the photo editor's tool sheet. */
+
+.vedit-grab {
+  display: none;
+}
+
+/* ── Phone: the video is the screen ─────────────────────────────────────────
+   Scoped to `body.fct-phone` like everything in phone-panels.css. The stage
+   takes the whole viewport under the header; the sheet floats over its bottom
+   edge and the grabber cycles it open → slim (timeline + export only) → stub
+   (grabber alone, whole video visible) → open. The stage never resizes, so
+   `fit()` in vedit.ts needs no re-run when the sheet moves. */
+
+body.fct-phone .vedit {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+body.fct-phone .vedit-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  max-height: 62%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border-top: 1px solid var(--fct-border);
+  border-radius: 16px 16px 0 0;
+  background: color-mix(in srgb, var(--fct-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 -8px 24px rgb(0 0 0 / 0.45);
+  padding-bottom: max(var(--fct-sp-2), env(safe-area-inset-bottom));
+}
+
+body.fct-phone .vedit-grab {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+body.fct-phone .vedit-grab::before {
+  content: "";
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fct-border-strong);
+}
+body.fct-phone .vedit-grab:active::before {
+  background: var(--fct-accent);
+}
+
+/* Slim keeps what you scrub and what you press to finish; stub keeps only the
+   way back up. The timeline and export bar carry their own backgrounds on the
+   desktop — on the sheet they go transparent so the blur reads through. */
+body.fct-phone .vedit-sheet[data-state="slim"] .vedit-controls {
+  display: none;
+}
+body.fct-phone .vedit-sheet[data-state="stub"] > :not(.vedit-grab) {
+  display: none;
+}
+
+body.fct-phone .vedit-sheet .vedit-timeline,
+body.fct-phone .vedit-sheet .vedit-controls,
+body.fct-phone .vedit-sheet .vedit-foot {
+  background: transparent;
+}

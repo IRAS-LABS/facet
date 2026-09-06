@@ -1,0 +1,189 @@
+<!doctype html>
+<!-- Runs every dev harness and adds up the score.
+
+     Each harness is loaded in its own iframe rather than imported into one
+     module graph. They are not written to coexist: several build panels on
+     document.body, install key listeners on window, and stub globals. In one
+     document they would trip over each other and the failures would be the
+     harness's fault rather than the app's, which is the worst kind of red.
+     An iframe is a whole separate document, so they cannot see each other.
+
+     They also run one at a time. Concurrently they finish faster, but a
+     dozen live iframes each polling a fake filesystem made the slower ones
+     time out on this machine, and a flaky suite gets ignored. -->
+<html lang="en" data-theme="facet-dark">
+  <head>
+    <meta charset="utf-8" />
+    <title>facet — all checks</title>
+    <link rel="icon" href="/favicon.ico" />
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #0d0f14;
+        color: #e8ecf5;
+        font: 13px/1.7 ui-monospace, Consolas, monospace;
+      }
+      h1 { font-size: 15px; font-weight: 600; margin: 0 0 16px; letter-spacing: 0.04em; }
+      table { border-collapse: collapse; }
+      td { padding: 2px 16px 2px 0; }
+      .ok { color: #7ee787; }
+      .bad { color: #ff7b72; font-weight: 700; }
+      .wait { color: #6a7385; }
+      #total { margin-top: 18px; padding-top: 14px; border-top: 1px solid #232733; font-size: 14px; }
+      iframe { position: fixed; left: -10000px; width: 1280px; height: 900px; border: 0; }
+    </style>
+  </head>
+  <body>
+    <h1>facet — all checks</h1>
+    <table id="rows"></table>
+    <div id="total" class="wait">running…</div>
+
+    <script type="module">
+      // The name here is the harness's own prefix in its console line, which is
+      // how a result is matched back to the row that asked for it.
+      const HARNESSES = [
+        "tree", "list", "table", "meta", "hex",
+        "batch", "watch", "undo", "session", "face",
+        "aedit", "vedit", "set", "key", "field",
+        "rule",
+        "place",
+        "menu",
+        "opens",
+        "mode",
+        "scene",
+        "camera",
+        "rec",
+        "scribe",
+        "sub",
+        "ocr",
+        "android",
+        "perf",
+        "prefs",
+        "pedit",
+        "flash",
+        "thumb",
+        "vblur",
+        "autoblur",
+        "live",
+      ];
+
+      const rows = document.getElementById("rows");
+      const total = document.getElementById("total");
+      const cells = new Map();
+
+      for (const name of HARNESSES) {
+        const tr = document.createElement("tr");
+        const label = document.createElement("td");
+        label.textContent = name;
+        const score = document.createElement("td");
+        score.className = "wait";
+        score.textContent = "…";
+        tr.append(label, score);
+        rows.append(tr);
+        cells.set(name, score);
+      }
+
+      /* The harnesses were written one at a time and report three different
+         ways: some set document.title, some append a node, and four only
+         console.log. Rather than edit twelve files to agree — and risk
+         changing what they assert while doing it — the runner reads all three
+         and takes whichever carries a score. */
+      const SCORE = /(\d+)\s+passed/;
+
+      /** Load one harness and wait for a line that carries a score. */
+      function runOne(name) {
+        return new Promise((resolve) => {
+          const frame = document.createElement("iframe");
+          const logs = [];
+
+          /* Patched by polling rather than on the load event: a module script
+             is deferred, so it runs *before* load fires. Every harness happens
+             to be async today and would log after, but one synchronous harness
+             added later would silently score zero. Grabbing the window the
+             moment navigation commits is not elegant; it is just early enough
+             to be safe either way. */
+          function patch() {
+            const win = frame.contentWindow;
+            if (!win || win.__facetPatched) return;
+            try {
+              win.__facetPatched = true;
+              const real = win.console.log.bind(win.console);
+              win.console.log = (...args) => {
+                logs.push(args.map(String).join(" "));
+                real(...args);
+              };
+            } catch {
+              // Cross-origin should be impossible here; if it happens, the
+              // title and body channels below still work.
+            }
+          }
+
+          frame.src = `/${name}check.html`;
+          document.body.append(frame);
+          patch();
+
+          // 60s: facecheck and veditcheck do real pixel work, and the slowest
+          // legitimately takes ~20s cold. A harness that hangs is a failure,
+          // not a reason to wait forever.
+          const deadline = Date.now() + 60_000;
+
+          const poll = setInterval(() => {
+            patch();
+
+            let found = "";
+            try {
+              const doc = frame.contentDocument;
+              for (const text of [...logs, doc?.title ?? "", doc?.body?.textContent ?? ""]) {
+                // A page's own <title> is "list check" until the harness
+                // overwrites it, so a channel only counts once it has a number.
+                if (SCORE.test(text)) { found = text.trim(); break; }
+              }
+            } catch {
+              /* not ready */
+            }
+
+            if (found) {
+              clearInterval(poll);
+              frame.remove();
+              // Some report bare ("41 passed, 0 failed"); label them all so the
+              // table reads the same down the column.
+              resolve(found.startsWith(name) ? found : `${name}: ${found}`);
+            } else if (Date.now() > deadline) {
+              clearInterval(poll);
+              frame.remove();
+              resolve(`${name}: TIMED OUT`);
+            }
+          }, 120);
+        });
+      }
+
+      let pass = 0;
+      let fail = 0;
+      let broken = 0;
+
+      for (const name of HARNESSES) {
+        const text = await runOne(name);
+        const cell = cells.get(name);
+        cell.textContent = text;
+
+        const passed = Number(SCORE.exec(text)?.[1] ?? 0);
+        // Both spellings are in use: the later harnesses shout FAILED, the
+        // earlier ones say "0 failed" unconditionally.
+        const failed = Number(/(\d+)\s+(?:failed|FAILED)/.exec(text)?.[1] ?? 0);
+        pass += passed;
+        fail += failed;
+        if (!passed && !failed) broken += 1;
+
+        cell.className = failed || (!passed && !failed) ? "bad" : "ok";
+      }
+
+      const clean = !fail && !broken;
+      total.className = clean ? "ok" : "bad";
+      total.textContent = clean
+        ? `ALL GREEN — ${pass} assertions across ${HARNESSES.length} harnesses`
+        : `${pass} passed, ${fail} FAILED, ${broken} harness(es) produced nothing`;
+      console.log(`allcheck: ${total.textContent}`);
+    </script>
+  </body>
+</html>
