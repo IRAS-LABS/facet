@@ -20,7 +20,7 @@ Prebuilt binaries are on the [Releases page](https://github.com/IRAS-LABS/facet/
 | | |
 | --- | --- |
 | **Windows 10/11 (x64)** | `Facet_<version>_x64-setup.exe` — run it; it installs like any other app. |
-| **Android 7.0+ (arm64)** | `facet-<version>-arm64.apk` — Android will ask you to allow installs from your browser or file manager the first time. |
+| **Android 7.0+ (arm64)** | `facet-<version>-arm64.apk` — Android will ask you to allow installs from your browser or file manager the first time. Not attached to 0.1.0 yet; build it from source below. |
 
 If you would rather build it yourself, see [Build from source](#build-from-source).
 
