@@ -92,6 +92,13 @@ fn platform_pulse() -> MediaPulse {
 }
 
 /// `{"gen":N,"changed":[...]}` from Kotlin into the struct the frontend reads.
+///
+/// Only `platform_pulse` calls this, and only under `cfg(target_os =
+/// "android")` — there is no Kotlin side on the desktop — so a desktop
+/// `cargo check` sees it as dead. The tests below do exercise it on every
+/// target, which is the point: the parser is the part worth testing and it
+/// should not need an Android device to run.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn parse_pulse(raw: &str) -> MediaPulse {
     let v: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,
