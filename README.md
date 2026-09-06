@@ -1,28 +1,45 @@
-<img src="brand/out/android/play-store-512.png" alt="" width="96" align="left">
+<img src="brand/out/android/play-store-512.png" alt="" width="110" align="left">
 
 # Facet
 
-**All-in-one file explorer and media studio. Desktop and Android, fully on-device.**
+### All-in-one file explorer and media studio.<br>Desktop and Android, fully on-device.
+
+[![Download](https://img.shields.io/github/v/release/IRAS-LABS/facet?label=download&color=15a34a)](https://github.com/IRAS-LABS/facet/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-15a34a)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-15a34a)
 
 <br clear="left">
 
-Facet is a local-first media studio and file manager for Windows and Android,
-built with [Tauri v2](https://tauri.app) (Rust + a small amount of Kotlin) and a
-plain TypeScript/Vite frontend. Everything runs on the device: there is no
-account, no telemetry and no network access beyond a loopback media server the
-app runs for itself. Transcription, OCR and face detection are models that run
-in the app, not services it calls.
+Browse your files, then edit what you find without leaving. Cut a video, clean
+up a recording, blur the faces out of a photo, pull the text off a scan, get a
+transcript of a meeting, strip the GPS out of a picture before you send it —
+all in the window you were already looking at.
+
+Everything happens on your machine. There is no account, no sign-in, no
+telemetry, and nothing is uploaded. Transcription, OCR and face detection are
+models that run inside the app, not services it calls. The only socket it opens
+is a loopback server it uses to hand video to its own player.
+
+It is one codebase: Windows desktop and an Android app with a phone-shaped
+interface, not a remote control for the desktop. Built with
+[Tauri v2](https://tauri.app) — Rust and a little Kotlin underneath, plain
+TypeScript on top.
 
 ## Download
 
-Prebuilt binaries are on the [Releases page](https://github.com/IRAS-LABS/facet/releases).
+| | | |
+| --- | --- | --- |
+| **Windows 10/11 (x64)** | [`Facet_0.1.0_x64-setup.exe`](https://github.com/IRAS-LABS/facet/releases/latest/download/Facet_0.1.0_x64-setup.exe) | 24 MB — run it, it installs like any other app |
+| **Android 7.0+ (arm64)** | [`facet-0.1.0-arm64.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.0-arm64.apk) | 52 MB — your phone will ask you to allow the install once |
 
-| | |
-| --- | --- |
-| **Windows 10/11 (x64)** | `Facet_<version>_x64-setup.exe` — run it; it installs like any other app. |
-| **Android 7.0+ (arm64)** | `facet-<version>-arm64.apk` — Android will ask you to allow installs from your browser or file manager the first time. Not attached to 0.1.0 yet; build it from source below. |
+The Windows installer is not code-signed, so SmartScreen will say "Windows
+protected your PC" — **More info**, then **Run anyway**. On desktop, put
+`ffmpeg` and `ffprobe` on your `PATH` for the video and audio features;
+everything else works without them. On Android, FFmpeg is already inside the
+APK.
 
-If you would rather build it yourself, see [Build from source](#build-from-source).
+Checksums are on the [release](https://github.com/IRAS-LABS/facet/releases/latest).
+Prefer to build it yourself? See [Build from source](#build-from-source).
 
 ## Everything it does
 
@@ -337,6 +354,13 @@ folder you point `FACET_FIXTURE_SRC` at. Run it with no arguments and it
 lists exactly which files it wants. A harness whose fixture is missing says
 so and names the script; nothing fails silently, and nothing else in the
 repository depends on them.
+
+## Contributing
+
+`CONTRIBUTING.md` covers how to run the harnesses and what a change is expected
+to come with. `SCOPE.md` is the design record — if you want to know *why*
+something works the way it does before changing it, that is where the reasoning
+is written down.
 
 ## Security
 
