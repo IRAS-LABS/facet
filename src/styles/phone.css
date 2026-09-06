@@ -1,0 +1,1071 @@
+/*
+ * The phone shell.
+ *
+ * A separate surface rather than a pile of `@media` overrides on the desktop
+ * one. The first phone build was overrides, and it produced a desktop file
+ * explorer folded up small: a three-row wrapped toolbar, a hidden folder tree,
+ * a 300px tool panel beside a 384px screen. The layouts are not the same
+ * layout at two sizes — they are two layouts — so they get two stylesheets and
+ * only one of them is ever mounted.
+ *
+ * Rules inherited from base.css, and not relaxed here:
+ *  - No hex literals. Every colour is var(--fct-*).
+ *  - Touch targets are 48px minimum. Android's own number, and on a 450 dpi
+ *    phone anything under it is a target you miss.
+ *
+ * One rule this file adds, learned on the device:
+ *  - NOTHING is revealed by a horizontal drag. Android's back gesture owns a
+ *    ~130px strip down both edges and a WebView cannot opt out, so a sideways
+ *    scroller whose last item sits near an edge is unreachable — reaching for
+ *    it navigates back, or at the root closes the app. Tool surfaces are grids
+ *    and sheets. Never carousels.
+ */
+
+/* ── Shell ────────────────────────────────────────────────────────────────
+   Three rows: a title row that scrolls away, the content, and the tab bar.
+   The tab bar is the only fixed chrome, because it is the only chrome that is
+   an answer to "where am I" rather than "what can I do here". */
+
+.ph {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  /* The gallery scrolls vertically; base.css sets `touch-action: none` on the
+     body for the desktop canvas, which would kill that. */
+  touch-action: pan-y;
+  overflow: hidden;
+  /* Above the desktop shell's own chrome (45-50) and below every panel that
+     floats over it (40-72 with their own stacking, viewer at 500). The phone
+     shell replaces the shell; it does not replace the editors, and a panel
+     handed a spreadsheet has to be able to draw over this. */
+  z-index: 30;
+}
+
+/* The desktop shell is not restyled small — it is stood down. `#app` holds the
+   tree, the topbar, the rail and the folder views, none of which have a
+   384 px version worth having. Display:none rather than a class on each part,
+   so a panel added later cannot forget to hide itself. */
+body.fct-phone > #app { display: none; }
+
+.ph[hidden] { display: none; }
+
+/* ── Title row ────────────────────────────────────────────────────────────
+   One line: where you are, and at most two actions. Not a toolbar. Everything
+   that was in the desktop top bar — filter, sort, view mode, theme, settings —
+   lives behind the one overflow button, because a phone has room for a name
+   and a thumb, and the desktop bar's twelve controls wrapped onto three rows
+   is a third of the screen gone before a single photo. */
+
+.ph-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: max(var(--fct-sp-2), env(safe-area-inset-top)) var(--fct-sp-3) var(--fct-sp-2);
+  min-height: 52px;
+  background: var(--fct-bg);
+}
+
+.ph-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  /* Match the height of the action buttons beside it, which are 48px, so the
+     title sets the row height whether the tab has buttons or not. Without this
+     the row was only as tall as the text on the tabs that have no actions, and
+     switching from Photos (Rescan, Select) to Files (neither) jumped the
+     heading 23px up the screen — measured on a reference phone, not guessed.
+
+     line-height rather than min-height with a flex or grid centre: the title
+     is one nowrap line that has to ellipsize, and text-overflow only applies to
+     text in a block container. Making this a flex box would have centred it
+     perfectly and quietly dropped the ellipsis on every long album name. */
+  line-height: 48px;
+  font-size: var(--fct-fs-xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A round 48px hit area with a smaller glyph inside it. The target and the
+   thing you can see are different sizes on purpose: 48px of visible button
+   repeated four times reads as a toolbar, which is what we are getting away
+   from. */
+/* Glyph over word. The circle is gone because a word does not fit in one; the
+   target is still 48 high and at least 48 wide, which is what the rule is about
+   — the shape it happens to be was never the point. */
+.ph-act {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-rows: auto auto;
+  justify-items: center;
+  align-content: center;
+  gap: 1px;
+  min-width: 48px;
+  max-width: 72px;
+  height: 48px;
+  padding: 0 var(--fct-sp-1);
+  border: none;
+  border-radius: var(--fct-radius);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-act-icon {
+  font-size: var(--fct-fs-lg);
+  line-height: 1;
+}
+
+.ph-act-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(9.5px * var(--fct-ui-scale));
+  line-height: 1.1;
+  color: var(--fct-text-dim);
+}
+
+.ph-act:active { background: var(--fct-surface-raised); }
+.ph-act[aria-pressed="true"] { color: var(--fct-accent); }
+
+/* ── Body ─────────────────────────────────────────────────────────────── */
+
+.ph-body {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  /* Clears the tab bar so the last row of photos is never trapped under it. */
+  padding-bottom: var(--fct-sp-4);
+}
+
+/* ── Tab bar ──────────────────────────────────────────────────────────────
+   Labels, always. The desktop rail is ten unlabelled glyphs that explain
+   themselves through hover tooltips, and a tooltip on a touchscreen is a
+   feature that does not exist — which is the whole reason the app was
+   unreadable on a phone. Four is the most that fits with a legible word under
+   each at 384px. */
+
+.ph-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.ph-tab {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: var(--fct-sp-1) 2px;
+  border: none;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--fct-t-fast);
+}
+
+.ph-tab-icon { font-size: 20px; line-height: 1; }
+
+.ph-tab-label {
+  font-size: calc(10.5px * var(--fct-ui-scale));
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.ph-tab[aria-selected="true"] { color: var(--fct-accent); }
+
+/* ── Photo grid ───────────────────────────────────────────────────────────
+   Edge to edge, 2px gutters. A gallery is about the pictures, and a margin
+   around a grid of thumbnails is a margin around the only content there is.
+   `--ph-cols` is set by JS from the pinch level and defaults to 4. */
+
+.ph-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--ph-cols, 4), 1fr);
+  gap: 2px;
+  padding: 0 2px;
+}
+
+/* Sticky, so you always know what day you are looking at while you scroll
+   through a year of photos. */
+.ph-day {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* No UA h2 margin: a stuck header ignores its margin but a pushed-out one
+     does not, so the margin became a strip of bare grid between one day's
+     header leaving and the next one's arriving -- and at the very top it
+     held the first date a line below the app bar. */
+  margin: 0;
+  padding: var(--fct-sp-3) var(--fct-sp-3) var(--fct-sp-2);
+  background: var(--fct-bg);
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  color: var(--fct-text);
+}
+.ph-day-count {
+  margin-left: var(--fct-sp-2);
+  font-weight: 400;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+}
+
+.ph-cell {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: none;
+  padding: 0;
+  background: var(--fct-surface-raised);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ph-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Tiles fade in as they decode. Without it a fast scroll over a folder of
+     45MP JPEGs strobes grey-to-photo, which reads as the app struggling.
+     60ms, not 180: with the whole-roll warm pass most tiles arrive off the
+     disk cache in ~15ms, and at that speed a long fade IS the perceived
+     load time. */
+  opacity: 0;
+  transition: opacity 60ms linear;
+}
+.ph-cell img.ready { opacity: 1; }
+
+/* What a tile shows when there is no preview to show: the extension, plainly.
+   Not a generic "image" glyph — on a phone the undecodable ones are HEIC and
+   RAW, and "DNG" tells you why it is grey while a picture icon does not. */
+.ph-cell-fallback {
+  /* Absolute, not in flow: the img before it is 100% of the tile whether or
+     not it has pixels, so an in-flow fallback sits below the tile's clip box
+     and can never be seen — every chip this rule ever promised was invisible.
+     Positioned, it paints above the (transparent) img until the picture is
+     ready, and the sibling rule below removes it the moment one is. */
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  padding: 6px;
+  font-size: var(--fct-fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-muted);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.ph-cell img.ready ~ .ph-cell-fallback { display: none; }
+
+/* The filename, on tiles that will never have a picture — the All tab's
+   documents and downloads. Thirty squares reading "PDF" name nothing; the
+   name is the tile. */
+.ph-cell-name {
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  text-align: center;
+  font-size: calc(10px * var(--fct-ui-scale));
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1.25;
+  color: var(--fct-text);
+}
+
+/* Video duration, bottom-right, over a gradient so it stays legible on a
+   bright frame. Samsung puts it here and so does everyone else; this is not a
+   place to be original. */
+.ph-cell-dur {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, black 55%, transparent);
+  color: white;
+  font-size: calc(10px * var(--fct-ui-scale));
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.ph-cell-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  color: white;
+  pointer-events: none;
+}
+/* Filled, not just outlined: the classic play badge, readable on any frame. */
+.ph-cell-play .fct-icon {
+  fill: currentColor;
+  filter: drop-shadow(0 1px 4px rgb(0 0 0 / 0.6));
+}
+
+/* The star a favourite carries on its tile. Filled gold, shadowed like the
+   play badge so it survives a white sky. */
+.ph-cell-fav {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: var(--fct-warning);
+  pointer-events: none;
+}
+.ph-cell-fav .fct-icon {
+  fill: currentColor;
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.7));
+}
+
+/* Selection. A checkmark in the corner and an inset ring — not an opacity
+   change, which on a grid of photos is indistinguishable from a tile that has
+   not finished loading. The shrink is animated: selection mode is the one
+   moment the grid rearranges under the thumb, and 120ms of motion is what
+   distinguishes "I selected that" from "the grid glitched". */
+.ph-cell img { transition: transform 120ms ease, border-radius 120ms ease; }
+.ph-cell[aria-selected="true"] img { transform: scale(0.86); border-radius: 6px; }
+.ph-cell[aria-selected="true"] {
+  background: var(--fct-accent);
+}
+.ph-cell-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px var(--fct-bg);
+}
+.ph-cell[aria-selected="true"] .ph-cell-check { display: grid; }
+
+/* ── Albums ───────────────────────────────────────────────────────────── */
+
+.ph-albums {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-3);
+}
+/* The tab hides the list with the `hidden` attribute when an album opens, and
+   the `display: grid` above outranks the user-agent's `[hidden]` rule. Without
+   this, opening an album drew the album's photos with every album still
+   stacked underneath them. */
+.ph-albums[hidden] { display: none; }
+
+.ph-album {
+  display: grid;
+  gap: var(--fct-sp-2);
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ph-album-cover {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--fct-radius);
+  overflow: hidden;
+  background: var(--fct-surface-raised);
+}
+.ph-album-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.ph-album-empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: 26px;
+  color: var(--fct-text-muted);
+}
+
+.ph-album-name {
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ph-album-count {
+  margin-top: -4px;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Files: category bento ────────────────────────────────────────────────
+   Boxes and bubbles, not seven identical rectangles.
+
+   The seven categories are nowhere near equally likely to be what you came
+   for, and the old uniform 2-column grid gave Archives exactly as much screen
+   as Downloads. Seven same-sized cards in two columns is the visual grammar of
+   a settings page, which is the one thing this screen must not look like.
+
+   So the grid is four columns wide and every tile spans 4, 2 or 1 of them:
+   Downloads takes the full width, Documents and Images take a half each, and
+   the tail — Video, Audio, Installs, Archives — becomes a single row of round
+   bubbles. Same seven targets, but the page now says which one you probably
+   want before you have read a word of it.
+
+   Colour comes from one inline `--cat-h` per tile and everything else is mixed
+   from it, so adding a category is a hue and not a new block of rules. */
+
+.ph-cats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-3);
+}
+
+.ph-cat {
+  --tint: hsl(var(--cat-h, 265) 70% 62%);
+  position: relative;      /* the box glyph is an absolutely-placed watermark */
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 110ms ease;
+}
+/* Scale rather than a background swap: half these tiles have no background to
+   swap, and a press that does nothing on four of seven tiles reads as broken. */
+.ph-cat:active { transform: scale(0.96); }
+
+/* ── Boxes: Downloads, Documents, Images ── */
+
+.ph-cat[data-shape="hero"],
+.ph-cat[data-shape="box"] {
+  display: grid;
+  align-content: center;
+  min-height: 92px;
+  padding: var(--fct-sp-3);
+  border: 1px solid color-mix(in srgb, var(--tint) 30%, transparent);
+  border-radius: var(--fct-radius);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--tint) 24%, var(--fct-surface)),
+    color-mix(in srgb, var(--tint) 7%, var(--fct-surface))
+  );
+}
+.ph-cat[data-shape="hero"] { grid-column: span 4; min-height: 104px; }
+.ph-cat[data-shape="box"] { grid-column: span 2; }
+
+/* The glyph as an oversized watermark bleeding off the corner. A 38px icon in
+   a rounded square is what the old rows had, and at box size it just looked
+   like a row that had been stretched. */
+.ph-cat[data-shape="hero"] .ph-cat-icon,
+.ph-cat[data-shape="box"] .ph-cat-icon {
+  position: absolute;
+  right: -4px;
+  bottom: -18px;
+  font-size: 68px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--tint) 34%, transparent);
+  pointer-events: none;
+}
+.ph-cat[data-shape="hero"] .ph-cat-icon {
+  right: 10px;
+  bottom: -24px;
+  font-size: 92px;
+}
+
+/* ── Bubbles: Video, Audio, Installs, Archives ── */
+
+.ph-cat[data-shape="bubble"] {
+  grid-column: span 1;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: var(--fct-sp-1);
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+.ph-cat[data-shape="bubble"] .ph-cat-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 72px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--tint) 34%, transparent);
+  background: color-mix(in srgb, var(--tint) 20%, var(--fct-surface));
+  color: var(--tint);
+  font-size: 26px;
+  line-height: 1;
+}
+
+/* ── Tile text ── */
+
+.ph-cat-text {
+  position: relative;      /* above the watermark, which is a sibling */
+  min-width: 0;
+}
+.ph-cat-name {
+  display: block;
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ph-cat-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ph-cat[data-shape="bubble"] .ph-cat-text { text-align: center; }
+.ph-cat[data-shape="bubble"] .ph-cat-name {
+  font-size: var(--fct-fs-sm);
+  font-weight: 500;
+}
+
+/* ── Files: rows ──────────────────────────────────────────────────────────
+   A row, not a table. The desktop list view squeezes the Name column to four
+   characters on a phone ("part…", "Rec…") while Modified keeps a generous
+   width, which is a table doing exactly what a table does at 384px. */
+
+.ph-rows { display: grid; }
+
+.ph-row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  min-height: 60px;
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border: none;
+  border-bottom: 1px solid var(--fct-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-row:active { background: var(--fct-surface-raised); }
+
+.ph-row-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--fct-radius-sm);
+  overflow: hidden;
+  background: var(--fct-surface-raised);
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+}
+.ph-row-thumb img { width: 100%; height: 100%; object-fit: cover; }
+/* Everything in the box shares the one grid cell, so the glyph sits behind the
+   picture instead of beside it and the row does not resize when one arrives. */
+.ph-row-thumb > * { grid-area: 1 / 1; }
+.ph-row-thumb .ph-row-glyph { display: grid; place-items: center; }
+.ph-row-thumb img.ready ~ .ph-row-glyph { display: none; }
+/* A drawn page, fitted rather than cropped -- see `files-tab`. */
+.ph-row-thumb.fit img { object-fit: contain; }
+
+.ph-row-text { min-width: 0; }
+.ph-row-name {
+  font-size: var(--fct-fs-md);
+  /* Two lines, then ellipsis. One line cuts real names — a dated screenshot, a
+     render pass — exactly where they start to differ from each other. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.ph-row-sub {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ph-row-chev { color: var(--fct-text-muted); font-size: var(--fct-fs-lg); }
+
+/* ── Empty / loading states ─────────────────────────────────────────────── */
+
+.ph-note {
+  display: grid;
+  gap: var(--fct-sp-2);
+  justify-items: center;
+  padding: 18vh var(--fct-sp-5) var(--fct-sp-5);
+  text-align: center;
+  color: var(--fct-text-muted);
+}
+.ph-note-icon { font-size: 34px; opacity: 0.65; }
+.ph-note-title { font-size: var(--fct-fs-lg); font-weight: 600; color: var(--fct-text-dim); }
+.ph-note-body { font-size: var(--fct-fs-sm); max-width: 30ch; }
+
+.ph-note-btn {
+  margin-top: var(--fct-sp-2);
+  min-height: 44px;
+  padding: 0 var(--fct-sp-4);
+  border: 1px solid var(--fct-border-strong);
+  border-radius: 999px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* A thin indeterminate bar under the title while a scan runs. Not a spinner
+   over the grid: the grid paints as results arrive and covering it would hide
+   the thing that proves the scan is working. */
+.ph-scanbar {
+  height: 2px;
+  background: color-mix(in srgb, var(--fct-accent) 22%, transparent);
+  overflow: hidden;
+}
+.ph-scanbar::after {
+  content: "";
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--fct-accent);
+  animation: ph-slide 1.1s ease-in-out infinite;
+}
+@keyframes ph-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ph-scanbar::after { animation: none; width: 100%; opacity: 0.5; }
+  .ph-cell img { transition: none; }
+}
+
+/* ── Screens ──────────────────────────────────────────────────────────────
+   Every tab is one of these. They do not scroll themselves — the shell's
+   `<main>` owns the single scroller, so the thumbnail observer has one root
+   and sticky day headers have one containing block. Nesting a scroller per
+   tab is what makes sticky headers stick to the wrong thing. */
+
+.ph-screen { display: block; min-height: 100%; }
+.ph-stream { display: block; }
+/* One per day: the containing block that lets a sticky header go at the end
+   of its own day, so the next date pushes it out instead of sliding over it. */
+.ph-daysec { display: block; }
+
+/* Zero-height tripwire the infinite-append observer watches. */
+.ph-sentinel { height: 1px; }
+
+.ph-acts { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+
+/* A count or a path above a list. Small, dim, never competing with content. */
+.ph-count {
+  margin: 0;
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ph-truncated {
+  padding: var(--fct-sp-3);
+  text-align: center;
+  color: var(--fct-text-muted);
+}
+
+/* ── Album detail ─────────────────────────────────────────────────────── */
+
+.ph-album-detail[hidden] { display: none; }
+.ph-album-path {
+  margin: 0;
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ── Search ───────────────────────────────────────────────────────────────
+   The field is 48px like everything else, and the chips WRAP. They are not a
+   horizontal scroller: the last chip of a scrolling row would sit inside
+   Android's back-gesture strip, so reaching for it navigates back instead of
+   filtering. Two rows of chips is a smaller cost than an unreachable one. */
+
+.ph-searchbar { padding: var(--fct-sp-2) var(--fct-sp-3) 0; }
+
+.ph-search {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: 999px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-md);
+}
+.ph-search:focus { outline: 2px solid var(--fct-accent); outline-offset: -1px; }
+.ph-search::-webkit-search-cancel-button { display: none; }
+
+/* One row, always. A horizontal scroller is not available here -- Android's
+   back gesture owns 130px down both edges -- and wrapping put `Archives` on a
+   line by itself, which reads as a mistake. The pills shrink instead: at the
+   default scale all six fit with room over, and at a larger font scale the
+   longest one ellipsises rather than dropping to a second row. */
+.ph-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--fct-sp-1);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+}
+
+.ph-chip {
+  min-height: 40px;
+  /* 8px, not 12: six chips wanted 376px of a 345px row and the whole excess
+     was this padding. */
+  padding: 0 var(--fct-sp-2);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 1px solid var(--fct-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-chip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+.ph-results { display: block; }
+
+/* A selected row in the layer list. */
+.ph-row[aria-selected="true"] {
+  background: var(--fct-surface-raised);
+  box-shadow: inset 3px 0 0 var(--fct-accent);
+}
+
+/* ── Trash sheet ──────────────────────────────────────────────────────────
+   A full-screen fixed overlay at z-index 40. The z value is a contract, not a
+   choice: the shell's back-button handler closes "the top fixed body child at
+   z ≥ 40", so being at 40 is what lets the hardware back button close this
+   sheet without the sheet knowing the handler exists. */
+
+.ph-trash {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--fct-bg);
+  outline: none;
+}
+
+/* Not optional — the `display: flex` above outranks the user-agent's
+   `[hidden] { display: none }`. Without this the sheet closes in the DOM but
+   stays painted over the whole app, eating every tap. */
+.ph-trash[hidden] { display: none; }
+
+.ph-trash-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.ph-trash-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding-bottom: var(--fct-sp-3);
+}
+
+/* The empty-state note is filled into the grid, and without this it renders
+   inside a single 1/3-width column hugging the left edge. */
+.ph-trash-grid .ph-note {
+  grid-column: 1 / -1;
+}
+
+/* Trash tiles always carry the filename: restoring is a decision about a
+   specific file, and half of what lands here has no thumbnail at all. */
+.ph-trash-grid .ph-cell-name {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 4px;
+  background: color-mix(in srgb, var(--fct-bg) 72%, transparent);
+  color: var(--fct-text);
+  font-size: 10px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ph-trash-foot {
+  display: flex;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3)
+    max(var(--fct-sp-2), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-bg);
+}
+.ph-trash-foot .ph-note-btn { flex: 1; margin: 0; }
+
+.ph-note-btn.ph-danger {
+  border-color: color-mix(in srgb, var(--fct-danger) 45%, transparent);
+  color: var(--fct-danger);
+}
+
+/* ── Audio dock ───────────────────────────────────────────────────────────
+   z-index 39 — deliberately one below the panel layer, so the back button
+   never closes the music. The ✕ does. */
+
+.ph-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* Above the tab bar, which owns the bottom edge. */
+  bottom: calc(56px + env(safe-area-inset-bottom));
+  z-index: 39;
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  background: var(--fct-surface-raised);
+  border-top: 1px solid var(--fct-border);
+  box-shadow: 0 -4px 16px rgb(0 0 0 / 0.25);
+}
+
+.ph-dock-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+}
+
+.ph-dock-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+}
+
+.ph-dock audio {
+  display: block;
+  width: 100%;
+  height: 40px;
+}
+
+/* ── Favorite star in the viewer bar ───────────────────────────────────── */
+
+/* The one hardcoded hex in the phone shell, now on the token every theme
+   already defines. Starred fills the outline — same drawing, two states. */
+.phv-icon.phv-starred { color: var(--fct-warning); }
+.phv-icon.phv-starred .fct-icon { fill: currentColor; }
+
+/* ── Inline SVG icons (icons.ts) ──────────────────────────────────────────
+   Every icon is 1em square, so the font-size rules that sized the old text
+   glyphs — tab bars, action bars, tool tiles, category cards, row thumbs —
+   keep doing exactly the same job for the drawings that replaced them. */
+
+.fct-icon {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
+/* Centred inside the round buttons and badges that used line-height tricks. */
+.phv-icon .fct-icon,
+.phv-tool-icon .fct-icon,
+.ph-row-thumb .fct-icon,
+.ph-cat-icon .fct-icon {
+  margin: auto;
+}
+
+/* The 48 px header buttons sized their glyph with --fct-fs-lg, which reads
+   small once the glyph is an actual drawing; 22 px matches Material's icon
+   size inside a 48 px target. */
+.phv-icon .fct-icon {
+  width: 22px;
+  height: 22px;
+}
+
+/* The action bars sit over the photograph; the old glyphs carried a
+   text-shadow that SVG strokes ignore, so the drawings get the drop-shadow
+   equivalent to stay readable over a white sky. */
+.phv-action-icon .fct-icon,
+.phv-icon .fct-icon {
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.7));
+}
+
+/* ── Recovery note ────────────────────────────────────────────────
+   The bar itself is built in main.ts and shared with the desktop, where it is
+   a single row parked beside the sidebar. Measured on the device, that row is
+   ~290px wide here with a 22ch button in it: the sentence wraps to three words
+   tall behind the button, and `bottom: 28px` -- the desktop status bar's
+   height -- lands the whole thing on top of the tab bar.
+
+   So: full bleed, one thing per line, and clear of the tabs. The buttons get
+   the file's 48px minimum, which the desktop's 4px-padded ones are nowhere
+   near. */
+
+.recover.recover-phone {
+  left: var(--fct-sp-2);
+  right: var(--fct-sp-2);
+  /* 56px tab + its 1px top border, then the gesture inset the tab bar pads
+     itself by, then a gap so the two are visibly separate things. */
+  bottom: calc(57px + env(safe-area-inset-bottom) + var(--fct-sp-2));
+  max-width: none;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2);
+}
+
+.recover-phone .recover-text {
+  grid-column: 1;
+  grid-row: 1;
+  /* The desktop rule flexes it against the buttons; here it owns its row. */
+  flex: none;
+}
+
+.recover-phone .recover-close {
+  grid-column: 2;
+  grid-row: 1;
+  width: 48px;
+  height: 48px;
+}
+
+/* Each action on its own full-width row. Truncating a filename to 22ch was a
+   concession to sharing a line with the message; nothing shares this one. */
+.recover-phone .recover-act {
+  grid-column: 1 / -1;
+  min-height: 48px;
+  max-width: none;
+}
+
+/* ── The name on the tile ───────────────────────────────────────────
+   A photograph is its own label and gets no caption -- Samsung's gallery
+   captions nothing either, and it is right not to. A document is not: the
+   preview of a PDF is a page of small grey text, and twelve statements from
+   the same bank produce twelve tiles that are genuinely indistinguishable
+   until you read the name. So the name goes on, over the preview rather than
+   under it, because a strip below every tile would cost a row of pictures on
+   a screen this size.
+
+   Over a gradient rather than a solid bar: at the bottom of a rendered page
+   the ink has run out, so the darkening is invisible there and only shows up
+   where the preview is busy -- an album cover, an app icon, a model. */
+/* A strip, not an overlay. Over the picture the name landed on top of the
+   card's own extension band -- two labels printed over each other, with the
+   second line running into the tile's bottom edge, which is exactly what "the
+   name is getting cut off at the bottom" looks like.
+
+   The split is inside the same square, so a captioned tile still occupies one
+   grid cell and no row of pictures is lost. Photographs are not captioned at
+   all (see `tileCaption`), so they keep the whole square. */
+.ph-cell:has(.ph-cell-cap) {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  grid-template-columns: 100%;
+}
+.ph-cell:has(.ph-cell-cap) img,
+.ph-cell:has(.ph-cell-cap) .ph-cell-fallback {
+  position: static;
+  grid-area: 1 / 1;
+  min-height: 0;
+}
+/* A page fitted, not cropped: the card is a portrait sheet and `cover` was
+   shaving its head and its feet off to make it square. */
+.ph-cell:has(.ph-cell-cap) img { object-fit: contain; }
+
+.ph-cell-cap {
+  position: static;
+  grid-area: 2 / 1;
+  padding: 3px 4px 4px;
+  background: var(--fct-surface-overlay);
+  color: var(--fct-text);
+  font-size: calc(10px * var(--fct-ui-scale));
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+  /* Two lines, then an ellipsis. A long name is nearly always distinctive in
+     its first twenty characters and never in its last. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  pointer-events: none;
+}
+
+/* The duration sits in the same corner. Video has no caption, so the two can
+   never collide -- this only exists so a future change cannot make them. */
+.ph-cell-cap ~ .ph-cell-dur { display: none; }
+
+/* ── The fallback ──────────────────────────────────────────────────
+   Every non-picture file now gets a drawn page from `docThumb`, right down to
+   a format nobody has a reader for, so this is no longer the resting state of
+   a document tile -- it is the second or two before the page arrives, and the
+   photograph whose decoder gave up.
+
+   It still gets a card rather than a hole. A tile with a surface and a border
+   reads as "a file, loading"; a transparent one reads as the grid failing,
+   which is what it looked like. */
+.ph-cell-fallback {
+  background: var(--fct-card-bg);
+  border: 1px solid var(--fct-card-border);
+  border-radius: inherit;
+}
+
+.ph-cell-fallback > span:first-child {
+  padding: 2px 6px;
+  border-radius: var(--fct-radius-sm);
+  background: color-mix(in srgb, var(--fct-accent) 18%, transparent);
+  color: var(--fct-accent);
+}
+

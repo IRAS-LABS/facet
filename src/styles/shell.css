@@ -1,0 +1,867 @@
+/* Quick-look and command palette — the two surfaces that float over the shell
+   without taking it over. Both dim the ground rather than replacing it, because
+   the point of each is that you are still in the folder you were in. */
+
+/* ── Quick-look ────────────────────────────────────────────────────────── */
+
+.ql {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: 5vh 4vw;
+  background: color-mix(in srgb, var(--fct-bg) 72%, transparent);
+  backdrop-filter: blur(6px);
+}
+.ql[hidden] { display: none; }
+
+.ql-card {
+  display: grid;
+  /* head, preview, actions, facts. The last two collapse to nothing when they
+     are hidden, so a desktop card with neither looks exactly as it did. */
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+  width: min(940px, 100%);
+  max-height: 100%;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--fct-border-strong);
+  border-radius: 12px;
+  background: var(--fct-surface-overlay);
+  box-shadow: var(--fct-shadow);
+  overflow: hidden;
+}
+
+.ql-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ql-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fct-text);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+/* The "i". Same size and shape as the ✕ beside it.
+
+   Not a circle: on the phone `panel-fit` stacks the word "File details" under
+   the glyph, which makes the button half again as wide as it is tall, and a
+   50% radius turned the pressed state into a stretched ellipse. A pill is
+   right at both proportions. */
+.ql-icon {
+  flex: 0 0 auto;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.ql-icon:hover { background: var(--fct-surface-raised); color: var(--fct-text); }
+.ql-icon[aria-pressed="true"] { background: var(--fct-accent); color: var(--fct-accent-ink); }
+/* The stacked word is dimmed by default; on the filled pill that reads as
+   greyed-out. It takes the button's ink instead. */
+.ql-icon[aria-pressed="true"] .fct-blabel { color: inherit; }
+
+/* What can be done with the file. Icon and word on every button, for the same
+   reason the picture viewer's bar carries both: a finger cannot hover, so the
+   glyph has to be explained on the button or not at all. */
+.ql-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+}
+.ql-action {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 0 2px;
+  border: none;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ql-action:hover { background: var(--fct-surface-raised); }
+.ql-action:active { background: var(--fct-selection); }
+.ql-action-icon { font-size: 19px; line-height: 1; }
+.ql-action-label {
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.ql-close {
+  flex: 0 0 auto;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.ql-close:hover { background: var(--fct-surface-raised); color: var(--fct-text); }
+
+.ql-body {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--fct-canvas-bg);
+}
+.ql-media { max-width: 100%; max-height: 56vh; border-radius: 8px; }
+.ql-audio { width: min(560px, 90%); }
+
+/* PDF pages, stacked and scrolled by the body. Each canvas keeps its own
+   aspect; the white comes from the paint, not the style, so a dark theme does
+   not tint the paper. */
+.ql-pdf {
+  align-self: stretch;
+  justify-self: stretch;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 10px;
+}
+.ql-page {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.4);
+}
+.ql-note { padding: 34px 16px; color: var(--fct-text-muted); font-size: 12px; }
+
+.ql-text,
+.ql-hex {
+  align-self: stretch;
+  justify-self: stretch;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--fct-text-dim);
+  /* Text wraps because a preview is for reading; the hex dump must not,
+     because its columns are the whole point of it. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ql-hex { white-space: pre; overflow-wrap: normal; }
+
+.ql-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 0;
+  font-size: 11.5px;
+}
+.ql-facts dt { color: var(--fct-text-muted); }
+.ql-facts dd {
+  margin: 0;
+  color: var(--fct-text-dim);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* ── Command palette ───────────────────────────────────────────────────── */
+
+.pal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  /* Sits high rather than centred: the list grows downward and the eye should
+     not have to track a box that moves as you type. */
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--fct-bg) 62%, transparent);
+  backdrop-filter: blur(4px);
+}
+.pal[hidden] { display: none; }
+
+.pal-box {
+  width: min(620px, 92vw);
+  border: 1px solid var(--fct-border-strong);
+  border-radius: 12px;
+  background: var(--fct-surface-overlay);
+  box-shadow: var(--fct-shadow);
+  overflow: hidden;
+}
+
+.pal-input {
+  width: 100%;
+  padding: 13px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--fct-border);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.pal-input::placeholder { color: var(--fct-text-muted); }
+
+.pal-list { max-height: 52vh; overflow-y: auto; padding: 6px; }
+
+.pal-row {
+  display: grid;
+  grid-template-columns: 76px 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.pal-row[data-on="true"] {
+  background: color-mix(in srgb, var(--fct-accent) 24%, transparent);
+  color: var(--fct-text);
+}
+.pal-group {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The matched letters, so the ranking explains itself. */
+.pal-name b { color: var(--fct-accent); font-weight: 700; }
+.pal-hint {
+  font-size: 11px;
+  color: var(--fct-text-muted);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.pal-empty { padding: 18px 12px; margin: 0; color: var(--fct-text-muted); font-size: 12px; }
+
+/* ── Metadata panel ────────────────────────────────────────────────────── */
+
+.mp {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  display: grid;
+  place-items: center;
+  padding: 5vh 4vw;
+  background: color-mix(in srgb, var(--fct-bg) 74%, transparent);
+  backdrop-filter: blur(6px);
+}
+.mp[hidden] { display: none; }
+
+.mp-card {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 8px;
+  width: min(720px, 100%);
+  max-height: 100%;
+  padding: 14px 16px 14px;
+  border: 1px solid var(--fct-border-strong);
+  border-radius: 12px;
+  background: var(--fct-surface-overlay);
+  box-shadow: var(--fct-shadow);
+  overflow: hidden;
+}
+
+.mp-title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fct-text);
+  overflow-wrap: anywhere;
+}
+.mp-sub {
+  margin: 0;
+  font-size: 11px;
+  color: var(--fct-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.mp-body {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding-right: 4px;
+}
+.mp-note { margin: 0; padding: 22px 4px; color: var(--fct-text-muted); font-size: 12px; line-height: 1.55; }
+
+/* The one loud thing on the surface. It has to out-shout eleven themes, so it
+   paints its own ground rather than tinting the card's. */
+.mp-alert {
+  padding: 10px 12px;
+  border: 1px solid var(--fct-danger);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fct-danger) 12%, transparent);
+  font-size: 12px;
+  color: var(--fct-text);
+}
+.mp-alert ul { margin: 6px 0 0; padding-left: 18px; }
+.mp-alert li { margin: 2px 0; color: var(--fct-text-dim); }
+
+.mp-gps {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--fct-border);
+  border-radius: 8px;
+  background: var(--fct-surface-raised);
+}
+.mp-gps-label {
+  grid-column: 1;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-muted);
+}
+.mp-gps-value {
+  grid-column: 1;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  color: var(--fct-text);
+  font-variant-numeric: tabular-nums;
+}
+.mp-gps .mp-btn { grid-column: 2; grid-row: 1 / span 2; }
+
+.mp-group h4 {
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-muted);
+}
+.mp-group dl {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 3px 14px;
+  margin: 0;
+  font-size: 11.5px;
+}
+.mp-group dt { color: var(--fct-text-muted); overflow-wrap: anywhere; }
+.mp-group dd {
+  margin: 0;
+  color: var(--fct-text-dim);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.mp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--fct-border);
+}
+.mp-status {
+  margin: 0;
+  flex: 1 1 160px;
+  font-size: 11px;
+  color: var(--fct-text-muted);
+  overflow-wrap: anywhere;
+}
+.mp-fails {
+  flex: 1 0 100%;
+  margin: 0;
+  padding-left: 18px;
+  max-height: 96px;
+  overflow: auto;
+  font-size: 11px;
+  color: var(--fct-warning);
+}
+
+.mp-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--fct-border-strong);
+  border-radius: 7px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.mp-btn:hover:not(:disabled) { border-color: var(--fct-accent); }
+.mp-btn:disabled { opacity: 0.5; cursor: default; }
+.mp-btn-primary {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font-weight: 600;
+}
+.mp-btn-primary:hover:not(:disabled) { background: var(--fct-accent-hover); }
+.mp-btn-danger { color: var(--fct-danger); }
+/* Armed reads as armed — the second click is the destructive one. */
+.mp-btn-danger.is-armed {
+  background: var(--fct-danger);
+  border-color: var(--fct-danger);
+  color: var(--fct-bg);
+  font-weight: 600;
+}
+
+/* ── Hex and binary inspector ───────────────────────────────────────────── */
+
+.hx {
+  position: fixed;
+  inset: 0;
+  z-index: 47;
+  display: flex;
+  flex-direction: column;
+  background: var(--fct-bg);
+  font-family: var(--fct-font-ui);
+}
+.hx[hidden] { display: none; }
+
+.hx-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: 0 var(--fct-sp-3);
+  height: var(--fct-topbar-h);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  flex: none;
+}
+.hx-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hx-input {
+  width: 190px;
+  padding: 4px 8px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+}
+.hx-input:focus { outline: none; border-color: var(--fct-accent); }
+.hx-close {
+  padding: 4px 12px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+}
+.hx-close:hover { border-color: var(--fct-accent); }
+
+.hx-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 260px;
+}
+
+/* The structure tree. Its own scroller — a file with four hundred boxes must
+   not make the dump scroll. */
+.hx-tree {
+  overflow: auto;
+  border-right: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  padding: var(--fct-sp-2) 0;
+}
+.hx-node {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 8px;
+  width: 100%;
+  padding: 3px 10px 3px 8px;
+  border: 0;
+  border-left: 3px solid currentColor;
+  background: none;
+  color: var(--fct-text-muted);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--fct-fs-xs);
+}
+.hx-node:hover { background: var(--fct-surface-raised); }
+.hx-node-name { color: var(--fct-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hx-node-at { font-family: var(--fct-font-mono); color: var(--fct-text-dim); }
+.hx-node-note {
+  grid-column: 1 / -1;
+  color: var(--fct-text-muted);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hx-empty {
+  margin: var(--fct-sp-3);
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+}
+
+/* The dump. Rows live inside a transform-shifted layer over a full-height
+   spacer, so the scrollbar reflects the whole file while only the visible
+   forty rows exist. */
+.hx-scroll {
+  overflow: auto;
+  outline: none;
+  background: var(--fct-bg);
+}
+.hx-spacer { position: relative; }
+.hx-rows { position: absolute; top: 0; left: 0; will-change: transform; }
+.hx-row {
+  display: flex;
+  gap: 16px;
+  padding: 0 var(--fct-sp-3);
+  font-family: var(--fct-font-mono);
+  font-size: 12.5px;
+  line-height: 18px;
+  white-space: pre;
+}
+.hx-off { color: var(--fct-text-muted); }
+.hx-hex i, .hx-asc i { font-style: normal; }
+.hx-hex i { padding-right: 5px; }
+.hx-hex i.hx-gap { margin-left: 8px; }
+.hx-hex i:hover, .hx-asc i:hover { background: var(--fct-surface-raised); }
+.hx-hex i.is-cursor, .hx-asc i.is-cursor {
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+/* One colour per kind of region, shared by the tree and the dump — the whole
+   point is that a stripe on the left and a run of bytes in the middle are
+   recognisably the same thing. */
+.k-header { color: var(--fct-info); }
+.k-meta { color: var(--fct-accent); }
+.k-data { color: var(--fct-text); }
+.k-index { color: var(--fct-warning); }
+.k-trailer { color: var(--fct-danger); }
+.k-unknown { color: var(--fct-text-dim); }
+
+.hx-side {
+  border-left: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  overflow: auto;
+  padding: var(--fct-sp-3);
+}
+.hx-values dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+}
+.hx-values dt {
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+}
+.hx-values dd {
+  margin: 0;
+  color: var(--fct-text);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  overflow-wrap: anywhere;
+}
+.hx-note {
+  margin-top: var(--fct-sp-4);
+  color: var(--fct-text-dim);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+}
+
+/* Bytes belonging to whatever the cursor is inside. Faint on purpose — it is
+   an outline of the region, not a second selection competing with the cursor. */
+.hx-hex i.is-inregion, .hx-asc i.is-inregion {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+/* What the colours mean. Listed only for the kinds the open file contains. */
+.hx-legend { margin-top: var(--fct-sp-4); display: grid; gap: 5px; }
+.hx-key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  line-height: 1.35;
+  /* No colour here: the swatch takes its colour from the .k-* class on this
+     row, and a declaration at this specificity would quietly win over it. */
+}
+.hx-key i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: currentColor;
+}
+.hx-key span { color: var(--fct-text-muted); }
+
+/* ── Tabular viewer ───────────────────────────────────────────────────────── */
+
+.tbl {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  display: flex;
+  flex-direction: column;
+  background: var(--fct-bg);
+  font-family: var(--fct-font-ui);
+  /* Column widths are handed to the header and the body in `ch`, so the two
+     have to agree on what a character is. One token, used by both, is the only
+     way that stays true when the UI scale changes underneath it. */
+  --tbl-fs: calc(12.5px * var(--fct-ui-scale));
+}
+.tbl[hidden] { display: none; }
+
+.tbl-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: 0 var(--fct-sp-3);
+  height: var(--fct-topbar-h);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  flex: none;
+}
+.tbl-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tbl-input, .tbl-select {
+  padding: 4px 8px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+}
+.tbl-input { width: 250px; }
+.tbl-input:focus, .tbl-select:focus { outline: none; border-color: var(--fct-accent); }
+.tbl-select[hidden] { display: none; }
+.tbl-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+}
+.tbl-btn:hover { border-color: var(--fct-accent); }
+/* Only up during the one pass that is genuinely O(file); the rest of the
+   screen never waits on anything long enough to deserve a bar. */
+.tbl-progress { width: 120px; height: 4px; accent-color: var(--fct-accent); }
+.tbl-progress[hidden] { display: none; }
+
+.tbl-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The header is a sibling of the scroller rather than a row inside it: it has
+   to hold still vertically and move horizontally, and position:sticky cannot
+   do that inside a transformed row layer. */
+.tbl-head {
+  flex: none;
+  display: flex;
+  white-space: pre;
+  border-bottom: 1px solid var(--fct-border-strong);
+  background: var(--fct-surface);
+  will-change: transform;
+}
+.tbl-hcell {
+  flex: none;
+  padding: 5px 8px;
+  font-style: normal;
+  font-family: var(--fct-font-mono);
+  font-size: var(--tbl-fs);
+  color: var(--fct-text-muted);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Drawn rather than laid out. A real border would make the header cells one
+     pixel wider than the body cells they sit over, and that pixel accumulates
+     across the row until the last column's title is over the wrong data. */
+  box-shadow: inset -1px 0 0 var(--fct-border);
+}
+.tbl-hcell:hover { color: var(--fct-text); background: var(--fct-surface-raised); }
+.tbl-hcell.is-sorted { color: var(--fct-accent); }
+.tbl-hcell b { font-weight: 600; }
+.tbl-hcell u { text-decoration: none; }
+
+.tbl-scroll { flex: 1; overflow: auto; outline: none; background: var(--fct-bg); }
+.tbl-spacer { position: relative; }
+.tbl-rows { position: absolute; top: 0; left: 0; will-change: transform; }
+.tbl-row {
+  display: flex;
+  white-space: pre;
+  font-family: var(--fct-font-mono);
+  font-size: var(--tbl-fs);
+  line-height: 22px;
+}
+.tbl-row.is-currentrow { background: color-mix(in srgb, var(--fct-accent) 9%, transparent); }
+/* The row number is the source row, so it stays put while a sort moves
+   everything else around. Fixed width, right-aligned, dim. */
+.tbl-num {
+  flex: none;
+  width: calc(9ch + 16px);
+  padding: 0 8px;
+  font-style: normal;
+  text-align: right;
+  color: var(--fct-text-dim);
+  box-shadow: inset -1px 0 0 var(--fct-border);
+  background: var(--fct-surface);
+}
+.tbl-cell {
+  flex: none;
+  padding: 0 8px;
+  font-style: normal;
+  color: var(--fct-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Numbers right, text left — the one piece of formatting that makes a column
+   of figures scannable rather than a wall. */
+.tbl-cell.is-num { text-align: right; color: var(--fct-info); }
+.tbl-cell.is-cursor {
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+/* A cell whose block has not arrived. Deliberately not blank — an empty cell
+   is a fact about the data, and "not loaded yet" is a fact about the app. */
+.tbl-cell.is-waiting::after {
+  content: "";
+  display: block;
+  height: 9px;
+  margin: 6px 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fct-text-dim) 22%, transparent);
+}
+
+.tbl-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-4);
+  padding: 6px var(--fct-sp-3);
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  font-size: var(--fct-fs-xs);
+  min-height: 26px;
+}
+.tbl-note { color: var(--fct-text-muted); flex: none; max-width: 45%; }
+.tbl-cell-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--fct-font-mono);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.tbl-cell-text:hover { color: var(--fct-text); }
+
+/* ── Crash recovery note ──────────────────────────────────────────────────
+ *
+ * Fixed rather than a row in the shell grid: it appears once, at boot, and
+ * giving it a row would push the whole explorer down and back up again as it
+ * is dismissed. Bottom-left, above the status bar — it wants to be seen, not
+ * to be the first thing the eye lands on. */
+.recover {
+  position: fixed;
+  left: calc(var(--fct-sp-3) + 46px);
+  bottom: calc(var(--fct-sp-3) + 28px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  max-width: min(620px, calc(100vw - 120px));
+  padding: 8px 10px 8px var(--fct-sp-3);
+  border: 1px solid var(--fct-warning);
+  border-radius: var(--fct-radius);
+  background: color-mix(in srgb, var(--fct-warning) 12%, var(--fct-surface));
+  box-shadow: var(--fct-shadow);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text);
+}
+.recover-text { flex: 1; min-width: 0; }
+.recover-act {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recover-act:hover { border-color: var(--fct-accent); color: var(--fct-accent); }
+.recover-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.recover-close:hover { background: var(--fct-surface-raised); color: var(--fct-text); }

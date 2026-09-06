@@ -1,0 +1,669 @@
+/* ── Phone preferences & design language ─────────────────────────────────
+   Everything in here is keyed off classes and `--fct-*` variables that
+   `src/core/phone/prefs.ts` writes onto the phone root (`.ph`) and onto
+   `<html>` — the latter so the sheets and the viewer, which are body children
+   outside `.ph`, follow the same knobs. No JS re-render is needed for any
+   change: flip a class, the CSS does the rest.
+
+   Loaded after phone.css, so equal-specificity rules here win. Selectors on
+   the tile grid are kept to two class hops (`.fct-prefs .ph-grid`) and there
+   is no backdrop-filter or box-shadow on any tile: those are reserved for the
+   bars and sheets, which are one element each.
+
+   Variables written by prefs.ts:
+     --fct-glass         0–1     translucency of bars/sheets (0 = opaque)
+     --fct-tile-radius   px      tile corner radius
+     --fct-tile-gap      px      gutter between tiles
+     --fct-cols-photos   n       fixed columns for the Photos roll (when .fct-cols-photos)
+     --fct-cols-all      n       fixed columns for the All roll (when .fct-cols-all)
+     --fct-cols-albums   n       album grid columns
+     --fct-ui-scale      n       text size (base.css derives the font sizes) */
+
+/* ── Base: deep ground, soft accent bloom, tighter type ─────────────────── */
+
+.ph.fct-prefs {
+  /* A single bloom of the accent in the top-left corner over the theme's
+     base. Painted once on a fixed element; the tiles cover most of it and the
+     translucent bars let it show through, which is what makes them read as
+     glass rather than as grey. */
+  background:
+    radial-gradient(120% 70% at 0% 0%,
+      color-mix(in srgb, var(--fct-accent) 11%, var(--fct-bg)),
+      var(--fct-bg) 60%);
+}
+
+.fct-prefs .ph-title {
+  letter-spacing: -0.02em;
+  font-weight: 650;
+}
+
+.fct-prefs .ph-tab-label {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: calc(9.5px * var(--fct-ui-scale));
+}
+
+.fct-prefs .ph-day {
+  letter-spacing: -0.01em;
+  /* Nearly solid — a sticky header sits over the scrolling roll and must stay
+     legible — but not fully, so the bloom shows and it does not read as a
+     grey bar cut across the pictures. No blur here: this scrolls. */
+  background: color-mix(in srgb, var(--fct-bg) 94%, transparent);
+}
+
+/* ── Bars: tinted always, glass when translucency > 0 ───────────────────── */
+
+.fct-prefs .ph-head {
+  background: color-mix(in srgb, var(--fct-bg) calc((1 - var(--fct-glass) * 0.6) * 100%), transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--fct-border) 55%, transparent);
+}
+
+.fct-prefs .ph-tabs {
+  background: color-mix(in srgb, var(--fct-surface) calc((1 - var(--fct-glass) * 0.6) * 100%), transparent);
+  border-top-color: color-mix(in srgb, var(--fct-border) 70%, transparent);
+}
+
+/* With any glass at all, the tab bar floats over the roll so the pictures
+   scroll under it — that is the only way a blur has anything to blur. The
+   body pads for it; the dock already sits above the 56px bar. The header
+   stays in flow: the sticky day headers stick to the top of the scroller and
+   a floating header would hide them. */
+.fct-glass .ph-tabs {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 31;
+  backdrop-filter: blur(calc(var(--fct-glass) * 24px));
+  -webkit-backdrop-filter: blur(calc(var(--fct-glass) * 24px));
+}
+.fct-glass .ph-body {
+  padding-bottom: calc(56px + env(safe-area-inset-bottom) + var(--fct-sp-3));
+}
+
+.fct-glass .ph-head {
+  backdrop-filter: blur(calc(var(--fct-glass) * 16px));
+  -webkit-backdrop-filter: blur(calc(var(--fct-glass) * 16px));
+}
+
+/* Sheets and overlays: the trash sheet, the settings sheet, the audio dock and
+   the viewer's tool sheet all take the same treatment. Everything under them is
+   one static screen, so the blur is paid once per frame of the sheet, not per
+   scrolled tile. */
+.fct-prefs .ph-trash,
+.fct-prefs .ph-set {
+  background: color-mix(in srgb, var(--fct-bg) calc((1 - var(--fct-glass) * 0.35) * 100%), transparent);
+}
+.fct-prefs .ph-trash-foot,
+.fct-prefs .ph-set-foot,
+.fct-prefs .ph-set-head {
+  background: color-mix(in srgb, var(--fct-bg) calc((1 - var(--fct-glass) * 0.6) * 100%), transparent);
+}
+.fct-prefs .ph-dock {
+  background: color-mix(in srgb, var(--fct-surface-raised) calc((1 - var(--fct-glass) * 0.5) * 100%), transparent);
+  box-shadow: none;
+  border-top-color: color-mix(in srgb, var(--fct-border) 70%, transparent);
+}
+.fct-prefs .phv-sheet {
+  background: color-mix(in srgb, var(--fct-surface) calc((1 - var(--fct-glass) * 0.5) * 100%), transparent);
+}
+.fct-glass .ph-trash,
+.fct-glass .ph-set,
+.fct-glass .ph-dock {
+  backdrop-filter: blur(calc(var(--fct-glass) * 24px));
+  -webkit-backdrop-filter: blur(calc(var(--fct-glass) * 24px));
+}
+.fct-glass .phv-sheet {
+  backdrop-filter: blur(calc(6px + var(--fct-glass) * 20px));
+  -webkit-backdrop-filter: blur(calc(6px + var(--fct-glass) * 20px));
+}
+
+/* ── Glow: a halo behind the accent where it is a state, not a surface ──── */
+
+.fct-prefs:not(.fct-no-glow) .ph-tab[aria-selected="true"] .ph-tab-icon {
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--fct-accent) 70%, transparent));
+}
+.fct-prefs:not(.fct-no-glow) .ph-act[aria-pressed="true"] .ph-act-icon {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--fct-accent) 60%, transparent));
+}
+.fct-prefs:not(.fct-no-glow) .ph-set-seg[aria-pressed="true"],
+.fct-prefs:not(.fct-no-glow) .ph-set-switch[aria-checked="true"] {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--fct-accent) 30%, transparent);
+}
+.fct-chips-bubbles:not(.fct-no-glow) .ph-chip[aria-pressed="true"] {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--fct-accent) 40%, transparent);
+}
+
+/* ── Roll: gap, corners, columns, badges ────────────────────────────────── */
+
+.fct-prefs .ph-grid {
+  gap: var(--fct-tile-gap, 2px);
+  padding: 0 var(--fct-tile-gap, 2px);
+}
+.fct-prefs .ph-cell {
+  border-radius: var(--fct-tile-radius, 0);
+}
+
+/* Fixed column counts. `--ph-cols` from the pinch gesture is an inline
+   variable on the tab's own `.ph-screen`, which outranks anything set on the
+   root — so this does not fight it through the variable, it replaces the
+   `grid-template-columns` declaration outright, and only when the person has
+   chosen a number over "pinch". The album detail grid follows Photos. */
+.ph.fct-cols-photos[data-tab="photos"] .ph-grid,
+.ph.fct-cols-photos[data-tab="albums"] .ph-grid {
+  grid-template-columns: repeat(var(--fct-cols-photos), 1fr);
+}
+.ph.fct-cols-all[data-tab="all"] .ph-grid {
+  grid-template-columns: repeat(var(--fct-cols-all), 1fr);
+}
+
+.fct-no-labels .ph-cell-cap { display: none; }
+.fct-no-badges .ph-cell-dur,
+.fct-no-badges .ph-cell-play { display: none; }
+.fct-no-day-counts .ph-day-count { display: none; }
+
+/* ── Filter row: off, a thin underline strip, or the old bubbles ────────── */
+
+.fct-prefs-nochips .ph-chips { display: none; }
+
+.fct-chips-segmented .ph-chips {
+  gap: 0;
+  padding: 0 var(--fct-sp-3);
+  border-bottom: 1px solid color-mix(in srgb, var(--fct-border) 60%, transparent);
+}
+.fct-chips-segmented .ph-chip {
+  flex: 1 1 0;
+  min-height: 40px;
+  padding: 0 var(--fct-sp-1);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: color var(--fct-t-fast);
+}
+.fct-chips-segmented .ph-chip[aria-pressed="true"] {
+  color: var(--fct-accent);
+  background: transparent;
+  /* An inset shadow is the underline: no extra element, no layout change when
+     the selection moves. */
+  box-shadow: inset 0 -2px 0 var(--fct-accent);
+}
+
+/* ── Albums: open, cards, or a fanned stack ────────────────────────────── */
+
+.fct-prefs .ph-albums {
+  grid-template-columns: repeat(var(--fct-cols-albums, 2), 1fr);
+}
+
+.ph-album-pile { position: relative; }
+.ph-album-sheet { display: none; }
+
+/* Open: covers meet edge to edge like the roll, no frame, the name laid over
+   the bottom of the picture on a scrim. */
+.fct-album-borderless .ph-albums {
+  gap: var(--fct-tile-gap, 2px);
+  padding: 0 var(--fct-tile-gap, 2px);
+}
+.fct-album-borderless .ph-album {
+  position: relative;
+  gap: 0;
+}
+.fct-album-borderless .ph-album-cover { border-radius: var(--fct-tile-radius, 0); }
+.fct-album-borderless .ph-album-cover::after {
+  content: "";
+  position: absolute;
+  inset: 55% 0 0 0;
+  background: linear-gradient(to bottom, transparent, rgb(0 0 0 / 0.62));
+  pointer-events: none;
+}
+.fct-album-borderless .ph-album-name,
+.fct-album-borderless .ph-album-count {
+  position: absolute;
+  left: var(--fct-sp-3);
+  right: var(--fct-sp-3);
+  color: rgb(255 255 255 / 0.96);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
+}
+.fct-album-borderless .ph-album-name {
+  bottom: calc(var(--fct-sp-2) + var(--fct-fs-sm) + 2px);
+  letter-spacing: -0.01em;
+}
+.fct-album-borderless .ph-album-count {
+  bottom: var(--fct-sp-2);
+  margin-top: 0;
+  color: rgb(255 255 255 / 0.72);
+}
+/* No names means the count drops to the name's place, and no count means
+   nothing overlaps the picture at all. */
+.fct-album-borderless.fct-no-album-names .ph-album-count { bottom: var(--fct-sp-2); }
+.fct-album-borderless.fct-no-album-names.fct-no-album-counts .ph-album-cover::after { display: none; }
+
+/* Cards: the album in a box, the way it was. */
+.fct-album-boxed .ph-album {
+  padding: var(--fct-sp-2);
+  gap: var(--fct-sp-1);
+  border: 1px solid color-mix(in srgb, var(--fct-border) 80%, transparent);
+  border-radius: calc(var(--fct-radius) + var(--fct-sp-1));
+  background: color-mix(in srgb, var(--fct-surface) 85%, transparent);
+}
+.fct-album-boxed .ph-album-cover { border-radius: var(--fct-radius); }
+.fct-album-boxed .ph-album-name { padding: var(--fct-sp-1) var(--fct-sp-1) 0; }
+.fct-album-boxed .ph-album-count { padding: 0 var(--fct-sp-1); }
+
+/* Stack: a pile of prints. Two sheets behind the cover, each turned a few
+   degrees, on the surface colour so they read as paper edges in any theme.
+   The cover is inset so the fanned corners stay inside the tile. */
+.fct-album-stack .ph-albums { padding: var(--fct-sp-4) var(--fct-sp-3); gap: var(--fct-sp-4) var(--fct-sp-3); }
+.fct-album-stack .ph-album-pile { aspect-ratio: 1; }
+.fct-album-stack .ph-album-sheet {
+  display: block;
+  position: absolute;
+  inset: 5%;
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  border: 1px solid color-mix(in srgb, var(--fct-border) 80%, transparent);
+  transform: rotate(-5deg);
+  pointer-events: none;
+}
+.fct-album-stack .ph-album-sheet + .ph-album-sheet {
+  transform: rotate(4deg);
+  background: color-mix(in srgb, var(--fct-surface-raised) 70%, var(--fct-text-muted));
+}
+.fct-album-stack .ph-album-cover {
+  position: absolute;
+  inset: 5%;
+  aspect-ratio: auto;
+  border-radius: var(--fct-radius-sm);
+  outline: 1px solid color-mix(in srgb, var(--fct-border) 80%, transparent);
+}
+.fct-album-stack .ph-album-name { text-align: center; letter-spacing: -0.01em; }
+.fct-album-stack .ph-album-count { text-align: center; }
+
+.fct-no-album-names .ph-album-name { display: none; }
+.fct-no-album-counts .ph-album-count { display: none; }
+
+/* ── Motion: transform and opacity only, ~200ms, and a single off switch ── */
+
+@keyframes fct-sheet-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fct-screen-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.fct-prefs .ph-set:not([hidden]),
+.fct-prefs .ph-trash:not([hidden]) {
+  animation: fct-sheet-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* The screen fades in when a tab is switched. `.ph-body > *` is one element,
+   the tab's screen; its children are not touched. */
+.fct-prefs .ph-body > .ph-screen {
+  animation: fct-screen-in 180ms ease-out;
+}
+.fct-prefs .ph-act:active { transform: scale(0.94); }
+.fct-prefs .ph-act,
+.fct-prefs .ph-set-seg,
+.fct-prefs .ph-set-swatch-dot {
+  transition: transform 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+.fct-prefs .ph-set-knob { transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 160ms; }
+
+.fct-no-motion .ph-set:not([hidden]),
+.fct-no-motion .ph-trash:not([hidden]),
+.fct-no-motion .ph-body > .ph-screen,
+.fct-no-motion .ph-scanbar::after { animation: none; }
+.fct-no-motion .ph-act,
+.fct-no-motion .ph-set-seg,
+.fct-no-motion .ph-set-swatch-dot,
+.fct-no-motion .ph-set-knob,
+.fct-no-motion .ph-chip,
+.fct-no-motion .ph-tab,
+.fct-no-motion .ph-cell img,
+.fct-no-motion .phv-sheet { transition: none; }
+.fct-no-motion .ph-act:active { transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fct-prefs .ph-set:not([hidden]),
+  .fct-prefs .ph-trash:not([hidden]),
+  .fct-prefs .ph-body > .ph-screen { animation: none; }
+  .fct-prefs .ph-act,
+  .fct-prefs .ph-set-seg,
+  .fct-prefs .ph-set-swatch-dot,
+  .fct-prefs .ph-set-knob { transition: none; }
+  .fct-prefs .ph-act:active { transform: none; }
+}
+
+/* ── The settings sheet ─────────────────────────────────────────────────── */
+
+.ph-set {
+  position: fixed;
+  inset: 0;
+  /* 40 is the contract with the shell's back handler; see trash sheet. */
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  outline: none;
+}
+/* Required: `display: flex` above outranks the user-agent `[hidden]`. */
+.ph-set[hidden] { display: none; }
+
+.ph-set-head { border-bottom: 1px solid color-mix(in srgb, var(--fct-border) 55%, transparent); }
+
+.ph-set-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  padding: var(--fct-sp-2) var(--fct-sp-3) var(--fct-sp-5);
+}
+
+.ph-set-section { padding-top: var(--fct-sp-4); }
+.ph-set-section:first-child { padding-top: var(--fct-sp-2); }
+
+.ph-set-title {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  margin: 0 0 var(--fct-sp-1);
+  padding: 0 var(--fct-sp-1);
+  font-size: var(--fct-fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fct-accent);
+}
+.ph-set-title-icon { display: inline-grid; place-items: center; font-size: 14px; }
+
+.ph-set-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  min-height: 56px;
+  padding: var(--fct-sp-2) var(--fct-sp-1);
+  border-bottom: 1px solid color-mix(in srgb, var(--fct-border) 45%, transparent);
+}
+.ph-set-row:last-child { border-bottom: none; }
+.ph-set-row-seg,
+.ph-set-row-slider {
+  grid-template-columns: 1fr;
+  gap: var(--fct-sp-2);
+}
+.ph-set-row-toggle { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+.ph-set-label {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  min-width: 0;
+}
+.ph-set-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: var(--fct-radius-sm);
+  background: color-mix(in srgb, var(--fct-surface-raised) 80%, transparent);
+  color: var(--fct-text-dim);
+  font-size: 16px;
+}
+.ph-set-text { display: grid; gap: 2px; min-width: 0; }
+.ph-set-name { font-size: var(--fct-fs-md); font-weight: 600; letter-spacing: -0.01em; }
+.ph-set-hint { font-size: var(--fct-fs-xs); color: var(--fct-text-muted); line-height: 1.35; }
+
+/* Segments: one row, equal widths, the pressed one raised. */
+.ph-set-segs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--fct-radius);
+  background: color-mix(in srgb, var(--fct-surface) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fct-border) 60%, transparent);
+}
+.ph-set-seg {
+  display: grid;
+  place-items: center;
+  gap: 1px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0 var(--fct-sp-1);
+  border: none;
+  border-radius: calc(var(--fct-radius) - 3px);
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-set-seg-icon { display: grid; place-items: center; font-size: 15px; }
+.ph-set-seg-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ph-set-segs[data-count="6"] .ph-set-seg-text,
+.ph-set-segs[data-count="5"] .ph-set-seg-text { font-size: var(--fct-fs-xs); }
+.ph-set-seg[aria-pressed="true"] {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  outline: 1px solid color-mix(in srgb, var(--fct-accent) 55%, transparent);
+  outline-offset: -1px;
+}
+.ph-set-seg[aria-pressed="true"] .ph-set-seg-icon { color: var(--fct-accent); }
+.ph-set-seg:active { transform: scale(0.97); }
+
+/* Switch: 52×32, the knob slides. The pressed state is `aria-checked`. */
+/* panel-fit tags the sheet .fct-phone-panel and gives every button in it a
+   44px minimum. The switch is drawn as a 32px pill on purpose: its 48px hit
+   area is the whole row, which is the click target. */
+.ph-set-switch,
+body.fct-phone .fct-phone-panel .ph-set-switch {
+  position: relative;
+  width: 52px;
+  height: 32px;
+  min-height: 32px;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--fct-border);
+  background: var(--fct-surface-raised);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-set-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--fct-text-muted);
+}
+.ph-set-switch[aria-checked="true"],
+body.fct-phone .fct-phone-panel .ph-set-switch[aria-checked="true"] {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+}
+.ph-set-switch[aria-checked="true"] .ph-set-knob {
+  transform: translateX(20px);
+  background: var(--fct-accent-ink);
+}
+
+/* Slider: the track fills to the thumb from `--fct-range`, set by the sheet. */
+.ph-set-slider {
+  display: grid;
+  grid-template-columns: 1fr 6ch;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  min-height: 48px;
+}
+.ph-set-value {
+  text-align: right;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fct-text-dim);
+}
+.ph-set-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 48px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.ph-set-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right,
+    var(--fct-accent) 0 var(--fct-range, 0%),
+    var(--fct-border) var(--fct-range, 0%));
+}
+.ph-set-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -10px;
+  border-radius: 50%;
+  border: 2px solid var(--fct-bg);
+  background: var(--fct-accent);
+}
+.ph-set-range::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right,
+    var(--fct-accent) 0 var(--fct-range, 0%),
+    var(--fct-border) var(--fct-range, 0%));
+}
+.ph-set-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--fct-bg);
+  background: var(--fct-accent);
+}
+.ph-set-range:focus-visible { outline: 2px solid var(--fct-accent); outline-offset: -2px; border-radius: var(--fct-radius); }
+
+/* Swatches: 44px targets, 28px dots, a ring on the chosen one. */
+.ph-set-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fct-sp-1);
+}
+/* Same panel-fit override as the switch: the swatch is a dot plus a name,
+   54px tall, taller than the 44px minimum it would otherwise be clamped to. */
+.ph-set-swatch,
+body.fct-phone .fct-phone-panel .ph-set-swatch {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 3px;
+  width: 54px;
+  height: 54px;
+  min-height: 54px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fct-text-dim);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-set-swatch-dot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--fct-swatch, var(--fct-accent));
+  font-size: 14px;
+}
+.ph-set-swatch-name {
+  font-size: calc(9.5px * var(--fct-ui-scale));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fct-text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ph-set-swatch[aria-pressed="true"] .ph-set-swatch-name { color: var(--fct-text); }
+.ph-set-swatch-theme .ph-set-swatch-dot {
+  background: conic-gradient(from 200deg,
+    var(--fct-text-muted), var(--fct-surface-raised), var(--fct-text-dim), var(--fct-text-muted));
+}
+.ph-set-swatch-custom .ph-set-swatch-dot {
+  background: var(--fct-swatch, var(--fct-surface-raised));
+  outline: 1px dashed var(--fct-text-muted);
+  outline-offset: -1px;
+}
+.ph-set-swatch[aria-pressed="true"] .ph-set-swatch-dot {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 2px var(--fct-bg), 0 0 0 4px var(--fct-text);
+}
+/* The colour input is the whole label, invisible — one tap, native picker. */
+.ph-set-picker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ph-set-foot {
+  display: flex;
+  padding: var(--fct-sp-2) var(--fct-sp-3)
+    max(var(--fct-sp-2), env(safe-area-inset-bottom));
+  border-top: 1px solid color-mix(in srgb, var(--fct-border) 55%, transparent);
+  background: var(--fct-bg);
+}
+.ph-set-reset, .ph-set-reset-auto { flex: 1; margin: 0; }
+.ph-set-reset:disabled, .ph-set-reset-auto:disabled { opacity: 0.45; cursor: default; }
+
+/* ── Landscape ────────────────────────────────────────────────────────────
+   A phone on its side is about 2.2x as wide as it is tall, so every column
+   count — pinch, fixed, albums — is doubled. The tile stays the size the
+   person chose; there are simply twice as many across. A landscape phone used
+   to fall into the desktop shell entirely (see core/phone/env.ts). */
+@media (orientation: landscape) and (max-height: 599px) and (pointer: coarse) {
+  .ph .ph-grid {
+    grid-template-columns: repeat(calc(var(--ph-cols, 4) * 2), 1fr);
+  }
+  .ph.fct-cols-photos[data-tab="photos"] .ph-grid,
+  .ph.fct-cols-photos[data-tab="albums"] .ph-grid {
+    grid-template-columns: repeat(calc(var(--fct-cols-photos) * 2), 1fr);
+  }
+  .ph.fct-cols-all[data-tab="all"] .ph-grid {
+    grid-template-columns: repeat(calc(var(--fct-cols-all) * 2), 1fr);
+  }
+  .ph .ph-albums {
+    grid-template-columns: repeat(calc(var(--fct-cols-albums, 2) * 2), 1fr);
+  }
+}
+
+/* Auto-blur keywords: a text field in the slider row's slot. */
+.ph-set-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--fct-line, rgba(127, 127, 127, 0.35));
+  background: var(--fct-bg-2, transparent);
+  color: inherit;
+  font: inherit;
+}

@@ -1,0 +1,299 @@
+/* Transcription (item 30).
+
+   Same column as the audio and video editors — head, controls, body, action
+   bar — because the panels are the same gesture on different material and
+   muscle memory should carry between them.
+
+   The one difference that matters: the body here is prose, not a timeline, and
+   it is the thing the user is actually reading. So it gets the wide measure, a
+   comfortable line height, and selectable text, while everything else stays
+   out of the way. */
+
+.scribe {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+}
+/* Not optional — `display: grid` beats the browser's own `[hidden]` rule, and
+   two panels have shipped pinned over the file list without this line. */
+.scribe[hidden] {
+  display: none;
+}
+
+.scribe-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.scribe-title {
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+.scribe-note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scribe-note.scribe-bad {
+  color: var(--fct-danger);
+}
+
+/* ── Setup ──────────────────────────────────────────────────────────────── */
+
+.scribe-setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.scribe-setup[hidden] {
+  display: none;
+}
+
+.scribe-field {
+  display: grid;
+  gap: var(--fct-sp-1);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+}
+.scribe-field select,
+.scribe-field input {
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.scribe-num {
+  width: calc(64px * var(--fct-density));
+}
+
+.scribe-check {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  height: calc(30px * var(--fct-density));
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.scribe-go,
+.scribe-stop,
+.scribe-bar button,
+.scribe-export button {
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+.scribe-go {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font-weight: 600;
+}
+.scribe-go:hover {
+  background: var(--fct-accent-hover);
+  border-color: var(--fct-accent-hover);
+}
+.scribe-go:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Progress ───────────────────────────────────────────────────────────── */
+
+.scribe-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.scribe-progress[hidden] {
+  display: none;
+}
+.scribe-track {
+  flex: 1;
+  min-width: 0;
+  height: calc(6px * var(--fct-density));
+  border-radius: 999px;
+  background: var(--fct-surface-overlay);
+  overflow: hidden;
+}
+.scribe-fill {
+  width: 0;
+  height: 100%;
+  background: var(--fct-accent);
+  transition: width var(--fct-t-med);
+}
+/* Decoding and loading have no honest fraction. Rather than a bar that sits at
+   zero looking stuck, it fills and breathes — which reads as "working" and
+   promises nothing about how far along it is. */
+.scribe-fill.scribe-unknown {
+  animation: scribe-breathe 1.4s ease-in-out infinite;
+}
+@keyframes scribe-breathe {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scribe-fill.scribe-unknown { animation: none; opacity: 0.6; }
+  .scribe-fill { transition: none; }
+}
+.scribe-barnote {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  min-width: calc(200px * var(--fct-density));
+  text-align: right;
+}
+
+/* ── The transcript ─────────────────────────────────────────────────────── */
+
+.scribe-body {
+  overflow: auto;
+  padding: var(--fct-sp-4) var(--fct-sp-3);
+  outline: none;
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scribe-body { scroll-behavior: auto; }
+}
+
+.scribe-line {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: var(--fct-sp-3);
+  max-width: 76ch;
+  margin: 0 auto;
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  border-radius: var(--fct-radius-sm);
+  border-left: 2px solid transparent;
+  transition: background var(--fct-t-fast), opacity var(--fct-t-fast);
+}
+.scribe-line:hover {
+  background: var(--fct-surface-raised);
+}
+.scribe-now {
+  background: var(--fct-selection);
+  border-left-color: var(--fct-accent);
+}
+/* Dimmed rather than hidden — a search hit is read with the sentence before it,
+   and removing the surroundings takes the answer away with the noise. */
+.scribe-dim {
+  opacity: 0.28;
+}
+
+.scribe-at {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--fct-text-dim);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.scribe-at:hover {
+  color: var(--fct-accent);
+}
+
+.scribe-who {
+  border: 1px solid var(--fct-border);
+  border-radius: 999px;
+  padding: 0 var(--fct-sp-2);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scribe-who:hover {
+  color: var(--fct-accent);
+  border-color: var(--fct-accent);
+}
+.scribe-who[hidden] {
+  display: none;
+}
+.scribe-rename {
+  width: calc(120px * var(--fct-density));
+  height: calc(22px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-accent);
+  border-radius: 999px;
+  background: var(--fct-surface-overlay);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+}
+
+.scribe-text {
+  font-size: var(--fct-fs-md);
+  line-height: 1.6;
+  user-select: text;
+}
+
+/* ── Out ────────────────────────────────────────────────────────────────── */
+
+.scribe-export {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.scribe-export[hidden] {
+  display: none;
+}
+.scribe-find,
+.scribe-name {
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.scribe-find {
+  flex: 1;
+  min-width: calc(140px * var(--fct-density));
+}
+.scribe-name {
+  width: calc(220px * var(--fct-density));
+}

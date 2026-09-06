@@ -1,0 +1,30 @@
+<!--
+  FACET mark — the letter F cut out of dark metal, red on the lit edges.
+
+  Vector source of record. The polygon coordinates here and in make-icons.py are
+  the same numbers in the same 512 reference frame; change one and change the
+  other, or the app icon and the wordmark drift apart.
+
+  The mark is authored where it reads well as a letterform rather than
+  pre-centred, so the group carries the translation that centres its bounding
+  box (175..415 × 86..426) on the plate.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>FACET</title>
+
+  <rect width="512" height="512" rx="112" fill="#08090c"/>
+
+  <!-- bbox centre is (295, 256); the plate centre is (256, 256), and the mark
+       is scaled to 0.66 of the plate on its long side (340 units tall). -->
+  <g transform="translate(256 256) scale(0.9929) translate(-295 -256)">
+    <!-- the letter: up the stem, along the top bar, down the angled cut -->
+    <path d="M175 86 H400 L368 164 H247 V426 H175 Z" fill="#2c2f39"/>
+    <!-- the middle arm, cut at the same angle as the top bar -->
+    <path d="M247 232 H352 L322 296 H247 Z" fill="#2c2f39"/>
+
+    <!-- where the light lands: two edges only, never a full outline -->
+    <path d="M175 86 H190 V426 H175 Z" fill="#d6282e"/>
+    <path d="M400 86 L368 164 H383 L415 86 Z" fill="#d6282e"/>
+    <path d="M175 86 H190 V106 H175 Z" fill="#ff5c4a"/>
+  </g>
+</svg>

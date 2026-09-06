@@ -1,0 +1,558 @@
+/* Settings (item 33).
+
+   A centred sheet over a dimmed shell, like watch folders — changing a
+   preference is a thing you stop to do. It is taller and wider than the other
+   sheets because the search box is the primary control: the point of the panel
+   is that you can type "hidden" and be one row away, and that only works if a
+   screenful of rows is visible under the box. */
+
+.prefs {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: var(--fct-sp-4);
+  background: rgb(0 0 0 / 0.55);
+}
+
+/* Every element in here that gets `display` also has to say what `hidden` means,
+   because a `display` declaration in a stylesheet outranks the browser's own
+   `[hidden] { display: none }`. Worth stating once, loudly: the search box, the
+   group folding and the backup box all hide things by setting `.hidden`, and a
+   missing line here does not throw, does not fail a test that reads `.hidden`,
+   and simply shows the user something that is supposed to be gone. */
+.prefs[hidden],
+.prefs-row[hidden],
+.prefs-section[hidden],
+.prefs-backup[hidden],
+.prefs-navlink[hidden],
+.prefs-file[hidden],
+.prefs-control[hidden] {
+  display: none;
+}
+
+.prefs-sheet {
+  width: min(860px, 100%);
+  height: min(680px, 100%);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  color: var(--fct-text);
+  overflow: hidden;
+}
+
+/* ── head ── */
+
+.prefs-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: var(--fct-sp-3);
+}
+
+.prefs-title {
+  margin: 0;
+  font-size: var(--fct-fs-lg);
+  font-weight: 600;
+}
+
+.prefs-search {
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.prefs-search:focus-visible {
+  outline: none;
+  border-color: var(--fct-accent);
+}
+
+.prefs-x {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.prefs-x:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+/* ── body ── */
+
+.prefs-middle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--fct-sp-3);
+  min-height: 0;
+}
+
+.prefs-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: calc(132px * var(--fct-density));
+  padding-top: var(--fct-sp-1);
+  border-right: 1px solid var(--fct-border);
+}
+
+.prefs-navlink {
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.prefs-navlink:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+.prefs-body {
+  overflow-y: auto;
+  padding-right: var(--fct-sp-2);
+  scroll-behavior: smooth;
+}
+
+.prefs-section + .prefs-section {
+  margin-top: var(--fct-sp-4);
+}
+
+.prefs-section-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-1) 0;
+  /* The rows scroll under this, so it needs the sheet's own ground behind it
+     rather than transparency. */
+  background: var(--fct-surface);
+}
+
+.prefs-group {
+  margin: 0;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fct-text-dim);
+}
+
+.prefs-wipe {
+  border: 0;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+}
+
+.prefs-wipe:hover {
+  color: var(--fct-text);
+  text-decoration: underline;
+}
+
+/* ── a row ── */
+
+.prefs-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) 0;
+  border-top: 1px solid var(--fct-border);
+}
+
+.prefs-text {
+  min-width: 0;
+}
+
+.prefs-label {
+  display: block;
+  font-size: var(--fct-fs-md);
+  cursor: default;
+}
+
+/* A changed setting is marked on the label, not the control: the control
+   already shows its value, and what you cannot see is whether that value is
+   yours or ours. */
+.prefs-row[data-changed="true"] .prefs-label::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 6px;
+  vertical-align: 2px;
+  border-radius: 50%;
+  background: var(--fct-accent);
+}
+
+.prefs-help {
+  margin: 2px 0 0;
+  max-width: 62ch;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.5;
+}
+
+.prefs-restart {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-warning);
+  font-size: var(--fct-fs-xs);
+}
+
+.prefs-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--fct-sp-2);
+}
+
+/* Kept in the layout when it has nothing to undo. Hiding it outright moves
+   every control in the row sideways the moment you change something, which is
+   exactly when you are looking at it. */
+.prefs-undo[hidden] {
+  /* !important because the app-wide `[hidden] { display: none !important }`
+     in base.css would otherwise collapse this reserved slot. Hidden here
+     means invisible, not gone -- the row must not shuffle sideways. */
+  display: block !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.prefs-undo {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.prefs-undo:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+/* ── controls ── */
+
+.prefs-toggle {
+  min-width: calc(52px * var(--fct-density));
+  height: calc(26px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: 999px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+}
+
+.prefs-toggle[data-on="true"] {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+.prefs-num {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.prefs-step {
+  width: calc(26px * var(--fct-density));
+  height: calc(26px * var(--fct-density));
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.prefs-step:hover:not(:disabled) {
+  border-color: var(--fct-accent);
+}
+
+.prefs-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.prefs-field {
+  width: calc(76px * var(--fct-density));
+  height: calc(26px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  text-align: right;
+}
+
+.prefs-text-field {
+  width: calc(220px * var(--fct-density));
+  text-align: left;
+}
+
+.prefs-field:focus-visible {
+  outline: none;
+  border-color: var(--fct-accent);
+}
+
+.prefs-unit {
+  /* Wide enough for the longest unit in the registry ("lines"), so a group
+     mixing px with lines still has one column of fields. */
+  min-width: 5ch;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+}
+
+.prefs-select {
+  height: calc(26px * var(--fct-density));
+  min-width: calc(150px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+/* ── backup and foot ── */
+
+.prefs-backup {
+  display: grid;
+  gap: var(--fct-sp-2);
+  padding-top: var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+}
+
+.prefs-json {
+  width: 100%;
+  padding: var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text-dim);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  resize: vertical;
+}
+
+.prefs-backup-row {
+  display: flex;
+  gap: var(--fct-sp-2);
+}
+
+.prefs-note {
+  margin: 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+}
+
+.prefs-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--fct-sp-2);
+  padding-top: var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+}
+
+.prefs-btn {
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.prefs-btn:hover {
+  border-color: var(--fct-accent);
+}
+
+.prefs-danger:hover {
+  border-color: var(--fct-danger);
+  color: var(--fct-danger);
+}
+
+.prefs-action {
+  height: calc(26px * var(--fct-density));
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+}
+
+.prefs-empty {
+  margin: var(--fct-sp-4) 0 0;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-sm);
+}
+
+/* ── narrow ───────────────────────────────────────────────────────────────
+
+   Until the window minimum came down to 420 this panel had no width rule at
+   all, because it could not be made narrow enough to need one. It can now, and
+   three things break in order as the sheet shrinks.
+
+   The nav column goes first: 132px of fixed sidebar beside a body that still
+   has to hold a 220px text field. It becomes a strip across the top, scrolling
+   sideways, because a settings panel whose sections you cannot reach is a
+   settings panel with one section.
+
+   The row goes second. `minmax(0, 1fr) auto` puts the label and the control on
+   one line and lets the control keep its intrinsic width, so a select of 150px
+   plus a text field of 220px pushes the label to nothing and then pushes
+   itself off the edge. Stacked, the control sits under its own label and the
+   help text gets the full width it wanted anyway.
+
+   The controls go last, and they are the reason `width` is overridden rather
+   than `min-width` alone: `.prefs-text-field` asks for a fixed 220px and a
+   fixed width does not care how little room is left. */
+
+@media (max-width: 680px) {
+  .prefs {
+    /* The sheet is the whole screen at this size. Padding here is padding the
+       sheet does not get to use. */
+    padding: 0;
+  }
+
+  .prefs-sheet {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .prefs-head {
+    /* Title above, search and close below: three across is what forces the
+       search box -- the primary control -- down to a few characters. */
+    grid-template-columns: minmax(0, 1fr) 26px;
+    grid-template-areas:
+      "title  x"
+      "search search";
+    row-gap: var(--fct-sp-2);
+  }
+
+  .prefs-title { grid-area: title; }
+  .prefs-x { grid-area: x; }
+  .prefs-search { grid-area: search; min-width: 0; }
+
+  .prefs-middle {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .prefs-nav {
+    flex-direction: row;
+    width: auto;
+    padding: 0 0 var(--fct-sp-2);
+    border-right: 0;
+    border-bottom: 1px solid var(--fct-border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .prefs-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .prefs-navlink {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .prefs-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--fct-sp-1);
+  }
+
+  .prefs-control {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .prefs-help {
+    max-width: none;
+  }
+
+  .prefs-text-field,
+  .prefs-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .prefs-foot {
+    flex-wrap: wrap;
+  }
+}
+
+/* ── reduce motion (appearance.reduceMotion) ──
+
+   Lives here rather than in base.css because the setting that writes the
+   attribute is declared here too, and a rule this broad should be next to its
+   switch. The system preference is honoured on its own so the app behaves
+   before anyone has opened settings; the attribute is the explicit override. */
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion="full"]) *,
+  html:not([data-motion="full"]) *::before,
+  html:not([data-motion="full"]) *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}

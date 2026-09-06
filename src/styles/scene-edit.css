@@ -1,0 +1,225 @@
+/*
+ * The 3D edit panel (item 6).
+ *
+ * It floats over the stage instead of taking width from it, and that is a
+ * decision rather than laziness: the canvas is sized in device pixels from
+ * `.sv-stage`'s measured box, so a panel in the flex flow would resize the
+ * drawing buffer every time it opened — the model would jump, and on a large
+ * mesh the reallocation is visible. Floating leaves the buffer alone.
+ *
+ * The panel does want the mouse — unlike `.sv-note`, which is transparent to it
+ * — so it is kept to a fixed column at one edge. Everything it covers is model
+ * that can no longer be orbited, and a panel that spread would quietly take the
+ * viewer's main gesture away.
+ */
+
+.se {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  bottom: 10px;
+  width: 268px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface-raised);
+  box-shadow: var(--fct-shadow);
+  overflow: hidden;
+}
+
+/* Without this the `display: flex` above outlives the `hidden` property and the
+   panel never closes — the same trap `.sv-note` fell into. */
+.se[hidden] {
+  display: none;
+}
+
+.se-head {
+  flex: none;
+  padding: 8px 12px;
+  font-size: var(--fct-fs-sm);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fct-text-muted);
+  background: var(--fct-surface);
+  border-bottom: 1px solid var(--fct-border);
+}
+
+.se-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+
+.se-foot {
+  flex: none;
+  padding: 6px 12px;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  border-top: 1px solid var(--fct-border);
+}
+
+/* ── Groups ───────────────────────────────────────────────────────────────── */
+
+.se-group {
+  margin: 0 0 14px;
+}
+
+.se-group:last-child {
+  margin-bottom: 0;
+}
+
+.se-title {
+  margin: 0 0 6px;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  color: var(--fct-text);
+}
+
+.se-field,
+.se-triple {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.se-label {
+  flex: none;
+  width: 62px;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+}
+
+/* Three boxes share the row evenly. `min-width: 0` because a number input's
+   default intrinsic width is wider than a third of this panel and would push
+   the last axis out of sight. */
+.se-num {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: var(--fct-fs-sm) / 1 var(--fct-font-mono);
+  text-align: right;
+}
+
+.se-num:focus {
+  outline: 2px solid var(--fct-accent);
+  outline-offset: -1px;
+}
+
+.se-field input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.se-field output {
+  flex: none;
+  width: 34px;
+  font: var(--fct-fs-xs) / 1 var(--fct-font-mono);
+  color: var(--fct-text-muted);
+  text-align: right;
+}
+
+.se-colour {
+  flex: 1 1 auto;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+}
+
+.se-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.se-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+  cursor: pointer;
+}
+
+/* ── Words ────────────────────────────────────────────────────────────────── */
+
+.se-hint,
+.se-warn,
+.se-empty {
+  margin: 0 0 8px;
+  font-size: var(--fct-fs-xs);
+  line-height: 1.45;
+  color: var(--fct-text-muted);
+}
+
+/* What a format drops is the one line in this panel that has to be read before
+   the button below it is pressed, so it is the one line that is not grey. */
+.se-warn {
+  color: var(--fct-danger);
+}
+
+.se-out {
+  font-family: var(--fct-font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+.se-row {
+  display: flex;
+  gap: 6px;
+}
+
+.se-act,
+.se-save {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+}
+
+.se-act {
+  flex: 1 1 0;
+}
+
+.se-save {
+  width: 100%;
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+.se-act:hover,
+.se-save:hover {
+  background: var(--fct-card-hover);
+  color: var(--fct-text);
+}
+
+.se-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

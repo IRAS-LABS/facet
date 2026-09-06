@@ -1,0 +1,244 @@
+/*
+ * Miller columns.
+ *
+ * The one rule that matters here: `.cv-row` must be exactly ROW px tall and
+ * nothing in this file may change that. The virtualiser positions rows
+ * absolutely from `i * ROW`, so a padding or a line-height that pushes a row to
+ * 25 px does not make the list look roomier — it makes every row overlap the
+ * one below it, further down the further you scroll. Density belongs in the
+ * constant in columns-view.ts, where the arithmetic can see it.
+ *
+ * Everything else is ordinary: a horizontal scroller of fixed-width columns,
+ * each with its own vertical scroller, and a peek pane on the end.
+ */
+
+.cv {
+  position: absolute;
+  inset: 0;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+}
+
+.cv-scroll {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* ── One column ───────────────────────────────────────────────────────────── */
+
+.cv-col {
+  flex: 0 0 var(--cv-col, 232px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--fct-border);
+  outline: none;
+}
+
+/* The focused column is the one the keyboard drives, and with four of them side
+   by side that is not guessable — so it is stated, quietly, on the whole
+   column rather than on a single row. */
+.cv-col:focus-within {
+  background: color-mix(in srgb, var(--fct-surface) 55%, transparent);
+}
+
+.cv-head {
+  flex: none;
+  padding: 5px 10px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fct-text-dim);
+  border-bottom: 1px solid var(--fct-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cv-list {
+  flex: 1 1 auto;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.cv-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.cv-note {
+  flex: none;
+  margin: 0;
+  padding: 10px;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+}
+
+/* ── One row ──────────────────────────────────────────────────────────────── */
+
+.cv-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 4px;
+  box-sizing: border-box;
+  font-size: var(--fct-fs-sm);
+  line-height: 24px;
+  cursor: default;
+  user-select: none;
+}
+
+.cv-row:hover {
+  background: var(--fct-surface-raised);
+}
+
+.cv-row[aria-selected="true"] {
+  background: var(--fct-selection);
+}
+
+.cv-row[data-cursor="1"] {
+  box-shadow: inset 0 0 0 1px var(--fct-accent);
+}
+
+.cv-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 3px;
+  color: var(--fct-text-dim);
+  font-size: 12px;
+}
+
+.cv-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cv-nm {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The chevron is the whole promise of this view: it says which of these rows
+   has something to the right of it. */
+.cv-chev {
+  color: var(--fct-text-dim);
+  font-size: 13px;
+}
+
+.cv-row[aria-selected="true"] .cv-chev {
+  color: var(--fct-text);
+}
+
+/* ── The peek ─────────────────────────────────────────────────────────────── */
+
+.cv-peek {
+  flex: 0 0 var(--cv-peek, 300px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  border-left: 1px solid var(--fct-border);
+}
+
+.cv-face {
+  flex: none;
+  position: relative;
+  height: 190px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--fct-surface-raised);
+}
+
+.cv-face img {
+  width: 100%;
+  height: 100%;
+  /* Contain, not cover: this is the one place showing a single file, so the
+     whole of it is worth more than a tidy rectangle. */
+  object-fit: contain;
+  display: block;
+}
+
+.cv-face-glyph {
+  font-size: 46px;
+  color: var(--fct-text-dim);
+}
+
+.cv-why {
+  padding: 0 12px;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  text-align: center;
+}
+
+.cv-text {
+  margin: 0;
+  padding: 8px 10px;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font: 10px/1.45 ui-monospace, Consolas, monospace;
+  color: var(--fct-text-dim);
+  white-space: pre;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+}
+
+.cv-peek-name {
+  margin: 0;
+  font-size: var(--fct-fs-sm);
+  word-break: break-word;
+}
+
+.cv-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  font-size: 11px;
+}
+
+.cv-facts dt {
+  color: var(--fct-text-dim);
+}
+
+.cv-facts dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.cv-open {
+  margin-top: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--fct-border);
+  border-radius: 6px;
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.cv-open:hover {
+  border-color: var(--fct-accent);
+}

@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- Dev harness for the camera. See src/dev/cameracheck.ts.
+
+     No webcam is needed and none is opened: the harness feeds the surface a
+     canvas.captureStream(), which is a real MediaStreamTrack carrying real
+     frames. -->
+<html lang="en" data-theme="facet-dark">
+  <head>
+    <meta charset="utf-8" />
+    <title>camera check</title>
+  </head>
+  <body>
+    <script type="module" src="/src/dev/cameracheck.ts"></script>
+  </body>
+</html>

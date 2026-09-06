@@ -1,0 +1,39 @@
+{
+  "name": "facet",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "All-in-one file explorer and media studio. Desktop and Android, fully on-device.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IRAS-LABS/facet.git"
+  },
+  "bugs": "https://github.com/IRAS-LABS/facet/issues",
+  "homepage": "https://github.com/IRAS-LABS/facet",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "icons": "py brand/make-icons.py",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/three": "^0.185.4",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "@crabnebula/tauri-plugin-drag": "^2.1.0",
+    "@huggingface/transformers": "^4.2.0",
+    "@tauri-apps/api": "^2.11.1",
+    "libheif-js": "^1.19.8",
+    "onnxruntime-web": "1.26.0-dev.20260416-b7804b056c",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.2.108",
+    "tesseract.js": "^7.0.0",
+    "three": "^0.185.1"
+  }
+}

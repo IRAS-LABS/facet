@@ -1,0 +1,473 @@
+/* Signing a document.
+
+   The page is the subject, so it gets the room: the panel is a fixed column
+   with a thin bar top and bottom and one side rail, and every stamp is a
+   positioned element over the page rather than a second canvas.
+
+   Everything over the page is sized in per-cent, never in pixels. That is not
+   tidiness — it is the reason zooming, resizing the window and turning the
+   phone cannot move a signature relative to the page it sits on. There is no
+   pixel value anywhere in the overlay that could go stale.
+
+   Same rules as the rest of Facet: no hex literals, every colour a --fct-*
+   token, every scalable size derived from --fct-ui-scale / --fct-density. */
+
+.fct-signv {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font-family: var(--fct-font-ui);
+}
+/* Not optional — `display: grid` beats the browser's own `[hidden]` rule. */
+.fct-signv[hidden] {
+  display: none;
+}
+
+/* ── Bars ─────────────────────────────────────────────────────────────────── */
+
+.fct-signv-bar,
+.fct-signv-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  background: var(--fct-surface);
+  min-width: 0;
+}
+.fct-signv-bar {
+  border-bottom: 1px solid var(--fct-border);
+}
+.fct-signv-foot {
+  border-top: 1px solid var(--fct-border);
+}
+
+.fct-signv-title {
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.fct-signv-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.fct-signv-gap {
+  flex: 0 0 var(--fct-sp-3);
+}
+
+.fct-signv-note {
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: calc(48px * var(--fct-density));
+  text-align: center;
+}
+
+.fct-signv-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 36px: this row is reached with a thumb on the phone build. */
+  width: calc(36px * var(--fct-density));
+  height: calc(36px * var(--fct-density));
+  flex: 0 0 auto;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-dim);
+  cursor: pointer;
+  transition: color var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+.fct-signv-icon:hover {
+  color: var(--fct-text);
+  border-color: var(--fct-border-strong);
+}
+.fct-signv-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fct-signv-status {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.fct-signv-status.is-bad {
+  color: var(--fct-danger, var(--fct-accent));
+}
+
+.fct-signv-name {
+  flex: 0 1 calc(280px * var(--fct-density));
+  min-width: calc(120px * var(--fct-density));
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.fct-signv-name::placeholder {
+  color: var(--fct-text-muted);
+}
+
+.fct-signv-save {
+  flex: 0 0 auto;
+  padding: var(--fct-sp-2) var(--fct-sp-4);
+  border: 1px solid var(--fct-accent);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.fct-signv-save:hover {
+  background: var(--fct-accent-hover);
+  border-color: var(--fct-accent-hover);
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+
+.fct-signv-body {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+
+.fct-signv-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--fct-sp-3);
+  background: var(--fct-bg);
+}
+
+.fct-signv-page {
+  position: relative;
+  flex: 0 0 auto;
+  /* A drop shadow is the cheapest way to say "this is the sheet of paper and
+     that is the desk", which matters once marks can be dragged past the edge. */
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.35);
+  background: var(--fct-surface-raised);
+}
+
+.fct-signv-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.fct-signv-overlay {
+  position: absolute;
+  inset: 0;
+  /* Clicks fall through to the page except on a mark, so clicking bare paper
+     deselects instead of doing nothing. */
+  pointer-events: none;
+}
+
+/* ── Marks ────────────────────────────────────────────────────────────────── */
+
+.fct-signv-mark,
+.fct-signv-wm {
+  position: absolute;
+  transform-origin: 50% 50%;
+}
+
+.fct-signv-mark {
+  pointer-events: auto;
+  cursor: move;
+  /* touch-action so dragging a stamp on the phone moves it instead of scrolling
+     the page underneath it. */
+  touch-action: none;
+  outline: 1px dashed transparent;
+  outline-offset: 2px;
+}
+.fct-signv-mark:hover {
+  outline-color: var(--fct-border-strong);
+}
+.fct-signv-mark.is-picked {
+  outline: 1px solid var(--fct-accent);
+}
+
+.fct-signv-mark svg,
+.fct-signv-mark img,
+.fct-signv-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.fct-signv-wm svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.fct-signv-grip {
+  position: absolute;
+  right: calc(-7px * var(--fct-density));
+  bottom: calc(-7px * var(--fct-density));
+  width: calc(14px * var(--fct-density));
+  height: calc(14px * var(--fct-density));
+  border: 1px solid var(--fct-accent);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  cursor: nwse-resize;
+  opacity: 0;
+}
+.fct-signv-mark.is-picked .fct-signv-grip {
+  opacity: 1;
+}
+
+/* A cover. Filled from `mark.colour` inline, so nothing here paints it -- the
+   rules are only about making an opaque black rectangle findable again once
+   you have let go of it. */
+.fct-signv-mark.is-redact {
+  outline-offset: 0;
+}
+.fct-signv-mark.is-redact:hover {
+  outline: 1px dashed var(--fct-accent);
+}
+.fct-signv-mark.is-redact.is-picked {
+  outline: 2px solid var(--fct-accent);
+}
+
+/* The crop window: the keep is clear, everything outside it is dimmed by one
+   very large spread shadow rather than by four positioned overlays. */
+.fct-signv-crop {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+  border: 1px solid var(--fct-accent);
+  box-shadow: 0 0 0 9999px color-mix(in srgb, black 52%, transparent);
+}
+.fct-signv-crop .fct-signv-grip {
+  opacity: 1;
+}
+
+/* ── Side rail ────────────────────────────────────────────────────────────── */
+
+.fct-signv-side {
+  flex: 0 0 calc(300px * var(--fct-density));
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--fct-sp-3);
+  border-left: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+
+.fct-signv-h {
+  font-size: var(--fct-fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-muted);
+  margin: var(--fct-sp-4) 0 var(--fct-sp-2);
+}
+.fct-signv-h:first-child {
+  margin-top: 0;
+}
+
+.fct-signv-empty {
+  margin: 0 0 var(--fct-sp-2);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  line-height: 1.4;
+}
+
+.fct-signv-sigs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(120px * var(--fct-density)), 1fr));
+  gap: var(--fct-sp-2);
+}
+
+.fct-signv-sig {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  padding: var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  /* White, not the surface token: ink is drawn in ink colours and a dark card
+     under a black signature shows nothing at all. */
+  background: #fff;
+  cursor: pointer;
+}
+.fct-signv-sig:hover {
+  border-color: var(--fct-accent);
+}
+.fct-signv-sig svg,
+.fct-signv-sig img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: calc(56px * var(--fct-density));
+  object-fit: contain;
+}
+.fct-signv-signame {
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  /* The card is white, so the label needs a colour that survives on white. */
+  mix-blend-mode: difference;
+  filter: invert(1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.fct-signv-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fct-sp-2);
+  margin: var(--fct-sp-2) 0;
+}
+
+.fct-signv-btn,
+.fct-signv-toggle,
+.fct-signv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+.fct-signv-btn:hover,
+.fct-signv-toggle:hover,
+.fct-signv-chip:hover {
+  color: var(--fct-text);
+  border-color: var(--fct-border-strong);
+}
+.fct-signv-toggle[aria-pressed="true"],
+.fct-signv-chip[aria-pressed="true"] {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+}
+.fct-signv-btn svg,
+.fct-signv-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.fct-signv-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fct-sp-1);
+  margin-bottom: var(--fct-sp-2);
+}
+.fct-signv-chip {
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  font-size: var(--fct-fs-xs);
+}
+
+.fct-signv-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-1) 0;
+}
+
+.fct-signv-label {
+  flex: 0 0 calc(72px * var(--fct-density));
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+}
+
+.fct-signv-range {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--fct-accent);
+  height: calc(26px * var(--fct-density));
+}
+
+.fct-signv-val {
+  flex: 0 0 calc(44px * var(--fct-density));
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fct-signv-colour {
+  width: calc(40px * var(--fct-density));
+  height: calc(28px * var(--fct-density));
+  padding: 0;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  cursor: pointer;
+}
+/* Same reason as the pad's swatch: without these the control shows a white
+   plate with the colour shrunk inside it, and the one square meant to report
+   the watermark's colour is the one that does not. */
+.fct-signv-colour::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.fct-signv-colour::-webkit-color-swatch {
+  border: none;
+  border-radius: calc(var(--fct-radius-sm) - 1px);
+}
+
+.fct-signv-num {
+  width: calc(64px * var(--fct-density));
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+/* ── Narrow ───────────────────────────────────────────────────────────────── */
+
+@media (max-width: 820px) {
+  .fct-signv-body {
+    flex-direction: column;
+  }
+
+  .fct-signv-stage {
+    /* The page keeps the larger share: placing a signature is aiming, and you
+       cannot aim at a thumbnail. */
+    flex: 1 1 60%;
+    padding: var(--fct-sp-2);
+  }
+
+  .fct-signv-side {
+    flex: 1 1 40%;
+    min-height: 0;
+    border-left: none;
+    border-top: 1px solid var(--fct-border);
+  }
+
+  .fct-signv-name {
+    flex: 1 1 auto;
+  }
+}

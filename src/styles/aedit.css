@@ -1,0 +1,229 @@
+/* Audio editor (item 5). Same column as the video editor — head, stage,
+   clock, controls, export bar — because the two are the same gesture on
+   different material, and muscle memory should carry between them.
+
+   The one real difference is that the stage IS the timeline. Video needs a
+   picture and a strip underneath it; audio's picture is its shape over time, so
+   the waveform does both jobs and the panel gets a bigger, calmer surface to
+   aim at than a video editor's 18px track. */
+
+.aedit {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+}
+/* Not optional. `display: grid` above beats the browser's own rule for the
+   `hidden` attribute, and the video editor shipped once with an empty panel
+   pinned over the file list because this line was missing there. */
+.aedit[hidden] {
+  display: none;
+}
+
+.aedit-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.aedit-title {
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.aedit-note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aedit-note.bad {
+  color: var(--fct-danger);
+}
+
+/* ── Stage / waveform ────────────────────────────────────────────────────── */
+
+.aedit-stage {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  cursor: pointer;
+  background: var(--fct-canvas-bg);
+  /* The pointer handler seeks on drag; without this a touch drag scrolls the
+     page out from under the gesture instead. */
+  touch-action: none;
+}
+.aedit-wave {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.aedit-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--fct-danger);
+  pointer-events: none;
+}
+
+.aedit-time {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--fct-sp-1) var(--fct-sp-3);
+  background: var(--fct-surface);
+  border-top: 1px solid var(--fct-border);
+}
+.aedit-clock {
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+
+.aedit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fct-sp-4);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  background: var(--fct-surface);
+}
+.aedit-group {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+}
+.aedit-group-label {
+  font-size: var(--fct-fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-muted);
+  margin-right: var(--fct-sp-1);
+}
+.aedit-btn {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+.aedit-btn:hover {
+  background: var(--fct-surface-overlay);
+  border-color: var(--fct-border-strong);
+}
+.aedit-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* Fixed width, monospace: a readout that resizes as the number changes drags
+   the buttons either side of it out from under the cursor, which is exactly
+   what you do not want on a control you press repeatedly. */
+.aedit-read {
+  min-width: 56px;
+  text-align: center;
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+}
+/* What the chosen noise preset is for, in a sentence. Capped and clipped so a
+   long note cannot reflow the control row it sits in — the row is a toolbar,
+   and a toolbar that changes height as you use it is unusable. The full text is
+   always on the select's own tooltip. */
+.aedit-hint {
+  max-width: 34ch;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-xs);
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.aedit-check + .aedit-check {
+  margin-left: var(--fct-sp-2);
+}
+.aedit-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  cursor: pointer;
+}
+.aedit-check select {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  padding: 2px var(--fct-sp-1);
+}
+.aedit-check select:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Export ──────────────────────────────────────────────────────────────── */
+
+.aedit-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.aedit-name {
+  flex: 0 1 320px;
+  min-width: 140px;
+  height: 28px;
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.aedit-progress {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--fct-canvas-bg);
+}
+.aedit-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--fct-accent);
+  transition: width var(--fct-t-fast);
+}
+.aedit-go {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font-weight: 600;
+  padding: 0 var(--fct-sp-3);
+}
+.aedit-go:hover {
+  background: var(--fct-accent-hover);
+}

@@ -1,0 +1,278 @@
+/*
+ * The desktop panels, on a phone.
+ *
+ * Every rule here is scoped to `body.fct-phone`, which only exists when the
+ * phone shell mounted. Nothing in this file can reach the desktop build.
+ *
+ * The panels themselves are already full-screen fixed grids, so the layout is
+ * not the problem. Four things are:
+ *
+ *  1. **Their bars are single flex rows that do not wrap.** A title, a status
+ *     note and six controls at 384 CSS px puts half the controls past the right
+ *     edge with no way to reach them — and reaching sideways is the system back
+ *     gesture, so there is no rescuing it with a scroll. They wrap here.
+ *  2. **Their controls are 28–30 px tall.** That is a comfortable mouse target
+ *     and a missed thumb. Android asks for 48.
+ *  3. **Their side panes are pinned pixel widths.** A 300 px inspector beside a
+ *     384 px screen leaves 84 px for the thing you opened — which is the exact
+ *     complaint that started this: "the picture is tiny". Every one of them
+ *     becomes a full-width block stacked underneath.
+ *  4. **Nothing accounts for the gesture bar.** The last row of a panel sits
+ *     under the home indicator, so the Save button is the one control you
+ *     cannot press.
+ *
+ * `panel-fit.ts` is the other half: it puts a readable word inside the buttons
+ * whose meaning currently lives in a `title` attribute.
+ */
+
+/* ── The panel itself ─────────────────────────────────────────────────────── */
+
+body.fct-phone .fct-phone-panel {
+  /* Top inset for the status bar, bottom for the gesture pill. Applied to the
+     panel rather than to its rows so a panel with a different number of rows
+     still gets it. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  /* A panel that can be scrolled sideways at all will be, by accident, and on
+     Android the accident navigates. */
+  overflow-x: hidden;
+}
+
+/* ── Bars: wrap, don't clip ───────────────────────────────────────────────── */
+
+body.fct-phone .fct-phone-panel .vedit-bar,
+body.fct-phone .fct-phone-panel .aedit-bar,
+body.fct-phone .fct-phone-panel .ocr-bar,
+body.fct-phone .fct-phone-panel .subs-bar,
+body.fct-phone .fct-phone-panel .scribe-bar,
+body.fct-phone .fct-phone-panel .sv-bar,
+body.fct-phone .fct-phone-panel .cam-bar,
+body.fct-phone .fct-phone-panel .vedit-foot,
+body.fct-phone .fct-phone-panel .aedit-foot,
+body.fct-phone .fct-phone-panel [class$="-bar"],
+body.fct-phone .fct-phone-panel [class$="-foot"],
+body.fct-phone .fct-phone-panel [class$="-head"] {
+  flex-wrap: wrap;
+  row-gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2);
+  overflow-x: visible;
+}
+
+/* The status note in a bar is a full sentence and it was told to stay on one
+   line. On a phone it takes the whole second row and wraps like prose — the
+   sentence is the only thing in these panels that says why a job failed. */
+body.fct-phone .fct-phone-panel .vedit-note,
+body.fct-phone .fct-phone-panel .aedit-note,
+body.fct-phone .fct-phone-panel .ocr-note,
+body.fct-phone .fct-phone-panel .subs-note,
+body.fct-phone .fct-phone-panel .scribe-note,
+body.fct-phone .fct-phone-panel .sv-note,
+body.fct-phone .fct-phone-panel [class$="-note"] {
+  flex: 1 0 100%;
+  order: 99;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
+/* ...except the ones that are not sentences. A page counter ("3 / 12") and a
+   zoom readout ("100%") end in "-note" and are nothing like a status line: each
+   is a two-word span that belongs between the two buttons that change it.
+   Given a full row and `order: 99` they each took a wrapped line of their own,
+   which is what broke the sign-view header apart and left its labelled icons
+   printing over one another. Kept next to the rule it corrects, because the
+   suffix selector will keep catching things and this is the note about it. */
+body.fct-phone .fct-phone-panel .fct-signv-note {
+  flex: 0 0 auto;
+  order: 0;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* Titles were clipped to a third of the bar to leave room for controls that no
+   longer share the row. */
+body.fct-phone .fct-phone-panel [class$="-title"] {
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Controls: thumb-sized, and they say what they do ─────────────────────── */
+
+body.fct-phone .fct-phone-panel .btn,
+body.fct-phone .fct-phone-panel button,
+body.fct-phone .fct-phone-panel select,
+body.fct-phone .fct-phone-panel input[type="text"],
+body.fct-phone .fct-phone-panel input[type="search"],
+body.fct-phone .fct-phone-panel input[type="number"] {
+  min-height: 44px;
+  height: auto;
+  font-size: var(--fct-fs-sm);
+}
+
+body.fct-phone .fct-phone-panel .btn,
+body.fct-phone .fct-phone-panel button {
+  padding-inline: var(--fct-sp-3);
+}
+
+/* A slider you cannot grab is a slider you cannot use. The desktop ones are
+   4–6 px of track with a 12 px thumb. */
+body.fct-phone .fct-phone-panel input[type="range"] {
+  min-height: 44px;
+}
+body.fct-phone .fct-phone-panel input[type="range"]::-webkit-slider-thumb {
+  width: 26px;
+  height: 26px;
+}
+
+/* Checkboxes and radios in settings, watch folders and the batch queue. */
+body.fct-phone .fct-phone-panel input[type="checkbox"],
+body.fct-phone .fct-phone-panel input[type="radio"] {
+  width: 24px;
+  height: 24px;
+}
+
+/* The word `panel-fit.ts` puts inside a glyph button. Stacked under the icon so
+   the button stays roughly square and a row of them still fits. */
+body.fct-phone .fct-phone-panel button.fct-labelled {
+  display: inline-grid;
+  grid-template-rows: auto auto;
+  justify-items: center;
+  align-content: center;
+  gap: 1px;
+  line-height: 1.1;
+  padding-inline: var(--fct-sp-2);
+  /* Glyph buttons are square by declaration -- `width: calc(36px * density)`
+     and friends -- which was right until a word went inside one. A 64px label
+     in a 36px box does not clip, it spills, and a row of them prints each
+     label over its neighbour. Once labelled, the button is sized by what is in
+     it, with 44px as the floor so an unlabelled-width one stays thumb-sized. */
+  width: auto;
+  min-width: 44px;
+  max-width: 96px;
+  height: auto;
+  min-height: 44px;
+}
+
+body.fct-phone .fct-phone-panel .fct-blabel {
+  font-size: calc(10px * var(--fct-ui-scale));
+  /* The label never widens the button past the cap above; it ellipses instead,
+     and the button's `title` still says the whole thing. */
+  min-width: 0;
+  letter-spacing: 0.01em;
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Side panes become blocks ─────────────────────────────────────────────── */
+
+/* The OCR text pane, the subtitle list, and anything else laid out as
+   "content plus a fixed sidebar". Their own breakpoints stop at 900 px, which
+   catches a narrow window but was never about a phone. */
+body.fct-phone .fct-phone-panel .ocr-body,
+body.fct-phone .fct-phone-panel .subs-body,
+body.fct-phone .fct-phone-panel [class$="-body"],
+body.fct-phone .fct-phone-panel [class$="-split"] {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-auto-rows: minmax(0, auto);
+}
+
+/* The camera's look panel is an absolutely-positioned 300 px card floating over
+   a 384 px preview — it covers the picture it is meant to adjust. On a phone it
+   becomes a bottom sheet, capped so the preview above it stays the larger half.
+   Same rule the phone photo editor follows. */
+body.fct-phone .fct-phone-panel .cam-panel {
+  top: auto;
+  right: 0;
+  left: 0;
+  bottom: 0;
+  width: auto;
+  max-height: 45%;
+  border-radius: var(--fct-radius) var(--fct-radius) 0 0;
+  border-inline: none;
+  border-bottom: none;
+  padding-bottom: calc(var(--fct-sp-3) + env(safe-area-inset-bottom));
+}
+
+/* Name fields in the export bars ask for 320 px and refuse to go below 140. At
+   384 px that pushes the Export button off the row it belongs to. */
+body.fct-phone .fct-phone-panel .vedit-name,
+body.fct-phone .fct-phone-panel .aedit-name {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* ── Horizontal scrollers ─────────────────────────────────────────────────── */
+
+/* A timeline is horizontal by nature and cannot become a grid. What it can do
+   is keep its content out of the two strips down the screen edges that Android
+   reserves for the back gesture, so there is somewhere in the middle to grab
+   it. The padding scrolls with the content, so nothing is unreachable. */
+body.fct-phone .fct-phone-panel [class*="timeline"],
+body.fct-phone .fct-phone-panel [class*="strip"],
+body.fct-phone .fct-phone-panel [class*="track"] {
+  scroll-padding-inline: var(--fct-sp-3);
+  touch-action: pan-x pan-y;
+}
+
+/* ── Menus and pickers ────────────────────────────────────────────────────── */
+
+/* The context menu and the open-with picker are anchored cards sized for a
+   cursor. Full width, off the bottom, big rows. */
+body.fct-phone .menu,
+body.fct-phone .opens {
+  max-width: min(96vw, 520px);
+}
+
+body.fct-phone .menu-item,
+body.fct-phone .opens-row {
+  min-height: 48px;
+}
+
+/* ── Quick-look goes full screen ──────────────────────────────────────────── */
+
+/* On the desktop quick-look is a card floating over the folder — the point is
+   that you never left. On a phone the "card" was a letterboxed miniature with
+   its media capped at 56vh; here the file IS the screen, the same contract as
+   the photo viewer. The ✕ in the head and the back gesture both close it. */
+body.fct-phone .ql {
+  padding: 0;
+}
+body.fct-phone .ql-card {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  padding: max(var(--fct-sp-2), env(safe-area-inset-top)) var(--fct-sp-2)
+    max(var(--fct-sp-2), env(safe-area-inset-bottom));
+}
+body.fct-phone .ql-media {
+  max-height: 100%;
+}
+body.fct-phone .ql-close,
+body.fct-phone .ql-icon {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* The facts, when they are asked for, are a sheet over the bottom of the
+   screen rather than a block that pushes the document up. Opening the details
+   must not reflow the thing you are reading. */
+body.fct-phone .ql-facts {
+  /* Viewport units, not a percentage: a percentage here resolves against a
+     grid row that is itself sized by this element's content, so `45%` came out
+     as 45% of the text's own height -- the block clipped its second line and
+     never showed Modified or Path at all. */
+  max-height: 40vh;
+  overflow: auto;
+  padding: var(--fct-sp-3) var(--fct-sp-2) var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+  font-size: var(--fct-fs-sm);
+}

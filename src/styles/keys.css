@@ -1,0 +1,260 @@
+/* The shortcut editor (item 35).
+
+   Deliberately the same sheet as Settings — same ground, same head, same row
+   rhythm — because it is the same kind of act: you stop what you are doing, you
+   change one thing, you go back. A second visual language for the second
+   configuration surface would only make the app look bigger than it is. */
+
+.keys {
+  position: fixed;
+  inset: 0;
+  z-index: 71;
+  display: grid;
+  place-items: center;
+  padding: var(--fct-sp-4);
+  background: rgb(0 0 0 / 0.55);
+}
+
+/* Every element in here that gets a `display` also has to say what `hidden`
+   means: a stylesheet's `display` outranks the browser's `[hidden]`, so a
+   missing line here does not throw, does not fail a test that reads `.hidden`,
+   and simply leaves a filtered-out row on the screen. Learned on the settings
+   panel, where exactly that shipped for an afternoon. */
+.keys[hidden],
+.keys-row[hidden],
+.keys-section[hidden],
+.keys-undo[hidden] {
+  display: none;
+}
+
+/* …with the exception of the undo slot, which is reserved rather than removed:
+   the controls must not shuffle sideways the first time a shortcut changes. */
+.keys-undo[hidden] {
+  /* !important because the app-wide `[hidden] { display: none !important }`
+     in base.css would otherwise collapse this reserved slot. Hidden here
+     means invisible, not gone -- the row must not shuffle sideways. */
+  display: block !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.keys-sheet {
+  width: min(720px, 100%);
+  height: min(640px, 100%);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius);
+  background: var(--fct-surface);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  color: var(--fct-text);
+  overflow: hidden;
+}
+
+/* ── head ── */
+
+.keys-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: var(--fct-sp-3);
+}
+
+.keys-title {
+  margin: 0;
+  font-size: var(--fct-fs-lg);
+  font-weight: 600;
+}
+
+.keys-search {
+  height: calc(30px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.keys-search:focus-visible {
+  outline: none;
+  border-color: var(--fct-accent);
+}
+
+.keys-x {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.keys-x:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+/* ── body ── */
+
+.keys-body {
+  overflow-y: auto;
+  padding-right: var(--fct-sp-2);
+}
+
+.keys-section + .keys-section {
+  margin-top: var(--fct-sp-4);
+}
+
+.keys-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: var(--fct-sp-1) 0;
+  background: var(--fct-surface);
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fct-text-dim);
+}
+
+/* ── a row ── */
+
+.keys-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) 0;
+  border-top: 1px solid var(--fct-border);
+}
+
+.keys-text {
+  min-width: 0;
+}
+
+/* A rebound shortcut is marked on the label rather than on the chord: the chord
+   is the value, and a dot on the value reads as part of it. */
+.keys-row.is-changed .keys-label::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--fct-accent);
+  vertical-align: middle;
+}
+
+.keys-label {
+  display: block;
+  font-size: var(--fct-fs-md);
+}
+
+.keys-note {
+  margin: 2px 0 0;
+  font-size: var(--fct-fs-xs);
+  line-height: 1.4;
+  color: var(--fct-text-muted);
+}
+
+.keys-row.is-clash .keys-note {
+  color: var(--fct-warning);
+}
+
+.keys-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--fct-sp-1);
+}
+
+/* The chord reads as a key, not as a button: monospace, a raised face and a
+   fixed minimum width so a column of them lines up and "Ctrl+Shift+H" does not
+   make its row twice as wide as "E". */
+.keys-chord {
+  min-width: calc(112px * var(--fct-density));
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font-family: var(--fct-font-mono);
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.keys-chord:hover {
+  border-color: var(--fct-accent);
+}
+
+.keys-chord.is-empty {
+  color: var(--fct-text-muted);
+}
+
+.keys-chord.is-capturing {
+  border-color: var(--fct-accent);
+  background: color-mix(in srgb, var(--fct-accent) 18%, var(--fct-surface-raised));
+  color: var(--fct-text);
+}
+
+.keys-clear,
+.keys-undo {
+  width: calc(24px * var(--fct-density));
+  height: calc(24px * var(--fct-density));
+  border: 0;
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text-muted);
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.keys-clear:hover,
+.keys-undo:hover {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+/* ── foot ── */
+
+.keys-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding-top: var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+}
+
+.keys-hint {
+  margin: 0;
+  font-size: var(--fct-fs-xs);
+  line-height: 1.4;
+  color: var(--fct-text-muted);
+}
+
+.keys-wipe {
+  height: calc(28px * var(--fct-density));
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.keys-wipe:hover {
+  border-color: var(--fct-accent);
+}

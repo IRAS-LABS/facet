@@ -1,0 +1,421 @@
+/*
+ * Photo viewer + blur editor.
+ *
+ * Every colour is a theme token — the viewer inherits whatever theme the shell
+ * is on, including user themes, without a single hardcoded hex. The one
+ * exception is the checkerboard behind transparent PNGs, which has to stay
+ * neutral or it stops reading as "this is transparent".
+ */
+
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "bar   bar"
+    "stage panel"
+    "hint  panel";
+  background: color-mix(in srgb, var(--fct-bg) 92%, black);
+  color: var(--fct-text);
+}
+
+.viewer[hidden] { display: none; }
+
+/* ── Top bar ───────────────────────────────────────────────────────────── */
+
+.viewer-bar {
+  grid-area: bar;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+
+.viewer-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--fct-text-dim);
+  padding: 0 8px;
+}
+
+.viewer-btn {
+  appearance: none;
+  border: 1px solid var(--fct-border);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.viewer-btn:hover {
+  background: color-mix(in srgb, var(--fct-accent) 18%, var(--fct-surface-raised));
+  border-color: var(--fct-border-strong);
+}
+
+/* ── Stage ─────────────────────────────────────────────────────────────── */
+
+.viewer-stage {
+  grid-area: stage;
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  /* Transparent PNGs need a neutral ground, not the theme background, or you
+     cannot tell an empty alpha channel from a dark-grey photo. */
+  background-color: #1b1b1e;
+  background-image:
+    linear-gradient(45deg, #232327 25%, transparent 25%, transparent 75%, #232327 75%),
+    linear-gradient(45deg, #232327 25%, transparent 25%, transparent 75%, #232327 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+  touch-action: none;
+}
+
+.viewer-canvas {
+  /* The canvas is always full source resolution; this is the only scaling. */
+  display: block;
+  grid-area: 1 / 1;
+  image-rendering: auto;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  will-change: transform;
+}
+
+.viewer-overlay {
+  grid-area: 1 / 1;
+  position: relative;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.viewer-overlay[data-edit="true"] {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.viewer-hint {
+  grid-area: hint;
+  padding: 6px 14px;
+  min-height: 0;
+  font-size: 12px;
+  color: var(--fct-text-dim);
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+
+.viewer-hint:empty { display: none; }
+
+/* ── Restored-edits notice ─────────────────────────────────────────────── */
+/* Floated over the stage rather than given a grid row: it is a transient
+   message about the work, and giving it a row of its own would shove the photo
+   down and back up again every time a file is opened. */
+.viewer-restored {
+  position: absolute;
+  top: calc(var(--fct-topbar-h) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  max-width: min(760px, 80vw);
+  padding: 8px 10px 8px 14px;
+  border: 1px solid var(--fct-border-strong);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text);
+}
+/* The file changed underneath the edit. Loud on purpose — this is the case
+   where blindly saving writes old regions over a photo that has moved on. */
+.viewer-restored.is-stale {
+  border-color: var(--fct-danger);
+  background: color-mix(in srgb, var(--fct-danger) 14%, var(--fct-surface-raised));
+}
+
+/* ── Region boxes and handles ──────────────────────────────────────────── */
+
+.vr-box {
+  position: absolute;
+  border: 1px dashed color-mix(in srgb, var(--fct-accent) 70%, transparent);
+  pointer-events: none;
+}
+
+.vr-box[data-sel="true"] {
+  border: 1px solid var(--fct-accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+
+.vr-box[data-off="true"] {
+  border-style: dotted;
+  opacity: 0.4;
+}
+
+.vr-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -6px 0 0 -6px;
+  border-radius: 3px;
+  background: var(--fct-accent);
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.vr-handle[data-h="nw"], .vr-handle[data-h="se"] { cursor: nwse-resize; }
+.vr-handle[data-h="ne"], .vr-handle[data-h="sw"] { cursor: nesw-resize; }
+.vr-handle[data-h="n"],  .vr-handle[data-h="s"]  { cursor: ns-resize; }
+.vr-handle[data-h="e"],  .vr-handle[data-h="w"]  { cursor: ew-resize; }
+
+/* ── Panel ─────────────────────────────────────────────────────────────── */
+
+.viewer-panel {
+  grid-area: panel;
+  width: 300px;
+  overflow-y: auto;
+  padding: 12px;
+  border-left: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.viewer-panel[hidden] { display: none; }
+
+/* Titled panel groups are <details> (item 2): each one is a dropdown, so no
+   group can push another off the bottom of a scroll. */
+.vp-summary {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fct-text-dim);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The default triangle is drawn by the ::marker/::-webkit-details-marker
+   pseudo-element and cannot be positioned; replaced with one that sits on the
+   text baseline and turns with the group. */
+.vp-summary::-webkit-details-marker { display: none; }
+.vp-summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 120ms ease;
+}
+.vp-section[open] > .vp-summary::before { transform: rotate(90deg); }
+
+.vp-summary:hover { color: var(--fct-text); }
+.vp-summary:focus-visible {
+  outline: 2px solid var(--fct-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.vp-reset {
+  margin-top: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--fct-text-dim);
+  background: var(--fct-surface-raised);
+  border: 1px solid var(--fct-border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.vp-reset:hover { color: var(--fct-text); border-color: var(--fct-accent); }
+
+.vp-tools {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.vp-tool {
+  appearance: none;
+  border: 1px solid var(--fct-border);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border-radius: 8px;
+  padding: 8px 0;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.vp-tool[data-on="true"] {
+  background: var(--fct-accent);
+  color: var(--fct-bg);
+  border-color: var(--fct-accent);
+}
+
+.vp-layers { display: flex; flex-direction: column; gap: 4px; }
+
+.vp-layer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.vp-layer[data-sel="true"] {
+  border-color: var(--fct-accent);
+  background: color-mix(in srgb, var(--fct-accent) 12%, transparent);
+}
+
+.vp-eye, .vp-del {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--fct-text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+}
+
+.vp-del:hover { color: var(--fct-danger, #ff6b6b); }
+
+.vp-name {
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 0;
+}
+
+.vp-name:focus {
+  outline: none;
+  border-bottom-color: var(--fct-accent);
+}
+
+.vp-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fct-text-dim);
+}
+
+.vp-params { display: flex; flex-direction: column; gap: 8px; }
+
+.vp-row {
+  display: grid;
+  grid-template-columns: 62px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fct-text-dim);
+}
+
+.vp-row output {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--fct-text);
+  min-width: 38px;
+  text-align: right;
+}
+
+.vp-row input[type="range"] { width: 100%; accent-color: var(--fct-accent); }
+
+.vp-select {
+  grid-column: 2 / -1;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border: 1px solid var(--fct-border);
+  border-radius: 7px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.vp-colour {
+  grid-column: 2 / -1;
+  width: 100%;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--fct-border);
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+}
+
+.vp-toggle {
+  appearance: none;
+  width: 100%;
+  border: 1px solid var(--fct-border);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border-radius: 8px;
+  padding: 7px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.vp-actions { display: flex; gap: 6px; }
+.vp-actions .viewer-btn { flex: 1; }
+
+.vp-save {
+  appearance: none;
+  border: 1px solid var(--fct-accent);
+  background: color-mix(in srgb, var(--fct-accent) 22%, var(--fct-surface-raised));
+  color: var(--fct-text);
+  border-radius: 9px;
+  padding: 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.vp-save:disabled { opacity: 0.6; cursor: default; }
+
+/*
+ * Full width, directly under the shape row: it is another way of adding a
+ * region, not a command, and it should read as one. Quieter than .vp-save
+ * because it is reversible — Save a copy is the only button here that writes.
+ */
+.vp-faces {
+  appearance: none;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--fct-border);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.vp-faces:hover:not(:disabled) { border-color: var(--fct-accent); }
+.vp-faces:disabled { opacity: 0.6; cursor: progress; }

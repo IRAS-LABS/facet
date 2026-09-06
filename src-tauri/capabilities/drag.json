@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-drag",
+  "description": "Dragging files out of FACET into another application (item 9). Its own capability rather than a line in `default`, because the plugin behind it is compiled out on Android — a permission naming a plugin that is not in the binary fails the whole Android build, which is exactly how this file came to exist.",
+  "platforms": ["windows", "macOS", "linux"],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "drag:default"
+  ]
+}

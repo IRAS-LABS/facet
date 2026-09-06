@@ -1,0 +1,352 @@
+/* Reading a document (item 32).
+
+   Same column as the other panels — head, warnings, settings, progress, body,
+   status — so the muscle memory carries over. The body is split, picture on
+   the left and text on the right, for the reason the whole panel exists: a
+   recognised word you cannot see sitting on the word it came from is a word
+   nobody has actually checked.
+
+   Every box over the picture is positioned in per-cent of the picture, and
+   the picture's width is the only thing zoom changes. That means zooming is
+   one property on one element and several thousand boxes follow it exactly,
+   with no arithmetic that could round differently further down the page. */
+
+.ocr {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+}
+/* Not optional — `display: grid` beats the browser's own `[hidden]` rule. */
+.ocr[hidden] {
+  display: none;
+}
+
+/* ── Head ─────────────────────────────────────────────────────────────────── */
+
+.ocr-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.ocr-title {
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 34%;
+}
+.ocr-note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ocr-note.ocr-bad {
+  color: var(--fct-danger);
+}
+
+/* ── Warnings ─────────────────────────────────────────────────────────────── */
+
+/* Full sentences rather than an icon with a tooltip. These say why a result is
+   bad in terms the user can act on — "the scan is under 300 dpi" — and that is
+   worth a line of the panel. When there is nothing wrong the strip collapses
+   to nothing, because it is empty, not because it is hidden. */
+.ocr-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ocr-flag {
+  padding: var(--fct-sp-1) var(--fct-sp-3);
+  font-size: var(--fct-fs-sm);
+  background: color-mix(in srgb, var(--fct-warning) 16%, var(--fct-bg));
+  color: var(--fct-text);
+  border-bottom: 1px solid var(--fct-border);
+}
+.ocr-flag-empty,
+.ocr-flag-impossible {
+  background: color-mix(in srgb, var(--fct-danger) 18%, var(--fct-bg));
+}
+
+/* ── Settings ─────────────────────────────────────────────────────────────── */
+
+.ocr-setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.ocr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+}
+.ocr-field select {
+  min-width: calc(120px * var(--fct-density));
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.ocr-check {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+}
+.ocr-check input[disabled] + span {
+  opacity: 0.5;
+}
+
+.ocr button {
+  padding: var(--fct-sp-1) var(--fct-sp-3);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+.ocr button:hover:not(:disabled) {
+  background: var(--fct-surface-overlay);
+  border-color: var(--fct-border-strong);
+}
+.ocr button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ocr-go {
+  background: var(--fct-accent) !important;
+  border-color: var(--fct-accent) !important;
+  color: var(--fct-accent-ink) !important;
+  font-weight: 600;
+}
+.ocr-go:disabled {
+  opacity: 0.5;
+}
+.ocr-step {
+  min-width: calc(28px * var(--fct-density));
+  text-align: center;
+}
+
+/* ── Progress ─────────────────────────────────────────────────────────────── */
+
+.ocr-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.ocr-progress[hidden] {
+  display: none;
+}
+.ocr-track {
+  flex: 1;
+  height: calc(6px * var(--fct-density));
+  background: var(--fct-surface-overlay);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.ocr-fill {
+  height: 100%;
+  width: 0;
+  background: var(--fct-accent);
+  transition: width var(--fct-t-med);
+}
+/* Tesseract reports no fraction while the core compiles, and a bar that sat at
+   zero for three seconds would read as hung. Striping it says "working" without
+   claiming a number that does not exist. */
+.ocr-fill.ocr-unknown {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--fct-accent) 0 10px,
+    color-mix(in srgb, var(--fct-accent) 45%, transparent) 10px 20px
+  );
+}
+.ocr-barnote {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+
+.ocr-body {
+  display: grid;
+  grid-template-columns: 1fr minmax(300px, 38%);
+  min-height: 0;
+}
+
+.ocr-stage {
+  overflow: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--fct-sp-3);
+  background: var(--fct-bg);
+  /* A checker so the edges of a white page are visible against the panel, and
+     so a transparent PNG does not look like a blank one. */
+  background-image:
+    linear-gradient(45deg, var(--fct-surface) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--fct-surface) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--fct-surface) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--fct-surface) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+
+/* The wrapper is the only thing zoom touches; the canvas fills it and the
+   overlay covers it exactly, so the two can never disagree about where a word
+   is. `position: relative` here is what every box is measured against. */
+.ocr-shot {
+  position: relative;
+  width: 100%;
+  margin: 0 auto;
+  box-shadow: var(--fct-shadow);
+}
+.ocr-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ocr-boxes {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  /* Selecting the canvas with a drag would fight the marquee. */
+  user-select: none;
+  touch-action: none;
+}
+
+.ocr-word {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--fct-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--fct-accent) 10%, transparent);
+  border-radius: 2px;
+  pointer-events: none;
+  transition: background var(--fct-t-fast);
+}
+/* Doubt is drawn, not written: a warning colour on the word itself puts the
+   uncertainty where the user is already looking. */
+.ocr-word.ocr-doubt {
+  border-color: color-mix(in srgb, var(--fct-warning) 75%, transparent);
+  background: color-mix(in srgb, var(--fct-warning) 18%, transparent);
+}
+.ocr-word.ocr-hit {
+  border-color: var(--fct-info);
+  background: color-mix(in srgb, var(--fct-info) 35%, transparent);
+}
+.ocr-word.ocr-picked {
+  border-color: var(--fct-accent);
+  background: color-mix(in srgb, var(--fct-accent) 40%, transparent);
+}
+
+.ocr-marquee {
+  position: absolute;
+  border: 1px dashed var(--fct-accent);
+  background: color-mix(in srgb, var(--fct-accent) 12%, transparent);
+  pointer-events: none;
+}
+.ocr-marquee[hidden] {
+  display: none;
+}
+
+.ocr-text {
+  overflow: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--fct-sp-3) var(--fct-sp-4);
+  border-left: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+  font-size: var(--fct-fs-md);
+  line-height: 1.65;
+}
+.ocr-para {
+  margin: 0 0 1em;
+  /* Text off a scan can contain a 300-character run with no space in it when a
+     table is read as one word; without this it pushes the pane wider than the
+     panel and the whole layout shifts. */
+  overflow-wrap: anywhere;
+}
+.ocr-text mark {
+  background: var(--fct-info);
+  color: var(--fct-bg);
+  border-radius: 2px;
+}
+
+/* ── Status ───────────────────────────────────────────────────────────────── */
+
+.ocr-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+.ocr-pageno {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  min-width: calc(48px * var(--fct-density));
+  text-align: center;
+}
+.ocr-find {
+  flex: 1;
+  min-width: calc(120px * var(--fct-density));
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.ocr-name {
+  width: calc(200px * var(--fct-density));
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+/* On a narrow window the picture and the text stack rather than shrink: a
+   column of text 140px wide is not readable, and neither is a page of scan
+   rendered into the same space. */
+@media (max-width: 900px) {
+  .ocr-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  .ocr-text {
+    border-left: none;
+    border-top: 1px solid var(--fct-border);
+  }
+}

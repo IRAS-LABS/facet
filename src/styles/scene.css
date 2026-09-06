@@ -1,0 +1,147 @@
+/*
+ * The 3D viewer (item 13).
+ *
+ * One rule matters here and it is the opposite of the one in columns.css: the
+ * canvas must have **no size of its own at all**. Its drawing buffer is set in
+ * pixels by `renderer.setSize`, from the measured size of `.sv-stage`, and any
+ * CSS width or height here would fight that — the model would stretch, or the
+ * buffer would be resized on every frame in a loop that never settles. The
+ * canvas fills its parent by `position: absolute; inset: 0` and nothing else.
+ */
+
+.sv {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  font: var(--fct-fs-md) / 1.4 var(--fct-font-ui);
+}
+
+.sv[hidden] {
+  display: none;
+}
+
+/* ── Top bar ──────────────────────────────────────────────────────────────── */
+
+.sv-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--fct-surface-raised);
+  border-bottom: 1px solid var(--fct-border);
+}
+
+.sv-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 8px;
+  font-size: var(--fct-fs-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sv-btn {
+  flex: none;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text-dim);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+}
+
+.sv-btn:hover {
+  background: var(--fct-card-hover);
+  color: var(--fct-text);
+}
+
+/* A pressed toggle has to be readable at a glance from across the bar — half
+   these buttons are states, not actions, and a hover tint alone does not say
+   which. */
+.sv-btn[data-on="1"] {
+  background: var(--fct-accent);
+  border-color: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+/* ── Stage ────────────────────────────────────────────────────────────────── */
+
+.sv-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sv-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  /* Orbit is a drag, and without this every drag also selects the page chrome
+     behind it — which on a fast spin selects the whole window. */
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sv-canvas:active {
+  cursor: grabbing;
+}
+
+/* The message that replaces a scene: a file FACET cannot read, or one that did
+   not parse. Centred and quiet — it is an explanation, not an alarm. */
+.sv-note {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  text-align: center;
+  white-space: pre-wrap;
+  color: var(--fct-text-muted);
+  max-width: 44ch;
+  margin: 0 auto;
+  /* The note lies across the whole stage, so without this it eats the
+     pointerdown that starts an orbit and the model cannot be turned at all —
+     silently, because a dead drag looks like a viewer that simply has no
+     controls. It is text; it never needs the mouse. */
+  pointer-events: none;
+}
+
+/* An author `display` beats the user-agent's `[hidden] { display: none }` no
+   matter how specific either is, so the rule above would keep this on screen
+   over a perfectly good model for the rest of the session. Every element with
+   both a `display` and a `hidden` toggle needs this line. */
+.sv-note[hidden] {
+  display: none;
+}
+
+/* ── Status line ──────────────────────────────────────────────────────────── */
+
+.sv-status {
+  flex: none;
+  height: var(--fct-status-h, 24px);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  background: var(--fct-surface-raised);
+  border-top: 1px solid var(--fct-border);
+  font-size: var(--fct-fs-xs);
+  font-family: var(--fct-font-mono);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="facet-dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="color-scheme" content="dark light">
+  <title>Facet</title>
+  <link rel="icon" href="/favicon.ico">
+</head>
+<body>
+  <div id="app">
+    <aside id="rail"    class="rail"></aside>
+    <!-- The folder tree mounts itself here at startup (src/ui/tree.ts). It is
+         not declared in the markup because it owns its own root element and
+         its own grid area. -->
+    <header id="topbar" class="topbar"></header>
+    <main   id="stage"  class="stage"></main>
+    <footer id="status" class="status"></footer>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

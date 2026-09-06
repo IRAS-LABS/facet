@@ -1,0 +1,118 @@
+/*
+ * The desktop editor's category bar and its dropdowns.
+ *
+ * Paired with `@ui/edit-rail`, which imports this file directly — see the note
+ * there about why it is not loaded from `main.ts` with the rest.
+ *
+ * Everything here is a theme token and a scaled length. No hex: the editor
+ * inherits whatever theme the shell is on, user themes included. No fixed px on
+ * anything that should grow: fonts come off `--fct-ui-scale` and boxes off
+ * `--fct-density`, so a person who has turned the interface up gets a bigger
+ * category bar rather than the same one with clipped labels.
+ */
+
+/* ── The bar ───────────────────────────────────────────────────────────────
+ *
+ * A three-column grid rather than a wrapping flex row: the categories are a
+ * fixed set in a fixed order, and a grid keeps them on the same rows at every
+ * scale instead of reflowing into a different shape each time the density
+ * changes. Sticky, because it is the way back to every other tool and scrolling
+ * the regions list should not take it off screen — which is the whole failure
+ * this replaces.
+ */
+.erail {
+  position: sticky;
+  top: calc(-1 * var(--fct-sp-3));
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--fct-sp-1);
+  margin: calc(-1 * var(--fct-sp-3)) calc(-1 * var(--fct-sp-3)) 0;
+  padding: var(--fct-sp-3) var(--fct-sp-3) var(--fct-sp-2);
+  border-bottom: 1px solid var(--fct-border);
+  background: var(--fct-surface);
+}
+
+.erail-cat {
+  appearance: none;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: calc(2px * var(--fct-density));
+  min-height: calc(46px * var(--fct-density));
+  padding: var(--fct-sp-1) calc(2px * var(--fct-density));
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  line-height: 1.1;
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast),
+    border-color var(--fct-t-fast);
+}
+
+.erail-cat:hover {
+  border-color: var(--fct-border-strong);
+  background: color-mix(in srgb, var(--fct-accent) 16%, var(--fct-surface-raised));
+  color: var(--fct-text);
+}
+
+/* The open category. Filled rather than outlined so that, with a menu hanging
+   off it, it reads as the thing the menu belongs to. `--fct-accent-ink` is the
+   foreground the accent was picked against; plain `--fct-text` disappears into
+   it on the light themes. */
+.erail-cat[data-on="true"] {
+  border-color: var(--fct-accent);
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+
+/* `.fct-icon` is `1em` square, so the drawing follows this font-size. */
+.erail-cat-icon {
+  font-size: calc(18px * var(--fct-ui-scale));
+  line-height: 0;
+}
+
+.erail-cat-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ── Rows the surface cannot run ───────────────────────────────────────────
+ *
+ * `ContextMenu` has no disabled state — every row it draws is a live command —
+ * so the rail stamps `data-off` on the rows whose tool cannot act right now.
+ * They stay clickable and answer with the reason, which is why they keep a
+ * pointer cursor and a hover: an inert row that swallows the click is how a
+ * greyed tool becomes a bug report.
+ */
+.ctx-row[data-off="true"] .ctx-name {
+  color: var(--fct-text-muted);
+  font-style: italic;
+}
+
+.ctx-row[data-off="true"]:hover,
+.ctx-row[data-off="true"][data-on="true"] {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text-muted);
+}
+
+.ctx-row[data-off="true"]:hover .ctx-name,
+.ctx-row[data-off="true"][data-on="true"] .ctx-name {
+  color: var(--fct-text-muted);
+}
+
+/* The row the dropdown just jumped to. A menu pick that opens a section of nine
+   sliders has to say which of the nine it meant, or the trip through the menu
+   was for nothing. Focus alone is too quiet — a range input's focus ring is a
+   thin outline in a column of identical tracks. */
+.vp-row[data-lit="true"] {
+  border-radius: var(--fct-radius-sm);
+  outline: 1px solid var(--fct-accent);
+  outline-offset: calc(2px * var(--fct-density));
+}
