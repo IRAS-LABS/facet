@@ -14,6 +14,16 @@ something is fixed.
   `perf()`, so it was the one `[fct-perf]` line that never reached the native
   sink — meaning it did not show up in `adb logcat` on a release build, which
   is exactly the problem the mark helper exists to solve.
+- Android 14's "Select photos" partial grant read as no access at all.
+  `READ_MEDIA_VISUAL_USER_SELECTED` was tested for but never declared in the
+  manifest, and Android reports an undeclared permission as denied — so the
+  app told you it could see nothing while showing you the photos you had
+  picked. **Needs a new APK to reach a phone; 0.1.0 still has it.**
+- `.jpe`, `.jfif`, `.apng` and `.avifs` files had no thumbnail. They are JPEG,
+  JPEG, PNG and AVIF under other names, and the viewer always opened them —
+  only the preview cache's extension list had not kept up.
+- The Table view described itself as reading SQLite, which nothing in this
+  repository does, and did not mention Excel, which it does.
 
 ### Added
 
@@ -21,6 +31,11 @@ something is fixed.
   that actually has the WinRT share sheet, CF_HDROP clipboard and
   `DoDragDrop` code paths).
 - Issue and pull-request templates.
+- README: how to sideload the APK, how to verify its signing certificate, what
+  the upgrade signature mismatch costs, and why the app asks for each Android
+  permission — including all-files access.
+- README: one table of every file format, what opens it, and what is
+  recognised but deliberately not read.
 
 ## [0.1.0] — 2026-09-06
 
