@@ -32,6 +32,7 @@ import {
   type GalleryItem,
 } from "@core/phone/gallery";
 import { perf } from "@core/phone/mark";
+import { resolveHandoff } from "@core/phone/handoff";
 import { canView } from "@core/model3d/formats";
 import { dropFav } from "./favorites";
 import { el, fill } from "./dom";
@@ -113,6 +114,8 @@ export class PhoneShell {
   private unbindPrefs: (() => void) | null = null;
   private dock: AudioDock | null = null;
   private onWake: (() => void) | null = null;
+  /** One hand-off resolves at a time: wake and mount can both fire at once. */
+  private handoffBusy = false;
 
   private head: HTMLElement;
   private titleEl: HTMLElement;
@@ -171,7 +174,14 @@ export class PhoneShell {
     // rapid flicking from costing a walk per flick. One rescan updates every
     // tab, since they all read the same store.
     this.onWake = () => {
-      if (document.visibilityState === "visible") this.store.refreshIfStale(15_000);
+      if (document.visibilityState !== "visible") return;
+      this.store.refreshIfStale(15_000);
+      // Coming back to the foreground is also how "Open with FACET" arrives
+      // while the app is already running: another app raises the chooser, the
+      // system delivers to `MainActivity.onNewIntent`, and this activity comes
+      // forward. Asked here rather than on a timer because that is the only
+      // moment an intent can have landed.
+      void this.drainHandoff();
     };
     document.addEventListener("visibilitychange", this.onWake);
     window.addEventListener("focus", this.onWake);
@@ -198,6 +208,41 @@ export class PhoneShell {
     // panel that is layered against the body.
     parent.append(this.viewer.el);
     this.show(this.prefs.get().defaultTab);
+    // A cold start *from* a file: the intent was queued in `onCreate`, before
+    // the WebView existed, and has been waiting ever since. The default tab is
+    // shown first on purpose -- the viewer opens over it, so backing out of
+    // the handed-over file lands on the gallery rather than on nothing.
+    void this.drainHandoff();
+  }
+
+  /**
+   * Open whatever another app has handed to FACET since the last ask.
+   *
+   * Off Android this drains nothing and costs one resolved promise, which is
+   * why it can sit on the wake path unguarded.
+   */
+  private async drainHandoff(): Promise<void> {
+    if (this.handoffBusy) return;
+    this.handoffBusy = true;
+    try {
+      const paths = await this.host.fs.openPending();
+      if (paths.length === 0) return;
+      const got = await resolveHandoff(paths, (dir) => this.host.fs.list(dir));
+      if (!got) return;
+      // Told, not silent. Arriving in a different app and being dropped on a
+      // photo with no explanation is disorienting, and when the file could not
+      // be resolved at all the count is the only clue that anything happened.
+      if (got.siblings.length > 1 && paths.length > 1) {
+        this.flash(`Opened ${got.siblings.length} files`);
+      }
+      this.open(got.entry, got.siblings);
+    } catch {
+      // A handed-over file that cannot be opened must not take the gallery
+      // down with it: the app is still perfectly usable as itself.
+      this.flash("Could not open that file");
+    } finally {
+      this.handoffBusy = false;
+    }
   }
 
   unmount(): void {

@@ -645,6 +645,24 @@ export class TauriFs implements FsAdapter {
   mediaGeneration(): Promise<MediaPulse> {
     return invoke("media_generation");
   }
+
+  /**
+   * Files handed to FACET from outside it -- "Open with FACET", or the share
+   * sheet -- as absolute paths, drained.
+   *
+   * Empty is the normal answer and the only answer off Android, so callers ask
+   * at the moments an intent can have arrived (mount, and every wake) rather
+   * than on a timer. An older binary without the command throws; that is a
+   * missing feature, not an error worth showing, so it reads as empty.
+   */
+  async openPending(): Promise<string[]> {
+    try {
+      const paths = await invoke<string[]>("open_pending");
+      return Array.isArray(paths) ? paths : [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 /**
@@ -662,6 +680,7 @@ export type PhoneFs = Pick<
   | "fileUrl" | "readHead" | "readRange" | "readTail"
   | "scanMedia" | "watchStamp" | "mediaQuery" | "mediaGeneration"
   | "moveFile" | "writeFile" | "emptyTrash" | "shareFiles"
+  | "openPending"
 >;
 
 export interface MoveResult {
