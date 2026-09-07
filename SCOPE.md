@@ -686,7 +686,7 @@ not yet exercised end to end · `[ ]` not started.
       `rules.ts`, which named the two modes itself and would have silently
       dropped a folder saved as `gallery`.
 
-      57 assertions in `/modecheck.html`, including the late-listing race and
+      57 assertions in `/dev/modecheck.html`, including the late-listing race and
       both virtualisers, plus a live pass over all four modes in the running
       app. One thing the harness could not have caught and the screenshot did:
       a thumbnail that fails to load leaves the browser's broken-image icon in
@@ -721,7 +721,7 @@ not yet exercised end to end · `[ ]` not started.
       reads its chord from the map, so a rebind is reflected everywhere the app
       names a key rather than in the one place it was pressed.
 
-      103 assertions in `/keycheck.html`, and verified in the running app:
+      103 assertions in `/dev/keycheck.html`, and verified in the running app:
       rebind the palette to Ctrl+J and Ctrl+J opens it while Ctrl+K stops doing
       anything; "Put every shortcut back" empties the file and Ctrl+K works
       again.
@@ -757,7 +757,7 @@ not yet exercised end to end · `[ ]` not started.
       on every click rather than behind an OK button: the folder is still behind
       the sheet and repaints as you go, so adding a column is something you see
       rather than something you predict.
-      91 assertions in `/fieldcheck.html`, and verified in the running app on a
+      91 assertions in `/dev/fieldcheck.html`, and verified in the running app on a
       real folder: adding **Where** from the chooser grew the header, the tracks
       and every row at once, removing **Kind** shrank them, and on the canvas
       adding **Dimensions** turned a card's line into
@@ -809,7 +809,7 @@ not yet exercised end to end · `[ ]` not started.
       save), palette entries for the box, for clearing it and for each saved
       filter, and a status line reading "⌕ 6 of 40 · kind is image · size >
       1.0 MB" so the filter always says what it is doing.
-      130 assertions in `/rulecheck.html`, and verified in the running app:
+      130 assertions in `/dev/rulecheck.html`, and verified in the running app:
       typing `kind:image size:>1mb` cut 40 entries to 6 live, walking into
       Exports arrived with an empty box, sorting Exports by size was still there
       on the way back while the folder above kept its own filter, clearing a

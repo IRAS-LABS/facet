@@ -21,9 +21,9 @@
  * pipeline deterministic, so a stitch that loses a word fails here rather than
  * on somebody's meeting six months from now.
  *
- * Dev-only. Loaded by /scribecheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/scribecheck.html, which is not a build input.
  *
- *   http://localhost:8183/scribecheck.html
+ *   http://localhost:8183/dev/scribecheck.html
  */
 
 import "../styles/base.css";

@@ -15,9 +15,9 @@
  * edge of every rule — a gutter one pixel too narrow, a gap one pixel short of
  * a paragraph — which no real scan ever obliges by doing.
  *
- * Dev-only. Loaded by /ocrcheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/ocrcheck.html, which is not a build input.
  *
- *   http://localhost:8183/ocrcheck.html
+ *   http://localhost:8183/dev/ocrcheck.html
  */
 
 import "../styles/base.css";

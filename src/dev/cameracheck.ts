@@ -44,9 +44,9 @@
  * backend shape the folder rules use, including the part that matters — a
  * half-written or hand-edited store must not throw, it must yield what it can.
  *
- * Dev-only. Loaded by /cameracheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/cameracheck.html, which is not a build input.
  *
- *   http://localhost:8183/cameracheck.html
+ *   http://localhost:8183/dev/cameracheck.html
  */
 
 import "../styles/base.css";

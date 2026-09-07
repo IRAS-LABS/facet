@@ -8,7 +8,7 @@
  * straddles a read boundary, and — the one that matters most — whether the
  * thing genuinely reads windows rather than quietly swallowing the file.
  *
- * Dev-only. Loaded by /hexcheck.html, which is not one of the build's inputs,
+ * Dev-only. Loaded by /dev/hexcheck.html, which is not one of the build's inputs,
  * so none of this reaches the binary.
  *
  * It needs one real JPEG staged where the dev server can serve it. It is
@@ -25,7 +25,7 @@
  * for "JFIF" and failed the day a Lumix original was staged: a camera JPEG
  * opens ff d8 ff e1 — SOI then an Exif APP1 — and has no JFIF marker at all.
  *
- * Then open http://localhost:8183/hexcheck.html — the page title becomes the
+ * Then open http://localhost:8183/dev/hexcheck.html — the page title becomes the
  * score and the inspector is left open to be looked at.
  */
 

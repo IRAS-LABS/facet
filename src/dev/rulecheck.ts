@@ -10,9 +10,9 @@
  * single most alarming thing a file manager can do. Every one of those is
  * asserted below, because none of them announce themselves.
  *
- * Dev-only. Loaded by /rulecheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/rulecheck.html, which is not a build input.
  *
- *   http://localhost:8183/rulecheck.html
+ *   http://localhost:8183/dev/rulecheck.html
  */
 
 import "../styles/base.css";

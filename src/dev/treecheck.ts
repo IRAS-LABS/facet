@@ -10,9 +10,9 @@
  * every listing it is asked for, and the assertions are as much about that
  * count as about the rows.
  *
- * Dev-only. Loaded by /treecheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/treecheck.html, which is not a build input.
  *
- *   http://localhost:8183/treecheck.html
+ *   http://localhost:8183/dev/treecheck.html
  */
 
 import "../styles/base.css";

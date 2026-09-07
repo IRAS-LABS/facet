@@ -17,9 +17,9 @@
  * who has no idea what a fixture is. Fetched, a missing file 404s with the name
  * of the script that stages it. They never reach the app bundle either way.
  *
- * Dev-only. Loaded by /facecheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/facecheck.html, which is not a build input.
  *
- *   http://localhost:8183/facecheck.html
+ *   http://localhost:8183/dev/facecheck.html
  */
 
 import "../styles/base.css";

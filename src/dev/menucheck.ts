@@ -22,9 +22,9 @@
  * that threw the work away for being incomplete is one nobody finishes using;
  * an app that *offered* the incomplete thing would fail at the moment of use.
  *
- * Dev-only. Loaded by /menucheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/menucheck.html, which is not a build input.
  *
- *   http://localhost:8183/menucheck.html
+ *   http://localhost:8183/dev/menucheck.html
  */
 
 import "../styles/base.css";

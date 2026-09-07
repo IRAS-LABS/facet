@@ -18,9 +18,9 @@
  * movement, shift-range, the pane following the cursor, the header arrow, and
  * the pane surviving a preview that arrives after the selection was made.
  *
- * Dev-only. Loaded by /listcheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/listcheck.html, which is not a build input.
  *
- *   http://localhost:8183/listcheck.html
+ *   http://localhost:8183/dev/listcheck.html
  */
 
 import { DEFAULT_CARD, DEFAULT_COLUMNS } from "@core/explorer/fields";

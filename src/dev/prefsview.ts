@@ -10,7 +10,7 @@
  * but the declarations are the shipped ones: this is exactly what the app's
  * ctrl+, shows.
  *
- *   http://localhost:8183/prefsview.html
+ *   http://localhost:8183/dev/prefsview.html
  */
 
 import "../styles/base.css";

@@ -26,9 +26,9 @@
  * the double-click asks — asserted here by driving the real panel and checking
  * the chip that lights up against what `resolveOpen` returns.
  *
- * Dev-only. Loaded by /openscheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/openscheck.html, which is not a build input.
  *
- *   http://localhost:8183/openscheck.html
+ *   http://localhost:8183/dev/openscheck.html
  */
 
 import "../styles/base.css";

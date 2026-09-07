@@ -508,9 +508,11 @@ afterwards the same way.
 
 ## Dev harness pages
 
-The `*check.html` pages at the repository root are self-contained test
-harnesses for individual subsystems, served by `npm run dev`. Open
-`allcheck.html` to run them all in sequence.
+The `dev/*check.html` pages are self-contained test harnesses for individual
+subsystems, served by `npm run dev`. Open
+[`http://localhost:8183/dev/allcheck.html`](http://localhost:8183/dev/allcheck.html)
+to run them all in sequence. They are dev-server only: the build's single
+input is `index.html`, so nothing in `dev/` reaches a release artifact.
 
 Some of them read real photographs and spreadsheets over HTTP, because a
 decoder tested only on bytes it generated itself proves nothing but its own

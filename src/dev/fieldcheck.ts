@@ -14,9 +14,9 @@
  * column list with no name in it — a file explorer that has stopped printing
  * file names is not a configuration anybody chose.
  *
- * Dev-only. Loaded by /fieldcheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/fieldcheck.html, which is not a build input.
  *
- *   http://localhost:8183/fieldcheck.html
+ *   http://localhost:8183/dev/fieldcheck.html
  */
 
 import "../styles/base.css";

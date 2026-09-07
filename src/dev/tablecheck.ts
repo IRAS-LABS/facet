@@ -8,7 +8,7 @@
  * 200 000-row CSV still only reads kilobytes once it is open. That is what this
  * is for.
  *
- * Dev-only. Loaded by /tablecheck.html, which is not one of the build's inputs,
+ * Dev-only. Loaded by /dev/tablecheck.html, which is not one of the build's inputs,
  * so none of this reaches the binary.
  *
  * It needs the fixtures staged where the dev server can serve them. The
@@ -21,7 +21,7 @@
  * They land in `fixtures/`, which nothing copies into a build, rather than in
  * `public/`, which is copied wholesale into `dist/` and baked into the binary.
  *
- * Then open http://localhost:8183/tablecheck.html — the page title becomes the
+ * Then open http://localhost:8183/dev/tablecheck.html — the page title becomes the
  * score. Add ?hold to park the run on the awkward CSV so the grid can actually
  * be looked at (window.go() releases it); two layout bugs got through a green
  * run once, and both were obvious the moment anyone saw the thing. Recycle the
