@@ -243,6 +243,23 @@ export class MockFs implements FsAdapter {
     return { gen: this.indexSupported ? this.mediaGen : 0, changed: 0 };
   }
 
+  /**
+   * "Open with FACET", faked. A browser tab has no intents, so this is empty
+   * until a test calls `handOff`.
+   */
+  async openPending(): Promise<string[]> {
+    const out = this.pendingOpens;
+    this.pendingOpens = [];
+    return out;
+  }
+
+  private pendingOpens: string[] = [];
+
+  /** Queue paths as though Android had just delivered an intent. */
+  handOff(...paths: string[]): void {
+    this.pendingOpens.push(...paths);
+  }
+
   /** A file the system just indexed. Returns the row so a test can point at it. */
   indexFile(path: string, extra: Partial<Omit<RawMediaRow, "id" | "path">> = {}): RawMediaRow {
     const row: RawMediaRow = { id: this.mediaNextId++, path, size: 1_000_000, modified: NOW, ...extra };

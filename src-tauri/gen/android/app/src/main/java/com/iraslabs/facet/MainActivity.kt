@@ -59,6 +59,24 @@ class MainActivity : TauriActivity() {
     // never walked (a sync client's drop folder, a new app's media dir) shows
     // up within a second.
     MediaBridge.start(this)
+    // "Open with FACET" on a cold start. The launcher's own intent carries
+    // nothing openable, so this is a no-op on an ordinary launch.
+    OpenBridge.offer(this, intent)
+  }
+
+  /**
+   * "Open with FACET" while FACET is already running.
+   *
+   * The activity is `singleTask`, so a second tap on a file in another app
+   * does not build a new activity -- it delivers here, and the frontend is
+   * already mounted and polling. Note that the *parameter* is the new intent:
+   * `getIntent()` still returns the one that launched the process, and reading
+   * it here is the classic way to reopen the file from twenty minutes ago
+   * every time the app is resumed.
+   */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    OpenBridge.offer(this, intent)
   }
 
   private fun requestStorageAccess() {

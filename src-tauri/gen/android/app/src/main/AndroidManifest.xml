@@ -75,6 +75,77 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+
+            <!-- "Open with FACET".
+
+                 A file explorer that cannot be picked to open a file is a
+                 strange thing, and until now FACET was exactly that: it was
+                 absent from every Open-with list on the phone, including for
+                 the formats it renders better than anything else installed.
+
+                 Two filters rather than one because Android matches them
+                 whole. The first names the types FACET actually renders, so it
+                 ranks as a specific match and appears near the top of the
+                 chooser for a picture or a PDF. The second is the file
+                 manager's claim: `*/*`, for the `.dng`, `.jxl`, `.srt`, `.obj`
+                 and the extensionless blob that no other app on the device
+                 offers to open at all. A wildcard match ranks last, so it
+                 costs the common case nothing.
+
+                 `singleTask` above is what makes the running app take a second
+                 file rather than stacking a second copy of itself; the intent
+                 arrives at `MainActivity.onNewIntent`. -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-tar" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/msword" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="font/*" />
+                <data android:mimeType="model/*" />
+            </intent-filter>
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" android:mimeType="*/*" />
+                <data android:scheme="content" android:mimeType="*/*" />
+            </intent-filter>
+
+            <!-- The share sheet's other direction: "Send to FACET". One file
+                 or a whole selection, from the gallery, a chat, a browser
+                 download. A shared URI often has no path on this disk at all
+                 (a mail attachment, a Drive file), which is why `OpenBridge`
+                 ends its ladder by copying the bytes into the app's cache
+                 rather than by failing. -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
         </activity>
 
         <!-- The WebView runs in this process, so anything it fetches is

@@ -15,6 +15,7 @@
 mod ffmpeg;
 mod fsx;
 mod media;
+mod openwith;
 mod thumbs;
 mod share;
 // Android only (empty elsewhere): the loopback server that streams video and
@@ -63,6 +64,7 @@ pub fn run() {
             media::media_query,
             media::media_generation,
             media::media_scan,
+            openwith::open_pending,
             share::share_files,
             share::copy_files,
             ffmpeg::media_ready,
@@ -106,6 +108,7 @@ pub fn run() {
         media::media_query,
         media::media_generation,
             media::media_scan,
+        openwith::open_pending,
         share::share_files,
         share::copy_files,
         media_server::media_url,
