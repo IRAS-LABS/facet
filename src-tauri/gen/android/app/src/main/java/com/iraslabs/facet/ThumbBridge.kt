@@ -56,8 +56,22 @@ object ThumbBridge {
   @JvmStatic
   fun load(ctx: Context, path: String, px: Int, video: Boolean): ByteArray? {
     val bmp = try {
-      fromMediaStore(ctx, path, px)
-        ?: (if (video) frameOf(path, px) else decodeFile(path, px))
+      // MediaStore first, but not unconditionally: for a format MediaProvider
+      // cannot really decode (TIFF, JXL, some DNG) `loadThumbnail` does not
+      // throw -- it hands back a blank bitmap. That is a perfectly valid JPEG
+      // of nothing, so it beat the local decoder to the tile and the grid
+      // painted a plain black square, with the chip that would have explained
+      // it suppressed because the tile did have pixels. A thumbnail whose
+      // every sampled pixel is identical carries no information at all, so
+      // drop it and let rung 2 decode the file itself; if that fails too the
+      // caller still gets its null and its chip.
+      val indexed = fromMediaStore(ctx, path, px)
+      val usable = when {
+        indexed == null -> null
+        blank(indexed) -> { indexed.recycle(); null }
+        else -> indexed
+      }
+      usable ?: (if (video) frameOf(path, px) else decodeFile(path, px))
     } catch (_: Throwable) {
       null
     } ?: return null
@@ -234,6 +248,39 @@ object ThumbBridge {
     } finally {
       try { mmr.release() } catch (_: Throwable) {}
     }
+  }
+
+  /**
+   * True when every sampled pixel is the same colour.
+   *
+   * Deliberately exact rather than "nearly uniform": a photograph of a dark
+   * room, a black studio backdrop, a screenshot of an empty terminal are all
+   * real pictures a gallery must still show, and none of them is bit-for-bit
+   * flat. A provider's placeholder is.
+   */
+  private fun blank(bmp: Bitmap): Boolean {
+    val w = bmp.width
+    val h = bmp.height
+    if (w <= 0 || h <= 0) return true
+    // `getPixel` throws on a hardware bitmap -- its pixels live on the GPU and
+    // there is nothing to read here. Unknown is not blank: keep it.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+      bmp.config == Bitmap.Config.HARDWARE
+    ) {
+      return false
+    }
+    // An 8x8 lattice inset from the edges: a border-only artefact must not be
+    // what decides, and 64 reads is nothing next to the decode that produced
+    // the bitmap.
+    val first = bmp.getPixel(w / 2, h / 2)
+    for (yi in 0 until 8) {
+      for (xi in 0 until 8) {
+        val x = ((xi * 2 + 1) * w / 16).coerceIn(0, w - 1)
+        val y = ((yi * 2 + 1) * h / 16).coerceIn(0, h - 1)
+        if (bmp.getPixel(x, y) != first) return false
+      }
+    }
+    return true
   }
 
   /**

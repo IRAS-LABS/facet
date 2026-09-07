@@ -1552,7 +1552,23 @@ export class ThumbLoader {
         const tries = Number(img.dataset.tries ?? "0") + 1;
         img.dataset.tries = String(tries);
         if (tries > 3) {
-          img.classList.add("ready");
+          // Out of retries, and the blob still will not decode. `.ready` must
+          // NOT go on here: it is the opacity fade, but it is also what hides
+          // `.ph-cell-fallback` (`img.ready ~ .ph-cell-fallback` in phone.css),
+          // so setting it faded in a transparent img over the tile's own
+          // background and took the chip away with it -- a plain black square
+          // that says nothing, which is exactly what a wall of undecodable
+          // DNG/TIFF/HEIC/JXL looked like on the phone. Give the src back and
+          // let the extension chip stand: "DNG" is the honest answer.
+          img.removeAttribute("src");
+          // `loaded` stays set. It is the "do not ask again" flag `paint`
+          // reads on entry, and a file that has now failed to decode four
+          // times must not re-fetch its bytes every time the tile scrolls
+          // back into view. A recycled cell gets a fresh `<img>` and its own
+          // four tries, which is the retry that is actually worth having.
+          this.painted.delete(host);
+          this.thumbs.release(entry);
+          this.thumbs.drop(entry);
           return;
         }
         img.dataset.loaded = "";
