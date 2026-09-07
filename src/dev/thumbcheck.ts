@@ -34,6 +34,11 @@
  *   slid under it), no two headers overlap, and the stuck header's top is the
  *   scroller's top -- below the app bar, never under it.
  * - The LRU stays at `CACHE_MAX` after well over `CACHE_MAX` distinct hits.
+ * - A blob the WebView cannot decode ends as the extension chip, not as a
+ *   blank tile: `ThumbLoader` retries a rejecting `img.decode()` three times
+ *   and then gives the `src` back, because `.ready` is what `phone.css` uses
+ *   to HIDE `.ph-cell-fallback` -- setting it on give-up faded in an empty
+ *   box and took the only explanation away with it.
  */
 
 import type { FileEntry } from "@core/explorer/types";
@@ -41,7 +46,7 @@ import type { CachedThumb, PhoneFs } from "@core/explorer/tauri-fs";
 import { splitBatch } from "@core/explorer/tauri-fs";
 import "../styles/base.css";
 import "../styles/phone.css";
-import { Thumbs } from "@ui/phone/thumbs";
+import { Thumbs, ThumbLoader } from "@ui/phone/thumbs";
 import { FlingModel, FLING_K } from "@ui/phone/fling";
 import { PhotosTab } from "@ui/phone/photos-tab";
 import type { PhoneShell } from "@ui/phone/shell";
@@ -555,6 +560,129 @@ async function checkLru(): Promise<void> {
   thumbs.dispose();
 }
 
+// ── An undecodable blob keeps its chip ───────────────────────────────────
+//
+// The tile's `<img>` starts transparent and `phone.css` reveals it with
+// `.ph-cell img.ready`; the same class is what hides `.ph-cell-fallback`
+// (`.ph-cell img.ready ~ .ph-cell-fallback { display: none }`). So `.ready`
+// has exactly one honest meaning -- "there are pixels" -- and the give-up
+// branch of the decode retry must not claim it. When it did, a file whose
+// thumbnail would not decode (a wall of DNG/TIFF/HEIC/JXL on the phone)
+// painted as a plain black square with nothing on it to say why.
+
+/** A tile shaped the way `PhotosTab.cell` shapes one. */
+function tile(ext: string): { host: HTMLElement; img: HTMLImageElement; chip: HTMLElement } {
+  const img = document.createElement("img");
+  img.decoding = "async";
+  const chip = document.createElement("span");
+  chip.className = "ph-cell-fallback";
+  chip.append(Object.assign(document.createElement("span"), { textContent: ext.toUpperCase() }));
+  const host = document.createElement("button");
+  host.className = "ph-cell";
+  host.append(img, chip);
+  return { host, img, chip };
+}
+
+/** A `Thumbs` that hands back whatever bytes the caller asked it to. */
+function fixedThumbs(bytes: Uint8Array, type: string): {
+  thumbs: Thumbs; urls: string[]; dropped: number;
+} {
+  const state = { urls: [] as string[], dropped: 0 };
+  const stub = {
+    direction: 0,
+    get: (): Promise<string> => {
+      // A fresh URL per ask, as the real one gives after a `drop`.
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type }));
+      state.urls.push(url);
+      return Promise.resolve(url);
+    },
+    cancel: () => {},
+    retain: () => {},
+    release: () => {},
+    drop: () => { state.dropped += 1; },
+  };
+  return {
+    thumbs: stub as unknown as Thumbs,
+    get urls() { return state.urls; },
+    get dropped() { return state.dropped; },
+  } as { thumbs: Thumbs; urls: string[]; dropped: number };
+}
+
+async function until(done: () => boolean, ms: number): Promise<boolean> {
+  const stop = Date.now() + ms;
+  while (Date.now() < stop) {
+    if (done()) return true;
+    await sleep(30);
+  }
+  return done();
+}
+
+async function checkUndecodable(): Promise<void> {
+  const entry = (ext: string): FileEntry => ({
+    name: `x.${ext}`, path: `/pics/x.${ext}`, kind: "image", ext,
+    size: 1024, modified: 0, hidden: false,
+  } as unknown as FileEntry);
+
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:0;top:0;width:120px;height:120px";
+  document.body.append(box);
+
+  // The observer is deliberately not what drives this. `allcheck` runs every
+  // harness inside an off-screen iframe, where an IntersectionObserver never
+  // reports a tile as intersecting -- so a check that waited on it passed on
+  // its own page and failed in the suite, which is the worst way for a check
+  // to behave. `observe` is still called (it is what binds the entry to the
+  // tile), the observer is then disconnected, and `paint` is driven by hand.
+  const kick = (loader: ThumbLoader, host: HTMLElement, e: FileEntry): void => {
+    loader.observe(host, e);
+    loader.disconnect();
+    void (loader as unknown as {
+      paint(h: HTMLElement, en: FileEntry): Promise<void>;
+    }).paint(host, e);
+  };
+
+  // ── the failure: bytes that claim to be a JPEG and are not ──
+  const bad = fixedThumbs(new Uint8Array([0xff, 0xd8, 0x00, 0x01, 0x02, 0x03]), "image/jpeg");
+  const one = tile("dng");
+  box.append(one.host);
+  const loaderA = new ThumbLoader(bad.thumbs, null);
+  kick(loaderA, one.host, entry("dng"));
+
+  // Four attempts at 60 ms apart, plus the decode rejections themselves.
+  const gaveUp = await until(() => one.img.dataset["tries"] === "4", 4000);
+  ok("an undecodable thumbnail is retried three times and then given up on", gaveUp,
+    `tries=${one.img.dataset["tries"] ?? "none"}`);
+  ok("it does not end up marked ready", !one.img.classList.contains("ready"));
+  ok("its src is handed back rather than left pointing at bytes that will not decode",
+    one.img.getAttribute("src") === null, one.img.getAttribute("src") ?? "null");
+  ok("so the extension chip is still on screen to say why",
+    getComputedStyle(one.chip).display !== "none", getComputedStyle(one.chip).display);
+  ok("and the blob was dropped from the cache, not kept", bad.dropped >= 1, String(bad.dropped));
+
+  // ── the control: a picture that really does decode ──
+  // A 1x1 PNG. Without this the check above passes just as well against a
+  // loader that never sets `.ready` at all.
+  const png = Uint8Array.from(atob(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  ), (c) => c.charCodeAt(0));
+  const good = fixedThumbs(png, "image/png");
+  const two = tile("png");
+  box.append(two.host);
+  const loaderB = new ThumbLoader(good.thumbs, null);
+  kick(loaderB, two.host, entry("png"));
+
+  const shown = await until(() => two.img.classList.contains("ready"), 4000);
+  ok("a thumbnail that does decode is marked ready", shown);
+  ok("and that is what takes the chip away", getComputedStyle(two.chip).display === "none",
+    getComputedStyle(two.chip).display);
+  ok("it took one ask, with no retries", good.urls.length === 1, String(good.urls.length));
+
+  loaderA.disconnect();
+  loaderB.disconnect();
+  for (const u of [...bad.urls, ...good.urls]) URL.revokeObjectURL(u);
+  box.remove();
+}
+
 async function run(): Promise<void> {
   const steps: [string, () => Promise<void>][] = [
     ["wire", checkWire],
@@ -568,6 +696,7 @@ async function run(): Promise<void> {
     ["pincap", checkPinCap],
     ["headers", checkHeaders],
     ["lru", checkLru],
+    ["undecodable", checkUndecodable],
   ];
   for (const [name, step] of steps) {
     try {
