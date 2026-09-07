@@ -114,5 +114,5 @@ Copy-Item (Join-Path $tbl '*') (Join-Path $stage '_tablecheck') -Force
 Get-ChildItem (Join-Path $stage '_tablecheck') |
     ForEach-Object { Write-Host ("staged {0,-20} {1,6} KB" -f "_tablecheck\$($_.Name)", [int]($_.Length / 1kb)) -ForegroundColor Green }
 
-Write-Host "`nNow open http://localhost:8183/allcheck.html" -ForegroundColor Cyan
+Write-Host "`nNow open http://localhost:8183/dev/allcheck.html" -ForegroundColor Cyan
 Write-Host "Afterwards: .\scripts\fixtures.ps1 -Clean" -ForegroundColor DarkYellow

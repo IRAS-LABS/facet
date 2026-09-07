@@ -14,9 +14,9 @@
  * because the id-arrives-after-the-event race in `runners.ts` is exactly the
  * kind of thing that works on a slow machine and hangs on a fast one.
  *
- * Dev-only. Loaded by /batchcheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/batchcheck.html, which is not a build input.
  *
- *   http://localhost:8183/batchcheck.html
+ *   http://localhost:8183/dev/batchcheck.html
  */
 
 import "../styles/base.css";

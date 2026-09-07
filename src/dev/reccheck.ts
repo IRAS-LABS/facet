@@ -45,9 +45,9 @@
  * in the middle rather than in the bottom tenth, and a floor so nothing renders
  * "-Infinity dB".
  *
- * Dev-only. Loaded by /reccheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/reccheck.html, which is not a build input.
  *
- *   http://localhost:8183/reccheck.html
+ *   http://localhost:8183/dev/reccheck.html
  */
 
 import "../styles/base.css";

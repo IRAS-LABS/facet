@@ -29,9 +29,9 @@
  * has usually clicked something else, and the answer to the question nobody is
  * asking any more must be dropped rather than painted.
  *
- * Dev-only. Loaded by /modecheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/modecheck.html, which is not a build input.
  *
- *   http://localhost:8183/modecheck.html
+ *   http://localhost:8183/dev/modecheck.html
  */
 
 import "../styles/base.css";

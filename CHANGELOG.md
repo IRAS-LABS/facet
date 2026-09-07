@@ -25,6 +25,15 @@ something is fixed.
 - The Table view described itself as reading SQLite, which nothing in this
   repository does, and did not mention Excel, which it does.
 
+### Changed
+
+- The dev test harnesses moved from the repository root into `dev/`. Thirty-
+  eight HTML pages sitting beside `README.md` made the project look like a
+  pile of loose files to anyone who opened it. Nothing about them changed:
+  each page still loads its module by root-absolute path, the build's single
+  input is still `index.html`, and the URL is now
+  `http://localhost:8183/dev/allcheck.html`.
+
 ### Added
 
 - CI: type-check and bundle on Linux, `cargo check` on Windows (the target

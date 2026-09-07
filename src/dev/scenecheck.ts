@@ -44,9 +44,9 @@
  * is why any of this is testable: three's scene graph, geometry, bounding
  * volumes and camera maths are all pure, and only the renderer needs a GPU.
  *
- * Dev-only. Loaded by /scenecheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/scenecheck.html, which is not a build input.
  *
- *   http://localhost:8183/scenecheck.html
+ *   http://localhost:8183/dev/scenecheck.html
  */
 
 import "../styles/base.css";

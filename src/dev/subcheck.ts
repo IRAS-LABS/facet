@@ -20,9 +20,9 @@
  * read — and, with the hand-written fixtures further down, that what the rest
  * of the world writes, we can read as well.
  *
- * Dev-only. Loaded by /subcheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/subcheck.html, which is not a build input.
  *
- *   http://localhost:8183/subcheck.html
+ *   http://localhost:8183/dev/subcheck.html
  */
 
 import "../styles/base.css";

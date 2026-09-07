@@ -10,9 +10,9 @@
  * shortcut from the command that already had it. None of those announce
  * themselves. They are all below.
  *
- * Dev-only. Loaded by /keycheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/keycheck.html, which is not a build input.
  *
- *   http://localhost:8183/keycheck.html
+ *   http://localhost:8183/dev/keycheck.html
  */
 
 import "../styles/base.css";

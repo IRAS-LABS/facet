@@ -8,10 +8,10 @@
  * left behind. Everything the first phase held in memory is gone by then, which
  * is the whole point.
  *
- * Dev-only. Loaded by /undocheck.html, which is not one of the build's inputs.
+ * Dev-only. Loaded by /dev/undocheck.html, which is not one of the build's inputs.
  * Needs no fixtures — the photo it edits is a data URL built here.
  *
- *   http://localhost:8183/undocheck.html
+ *   http://localhost:8183/dev/undocheck.html
  *
  * The page title becomes the score once both phases have run.
  */

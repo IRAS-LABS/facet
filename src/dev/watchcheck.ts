@@ -13,9 +13,9 @@
  * sweeps, which is exactly what a real folder does, only instantly. `sweep()`
  * is driven by hand rather than by the timer for the same reason.
  *
- * Dev-only. Loaded by /watchcheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/watchcheck.html, which is not a build input.
  *
- *   http://localhost:8183/watchcheck.html
+ *   http://localhost:8183/dev/watchcheck.html
  */
 
 import "../styles/base.css";

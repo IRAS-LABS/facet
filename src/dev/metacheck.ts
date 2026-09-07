@@ -7,7 +7,7 @@
  * file produces bytes that are in fact clean. Wiring is where "written" and
  * "works" usually part company, so it gets its own harness.
  *
- * Dev-only. Loaded by /metacheck.html, which is not one of the build's inputs,
+ * Dev-only. Loaded by /dev/metacheck.html, which is not one of the build's inputs,
  * so none of this reaches the binary.
  *
  * It needs three real files — a photo with EXIF, any other JPEG, any PNG —
@@ -22,7 +22,7 @@
  * there ends up inside a shipped artifact — which is exactly what happened on
  * 2026-08-16. `vite.config.ts` serves `fixtures/` over HTTP in dev only.
  *
- * Then open http://localhost:8183/metacheck.html — the page title becomes the
+ * Then open http://localhost:8183/dev/metacheck.html — the page title becomes the
  * score and the panel is left open on a.jpg to be looked at.
  */
 

@@ -20,9 +20,9 @@
  * real app, and it is the assertion that caught the record being unwritable at
  * that moment — the failure that moved this module off IndexedDB.
  *
- * Dev-only. Loaded by /sessioncheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/sessioncheck.html, which is not a build input.
  *
- *   http://localhost:8183/sessioncheck.html
+ *   http://localhost:8183/dev/sessioncheck.html
  *
  * The page title and body become the score once all four phases have run.
  */

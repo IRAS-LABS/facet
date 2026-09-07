@@ -18,9 +18,9 @@
  * so a folder that sorted below a drive would be filed under This PC. The store
  * therefore reorders within folders and within drives, never across.
  *
- * Dev-only. Loaded by /placecheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/placecheck.html, which is not a build input.
  *
- *   http://localhost:8183/placecheck.html
+ *   http://localhost:8183/dev/placecheck.html
  */
 
 import "../styles/base.css";

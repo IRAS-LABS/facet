@@ -7,9 +7,9 @@
  * throw — is the day the file is truncated, hand-edited, or written by a build
  * that offered a choice this one has dropped. Those are the cases below.
  *
- * Dev-only. Loaded by /setcheck.html, which is not a build input.
+ * Dev-only. Loaded by /dev/setcheck.html, which is not a build input.
  *
- *   http://localhost:8183/setcheck.html
+ *   http://localhost:8183/dev/setcheck.html
  */
 
 import "../styles/base.css";
