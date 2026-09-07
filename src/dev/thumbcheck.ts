@@ -34,6 +34,12 @@
  *   slid under it), no two headers overlap, and the stuck header's top is the
  *   scroller's top -- below the app bar, never under it.
  * - The LRU stays at `CACHE_MAX` after well over `CACHE_MAX` distinct hits.
+ * - A worker that answers "I could not do this one" costs that tile the
+ *   worker and nothing more: the main-thread decoder still gets its turn and
+ *   the tile still gets a picture. Only when both routes fail is it null, and
+ *   the note then carries the worker's own words rather than the word
+ *   "timeout" -- the mislabel that sent the 2026-09-07 hunt four seconds down
+ *   the wrong road. A worker that reports itself dead is dropped outright.
  * - A blob the WebView cannot decode ends as the extension chip, not as a
  *   blank tile: `ThumbLoader` retries a rejecting `img.decode()` three times
  *   and then gives the `src` back, because `.ready` is what `phone.css` uses
@@ -52,6 +58,7 @@ import { PhotosTab } from "@ui/phone/photos-tab";
 import type { PhoneShell } from "@ui/phone/shell";
 import type { StoreSnapshot } from "@ui/phone/store";
 import { byDay, type GalleryItem } from "@core/phone/gallery";
+import { markVia } from "@core/phone/mark";
 
 let pass = 0;
 let fail = 0;
@@ -683,6 +690,170 @@ async function checkUndecodable(): Promise<void> {
   box.remove();
 }
 
+// ── The worker refusing one picture ──────────────────────────────────────
+
+/**
+ * A real 1x1 PNG. The `JPEG` fixture above is four bytes of marker and
+ * nothing `createImageBitmap` will look at, so the main-thread decoder needs
+ * something it can actually open. One pixel is under `DECODE_PX` and under
+ * 96 kB, so `shrink` hands the blob straight back -- no canvas, no encode.
+ */
+const PNG_1X1 =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+
+/** `MockFs` with a decodable original, so the decode path runs past `nosrc`. */
+class DecodeFs extends MockFs {
+  private readonly src: string;
+  constructor(opts: { src?: string } = {}) {
+    super();
+    this.src = opts.src ?? PNG_1X1;
+  }
+  override async thumbnail(): Promise<string | null> {
+    return this.src;
+  }
+}
+
+/** A PNG header and nothing else: every decoder there is refuses it. */
+const BAD_PNG = "data:image/png;base64,iVBORw0KGgo=";
+
+/** The half of `Shrinker` that `decode` touches. */
+interface FakeShrinker {
+  dead: boolean;
+  shrink(blob: Blob, px: number): Promise<{ blob: Blob | null; error: string | null }>;
+}
+
+/** The private parts of `Thumbs` these checks reach into. */
+interface Innards {
+  shrinker: FakeShrinker | null;
+  shrink(blob: Blob): Promise<Blob | null>;
+}
+
+/**
+ * A worker that answers "I could not do this one" is not a broken worker.
+ *
+ * Found on the device, not here: thirty PNGs in `/sdcard/sw/` came back at
+ * 4.0-4.3 s against a 10,000 ms deadline and were all logged as
+ * `shrink-worker-timeout`, which is arithmetically impossible. They were the
+ * worker's own errors, thrown away by an `onmessage` that read only `blob`,
+ * and each one blanked its tile permanently without the main-thread decoder
+ * ever being asked.
+ */
+async function checkShrinkFallback(): Promise<void> {
+  const marks: string[] = [];
+  markVia((line) => {
+    marks.push(line);
+  });
+
+  // The worker refuses this picture. It is still a live worker, so the only
+  // correct reading is "not this one" -- and the main thread has to get its
+  // turn. This used to `return null` here.
+  {
+    const thumbs = new Thumbs(new DecodeFs().asFs());
+    const priv = thumbs as unknown as Innards;
+    const onThread = priv.shrink.bind(thumbs);
+    let mainThread = 0;
+    priv.shrink = async (blob: Blob) => {
+      mainThread += 1;
+      return onThread(blob);
+    };
+    priv.shrinker = { dead: false, shrink: async () => ({ blob: null, error: "boom" }) };
+    const url = await thumbs.get(entry(1), true);
+    ok("shrink: a worker error still gets the main thread its turn", mainThread === 1, `${mainThread}`);
+    ok("shrink: so the tile gets a picture anyway",
+      typeof url === "string" && url.startsWith("blob:"), String(url));
+    thumbs.dispose();
+  }
+
+  // And the worker succeeding is still the ordinary path -- the fix must not
+  // have quietly moved every tile onto the main thread.
+  {
+    const thumbs = new Thumbs(new DecodeFs().asFs());
+    const priv = thumbs as unknown as Innards;
+    let mainThread = 0;
+    priv.shrink = async () => {
+      mainThread += 1;
+      return null;
+    };
+    priv.shrinker = {
+      dead: false,
+      shrink: async (blob: Blob) => ({ blob, error: null }),
+    };
+    const url = await thumbs.get(entry(2), true);
+    ok("shrink: a worker that answers is still the whole story", mainThread === 0, `${mainThread}`);
+    ok("shrink: and its blob is what the tile shows",
+      typeof url === "string" && url.startsWith("blob:"), String(url));
+    thumbs.dispose();
+  }
+
+  // Both routes failing is genuinely null -- but the note has to say which
+  // one had an opinion, because "timeout" sent the last diagnosis four
+  // seconds down the wrong road.
+  {
+    const thumbs = new Thumbs(new DecodeFs().asFs());
+    const priv = thumbs as unknown as Innards;
+    priv.shrink = async () => null;
+    priv.shrinker = {
+      dead: false,
+      shrink: async () => ({ blob: null, error: "no output" }),
+    };
+    marks.length = 0;
+    const url = await thumbs.get(entry(3), true);
+    ok("shrink: both routes failing is null", url === null, String(url));
+    ok("shrink: and the note carries the worker's own words",
+      marks.some((m) => m.includes("nul shrink no output")), marks.join(" | "));
+    ok("shrink: not a timeout it never was",
+      !marks.some((m) => m.includes("timeout")), marks.join(" | "));
+    thumbs.dispose();
+  }
+
+  // A worker that reports itself dead is a different thing again: drop it,
+  // and let every tile after this one go straight to the main thread.
+  {
+    const thumbs = new Thumbs(new DecodeFs().asFs());
+    const priv = thumbs as unknown as Innards;
+    priv.shrinker = {
+      dead: true,
+      shrink: async () => ({ blob: null, error: "worker failed to load" }),
+    };
+    const url = await thumbs.get(entry(4), true);
+    ok("shrink: a dead worker is dropped, not asked again", priv.shrinker === null);
+    ok("shrink: and the main thread still paints the tile",
+      typeof url === "string" && url.startsWith("blob:"), String(url));
+    thumbs.dispose();
+  }
+
+  // The real worker, not a stand-in. The fake ones above prove what `decode`
+  // does with an error; this proves the error survives the trip at all --
+  // `Shrinker.onmessage` read only `blob` and dropped `error` on the floor,
+  // which is the half of the bug that made a refusal indistinguishable from
+  // silence. The main thread is stubbed to fail so the note is reached; the
+  // worker is left entirely alone.
+  {
+    const thumbs = new Thumbs(new DecodeFs({ src: BAD_PNG }).asFs());
+    const priv = thumbs as unknown as Innards;
+    if (priv.shrinker === null) {
+      ok("shrink: the harness can start a real worker", false, "no Worker/OffscreenCanvas");
+    } else {
+      priv.shrink = async () => null;
+      marks.length = 0;
+      const url = await thumbs.get(entry(5), true);
+      const note = marks.find((m) => m.includes("nul shrink")) ?? "";
+      ok("shrink: bytes the worker cannot decode end as null", url === null, String(url));
+      // The note is `nul <why> <kind>.<ext> <size> <path>`, so a reason that
+      // was dropped leaves `nul shrink image.jpg ...` -- the fields close up
+      // and nothing looks wrong. What is asserted is that something stands
+      // between the two, whatever this browser called the failure.
+      ok("shrink: and the worker's own error made it back across the message",
+        /nul shrink .+ image\.jpg /.test(note), note || marks.join(" | "));
+      ok("shrink: answered, rather than waiting out the ten-second deadline",
+        !note.includes("timeout"), note);
+    }
+    thumbs.dispose();
+  }
+
+  markVia(() => {});
+}
+
 async function run(): Promise<void> {
   const steps: [string, () => Promise<void>][] = [
     ["wire", checkWire],
@@ -697,6 +868,7 @@ async function run(): Promise<void> {
     ["headers", checkHeaders],
     ["lru", checkLru],
     ["undecodable", checkUndecodable],
+    ["shrink", checkShrinkFallback],
   ];
   for (const [name, step] of steps) {
     try {

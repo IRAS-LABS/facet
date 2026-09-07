@@ -1054,23 +1054,32 @@ export class Thumbs {
     // fallback is not a formality: a worker is one more thing that can fail to
     // load, and a slow gallery is a far better outcome than an empty one.
     let small: Blob | null = null;
+    let why: string | null = null;
     if (this.shrinker) {
       // Bounded: a worker that loads but never answers would hold a decode
-      // lane forever. On timeout the tile draws its chip; the main-thread
-      // fallback still exists for the case where the worker declares itself
-      // dead.
-      small = await deadline(this.shrinker.shrink(blob, DECODE_PX), 10_000, null);
-      if (!small) {
-        if (!this.shrinker.dead) {
-          this.noteNull(entry, "shrink-worker-timeout");
-          return null;
-        }
-        this.shrinker = null;
+      // lane forever. `shrink` always resolves an object, so a null here is
+      // the deadline firing and nothing else.
+      const got = await deadline<ShrinkResult | null>(
+        this.shrinker.shrink(blob, DECODE_PX), 10_000, null,
+      );
+      if (got === null) {
+        this.noteNull(entry, "shrink-worker-timeout");
+        return null;
       }
+      small = got.blob;
+      why = got.error;
+      // The worker answered that it could not do this one. That is a picture
+      // it choked on, not a broken worker -- so the main thread below gets its
+      // own attempt, and only its failure is final. This used to `return null`
+      // here, which permanently blanked every tile the worker refused even
+      // though the main-thread decoder had never been asked; on the phone that
+      // was thirty PNGs in one batch, each logged as a timeout it never was.
+      if (!small && this.shrinker.dead) this.shrinker = null;
     }
     if (!small) small = await this.shrink(blob);
     if (!small) {
-      this.noteNull(entry, "shrink");
+      // Both routes failed. Say which one had an opinion about why.
+      this.noteNull(entry, why === null ? "shrink" : `shrink ${why}`);
       return null;
     }
 
@@ -1330,32 +1339,46 @@ class Shrinker {
   dead = false;
 
   private next = 1;
-  private waiting = new Map<number, (blob: Blob | null) => void>();
+  private waiting = new Map<number, (r: ShrinkResult) => void>();
 
   private constructor(private readonly worker: Worker) {
-    worker.onmessage = (ev: MessageEvent<{ id: number; blob?: Blob }>) => {
+    worker.onmessage = (ev: MessageEvent<{ id: number; blob?: Blob; error?: string }>) => {
       const done = this.waiting.get(ev.data.id);
       if (!done) return;
       this.waiting.delete(ev.data.id);
-      done(ev.data.blob ?? null);
+      // `error` is the worker's own account of what went wrong and it used to
+      // be dropped on the floor here, which is how a picture the worker could
+      // not decode came back indistinguishable from one it never answered
+      // about -- and got logged as a ten-second timeout four seconds in.
+      done({ blob: ev.data.blob ?? null, error: ev.data.error ?? null });
     };
     worker.onerror = () => {
       // A worker that failed to load never answers, so every request already
       // in flight has to be released or those tiles wait forever.
       this.dead = true;
-      for (const done of this.waiting.values()) done(null);
+      for (const done of this.waiting.values()) done({ blob: null, error: "worker failed to load" });
       this.waiting.clear();
     };
   }
 
-  shrink(blob: Blob, px: number): Promise<Blob | null> {
-    if (this.dead) return Promise.resolve(null);
+  shrink(blob: Blob, px: number): Promise<ShrinkResult> {
+    if (this.dead) return Promise.resolve({ blob: null, error: "worker dead" });
     const id = this.next++;
-    return new Promise<Blob | null>((resolve) => {
+    return new Promise<ShrinkResult>((resolve) => {
       this.waiting.set(id, resolve);
       this.worker.postMessage({ id, blob, px });
     });
   }
+}
+
+/**
+ * What the worker said. Never null itself, so a null from `deadline` means
+ * the worker did not answer at all -- which is the one case that is genuinely
+ * a timeout.
+ */
+interface ShrinkResult {
+  blob: Blob | null;
+  error: string | null;
 }
 
 /**
