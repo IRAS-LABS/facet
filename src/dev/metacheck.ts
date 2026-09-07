@@ -30,6 +30,7 @@ import "../styles/base.css";
 import "../styles/shell.css";
 
 import { MetaPanel } from "@ui/metadata";
+import { fixtureBytes, guarded } from "./fixture";
 import { readMetadata } from "@core/meta/exif";
 import { themes } from "@core/theme/theme-engine";
 import type { FileEntry } from "@core/explorer/types";
@@ -47,10 +48,7 @@ const ok = (name: string, cond: boolean, detail = ""): void => {
 
 const written = new Map<string, Uint8Array>();
 
-const bytesOf = async (path: string): Promise<Uint8Array> => {
-  const r = await fetch("/_metacheck/" + path);
-  return new Uint8Array(await r.arrayBuffer());
-};
+const bytesOf = (path: string): Promise<Uint8Array> => fixtureBytes("/_metacheck/" + path);
 
 const panel = new MetaPanel({
   readAll: (path) => bytesOf(path),
@@ -137,6 +135,23 @@ async function run(): Promise<void> {
     // anything may survive, which is what the flag means.
     ok("nothing identifying survives the copy", !after.sensitive, left.map((t) => t.name).join(", "));
     ok("no GPS survives the copy", after.gps === undefined);
+
+    // Orientation is the deliberate exception. It describes the file, not the
+    // photographer: a phone stores its pictures in the sensor's landscape frame
+    // and writes a tag saying which way to turn them, so a strip that takes the
+    // tag leaves a portrait photo on its side in every viewer that ever opens
+    // it -- and the pixels are not re-encoded to fix that, by design.
+    const wasTurned = readMetadata(raw).groups
+      .flatMap((g) => g.tags)
+      .find((t) => t.name === "Orientation");
+    if (wasTurned) {
+      const stillTurned = left.find((t) => t.name === "Orientation");
+      ok(
+        "orientation survives the copy",
+        stillTurned?.value === wasTurned.value,
+        `${wasTurned.value} -> ${stillTurned?.value ?? "gone"}`,
+      );
+    }
     ok("copy is smaller than the original", clean.length < raw.length, `${raw.length} → ${clean.length}`);
     ok("copy still decodes as an image", await decodes(clean, "image/jpeg"));
   }
@@ -200,4 +215,4 @@ async function decodes(bytes: Uint8Array, type: string): Promise<boolean> {
   }
 }
 
-void run();
+guarded("meta", run);

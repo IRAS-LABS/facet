@@ -33,6 +33,7 @@ import "../styles/base.css";
 import "../styles/shell.css";
 
 import { Inspector } from "@ui/inspector";
+import { fixtureBytes, guarded } from "./fixture";
 import { themes } from "@core/theme/theme-engine";
 import type { FileEntry } from "@core/explorer/types";
 
@@ -101,7 +102,7 @@ const text = (sel: string): string => q(sel)?.textContent ?? "";
 const settle = (ms = 250): Promise<void> => new Promise((r) => window.setTimeout(r, ms));
 
 async function run(): Promise<void> {
-  real = new Uint8Array(await (await fetch("/_hexcheck/a.jpg")).arrayBuffer());
+  real = await fixtureBytes("/_hexcheck/a.jpg");
   const a = entry("a.jpg", real.length);
 
   // ── A real JPEG ───────────────────────────────────────────────────────────
@@ -267,4 +268,4 @@ async function run(): Promise<void> {
   await inspector.open(a);
 }
 
-void run();
+guarded("hex", run);
