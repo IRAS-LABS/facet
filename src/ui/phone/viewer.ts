@@ -16,11 +16,14 @@
  */
 
 import type { FileEntry } from "@core/explorer/types";
+import { mediaReady } from "@core/explorer/tauri-fs";
 import { formatDuration } from "@core/phone/gallery";
 import { EDGE_GESTURE_PX } from "@core/phone/env";
 import { FULL_SETTLE_MS, wantsOriginal } from "@core/phone/display";
 import { pageTarget, stripOffset } from "@core/phone/merge";
 import { perf } from "@core/phone/mark";
+import { readMetadata, strip } from "@core/meta/exif";
+import { describeMediaError } from "../media";
 import { bytes, el, fill, shortDate } from "./dom";
 import { dropFav, isFav, toggleFav } from "./favorites";
 import { icon } from "./icons";
@@ -30,7 +33,19 @@ import type { PhoneHost } from "./shell";
 import type { MediaStore } from "./store";
 import type { Thumbs } from "./thumbs";
 
+/**
+ * How long a clip gets to produce a first frame before it is treated as
+ * unplayable. Long enough for a large file off shared storage, short enough
+ * that nobody sits looking at a blank player wondering.
+ */
+const BLANK_VIDEO_MS = 2500;
+
 /** Below this the drag is a tap. */
+/** Every tag block a camera writes sits in the first stretch of a file, so the
+ *  sheet counts them from the head rather than pulling a 5 MB photograph over
+ *  IPC to render one line. The strip itself reads the file whole. */
+const META_BYTES = 256 * 1024;
+
 const TAP_SLOP = 10;
 /** Horizontal travel that commits to the next picture. */
 const SWIPE_PX = 60;
@@ -89,6 +104,12 @@ interface WarmImage {
   orig: string;
   img: HTMLImageElement;
   ready: boolean;
+  /**
+   * The original is a format the WebView cannot decode — HEIC, DNG, TIFF, JXL
+   * — and `url` is a native decode of it. There is no sharper picture to swap
+   * in past `FULL_ZOOM`; asking for one puts a black stage under the zoom.
+   */
+  foreign: boolean;
 }
 
 /** How long the strip takes to settle on a page or spring back. */
@@ -209,6 +230,8 @@ export class PhoneViewer {
   private warm = new Map<string, WarmImage>();
   /** Screen-sized copies of originals, made off the main thread and kept by path. */
   private display: DisplayCache;
+  /** Watchdog for a clip that loads but never paints a frame. */
+  private blankTimer = 0;
   /** True while the stage shows the original rather than its display copy. */
   private stageFull = false;
   /** Pending swap to the original after a zoom settles past `FULL_ZOOM`. */
@@ -264,6 +287,24 @@ export class PhoneViewer {
       try { this.video.currentTime = 0; } catch { /* nothing seekable yet */ }
     });
 
+    /*
+     * A clip the platform will not play must not be left in the element.
+     *
+     * Android's WebView draws its own placeholder for a `<video>` with no
+     * frames -- a grey play triangle blown up to the size of the element and
+     * blurred by the upscale -- and it is the last thing on screen for every
+     * container Chromium has no demuxer for: FLV, MPEG-PS, VOB, DivX, WMV,
+     * Theora. The app already has a real frame of every one of them, decoded
+     * natively for the grid, so the failure hands the stage back to the still
+     * path: the poster becomes the picture, the transport goes away, and the
+     * reason is said once rather than drawn forever.
+     */
+    this.video.addEventListener("error", () => {
+      const entry = this.current;
+      if (!entry || entry.kind !== "video") return;
+      void this.posterOnly(entry, describeMediaError(this.video.error), this.loadSeq);
+    });
+
     this.canvas = el<"canvas">("canvas", { hidden: true });
 
     // Never `hidden`. A pane that is `display: none` between swipes is not
@@ -284,10 +325,13 @@ export class PhoneViewer {
     // Play, elapsed, track, duration. No fullscreen button: the picture is
     // already the whole screen, and no overflow menu, because everything that
     // was behind it is a row of labelled actions underneath.
+    // Born as Play. `paintPlay()` corrects it on the first play/pause event,
+    // but until then nothing is playing, and a paused video that shows a pause
+    // glyph and announces "Pause" to a screen reader is just wrong.
     this.playBtn = el<"button">("button.phv-icon.phv-play", {
-      type: "button", "aria-label": "Pause", title: "Pause",
+      type: "button", "aria-label": "Play", title: "Play",
     });
-    this.playBtn.append(icon("⏸"));
+    this.playBtn.append(icon("▶"));
     this.playBtn.addEventListener("click", () => { this.togglePlay(); });
 
     this.atEl = el("span.phv-time", { text: "0:00" });
@@ -335,7 +379,11 @@ export class PhoneViewer {
 
     this.editor = new PhoneEditor({
       native: host.native,
-      ffmpeg: true,
+      // A getter, not a literal: the probe answers a moment after startup, and
+      // the strips are rebuilt on every entry into edit mode. Hard-coded true,
+      // fifteen tools were offered on devices the binaries were never
+      // packaged for and failed at spawn time instead of being greyed out.
+      get ffmpeg(): boolean { return mediaReady(); },
       leave: () => this.leaveEdit(),
       say: (text) => this.say(text),
       save: (opts) => this.saveEdit(opts),
@@ -362,7 +410,16 @@ export class PhoneViewer {
         // means coming back from it lands on the picture rather than on a
         // half-open sheet over a canvas that no longer matches.
         this.leaveEdit();
-        return this.host.runTool(entry, id);
+        const took = this.host.runTool(entry, id);
+        // ...and then the viewer itself has to go. `.phv` is
+        // `position: fixed; inset: 0; z-index: 500`; the panels it delegates
+        // to top out at 74 (associations). Left up, every one of these ~25
+        // chips opened a full-screen panel *underneath* an opaque black
+        // screen, so the tap read as dead and it took two backs to escape.
+        // Only on a hand-off that was actually taken -- a tool that declined
+        // must not cost the picture.
+        if (took) this.close();
+        return took;
       },
     });
 
@@ -422,6 +479,7 @@ export class PhoneViewer {
   }
 
   private release(): void {
+    window.clearTimeout(this.blankTimer);
     this.editor.end();
     this.source?.close();
     this.source = null;
@@ -584,6 +642,23 @@ export class PhoneViewer {
          * away.
          */
         void this.video.play().catch(() => {});
+
+        /*
+         * The failure that does not fire `error`.
+         *
+         * A container Chromium can demux but whose video codec it cannot
+         * decode -- Theora in Ogg is the one on this phone -- loads, reports
+         * a duration, plays its audio, and paints either nothing or a field
+         * of solid green. `videoWidth` stays zero, and that is the only
+         * signal there is. Checked once, late enough that a slow file over a
+         * content:// URI is not accused of it.
+         */
+        window.clearTimeout(this.blankTimer);
+        this.blankTimer = window.setTimeout(() => {
+          if (seq !== this.loadSeq || this.video.hidden) return;
+          if (this.video.videoWidth > 0) return;
+          void this.posterOnly(entry, "this format is not playable here yet", seq);
+        }, BLANK_VIDEO_MS);
       } catch {
         this.say("Can't play this file");
       }
@@ -638,7 +713,13 @@ export class PhoneViewer {
         await this.whenAtRest();
         if (seq !== this.loadSeq) return;
         this.img.src = copy.display;
-        this.warm.set(entry.path, { url: copy.display, orig: copy.original, img: full, ready: true });
+        this.warm.set(entry.path, {
+          url: copy.display,
+          orig: copy.original,
+          img: full,
+          ready: true,
+          foreign: copy.foreign,
+        });
         perf(`viewer ${entry.name} display decode in ${Math.round(performance.now() - t0)}ms`);
       } catch {
         if (seq === this.loadSeq && placed === null) this.say("Can't open this file");
@@ -692,7 +773,7 @@ export class PhoneViewer {
     if (!n || n.kind !== "image" || this.warm.has(n.path)) return;
     const im = new Image();
     im.decoding = "async";
-    const rec: WarmImage = { url: "", orig: "", img: im, ready: false };
+    const rec: WarmImage = { url: "", orig: "", img: im, ready: false, foreign: false };
     this.warm.set(n.path, rec);
     void (async () => {
       try {
@@ -702,6 +783,7 @@ export class PhoneViewer {
         if (!copy) throw new Error("no url");
         rec.url = copy.display;
         rec.orig = copy.original;
+        rec.foreign = copy.foreign;
         im.src = copy.display;
         await im.decode().catch(() => {});
         if (this.warm.get(n.path) !== rec) return;
@@ -940,6 +1022,34 @@ export class PhoneViewer {
     if (this.editing) return;
     this.chrome = !this.chrome;
     this.el.classList.toggle("chrome-off", !this.chrome);
+  }
+
+  /**
+   * Show the clip's own frame instead of a player that cannot play it.
+   *
+   * The frame comes from the same cache the grid drew its tile from, so in
+   * the ordinary case this is a paint. Waited for properly rather than raced:
+   * there is nothing else going on stage, so a slow decode is worth more than
+   * an empty screen.
+   */
+  private async posterOnly(entry: FileEntry, why: string, seq: number): Promise<void> {
+    window.clearTimeout(this.blankTimer);
+    this.video.pause();
+    this.video.removeAttribute("src");
+    this.video.load();
+    this.video.hidden = true;
+    this.vbar.hidden = true;
+    this.canvas.hidden = true;
+    this.img.hidden = false;
+    this.say(`${entry.name.slice(0, 28)} — ${why}`);
+    let poster: unknown = null;
+    try {
+      poster = await this.thumbs.get(entry, true);
+    } catch {
+      poster = null;
+    }
+    if (seq !== this.loadSeq) return;
+    if (typeof poster === "string") this.img.src = poster;
   }
 
   private say(text: string): void {
@@ -1334,6 +1444,12 @@ export class PhoneViewer {
       list.append(el("div.phv-fact", {}, el("dt", { text: k }), el("dd", { text: v })));
     }
 
+    // Read afterwards, and appended when it lands: the sheet must open at a
+    // tap's speed, and a file on a phone's own storage still costs a round trip
+    // through IPC. Nothing below is on the path to the facts above.
+    const metaSlot = el("div.phv-meta");
+    void this.showMeta(entry, metaSlot);
+
     const close = el<"button">("button.phv-sheet-close", { type: "button", text: "Close" });
     close.addEventListener("click", () => {
       this.aux.hidden = true;
@@ -1345,10 +1461,111 @@ export class PhoneViewer {
     fill(this.aux,
       el("div.phv-grab", { "aria-hidden": true }),
       el("div.phv-sheet-head", {}, el("h2.phv-sheet-title", { text: "Details" }), close),
-      el("div.phv-sheet-body", {}, list),
+      el("div.phv-sheet-body", {}, list, metaSlot),
     );
     this.aux.hidden = false;
     this.el.classList.add("editing");
+  }
+
+  /**
+   * What the file says about the person who made it, and the way to delete it.
+   *
+   * This sheet used to stop at name, size and date -- the five facts the
+   * gallery already had in memory. Meanwhile the picture carried the camera
+   * body, its serial number, the second the shutter fired and, from a phone,
+   * the coordinates of wherever that was; there was no way to see any of it and
+   * no way to remove it without a desktop. For an app whose whole argument is
+   * that your files stay yours, that was the wrong half to ship first.
+   *
+   * The default is a copy, not an overwrite. Stripping is not reversible and
+   * the original is somebody's photograph.
+   */
+  private async showMeta(entry: FileEntry, slot: HTMLElement): Promise<void> {
+    if (!this.host.native) return;
+    // The heading goes up whatever happens below it. Returning early on a
+    // read failure took the whole Metadata block -- including "Save a clean
+    // copy" -- off the sheet with no explanation, so Info looked like it had
+    // fewer features on some files than on others for no visible reason.
+    const head3 = (): void => {
+      if (!slot.querySelector(".phv-meta-head")) {
+        slot.append(el("h3.phv-meta-head", { text: "Metadata" }));
+      }
+    };
+    if (entry.kind !== "image") {
+      head3();
+      slot.append(el("p.phv-meta-note", { text: "Metadata is read for photos only." }));
+      return;
+    }
+    let meta;
+    try {
+      const head = new Uint8Array(await this.host.fs.readHead(entry.path, META_BYTES));
+      meta = readMetadata(head);
+    } catch {
+      head3();
+      slot.append(el("p.phv-meta-note", { text: "Couldn't read this file's metadata." }));
+      return;
+    }
+    if (!meta) {
+      head3();
+      slot.append(el("p.phv-meta-note", { text: "No metadata in this file." }));
+      return;
+    }
+
+    const tags = meta.groups.reduce((n, g) => n + g.tags.length, 0);
+    if (tags === 0 && !meta.strippable) {
+      head3();
+      slot.append(el("p.phv-meta-note", { text: "No metadata in this file." }));
+      return;
+    }
+
+    const gps = meta.gps
+      ? el("p.phv-meta-warn", { text: "This file records where it was taken." })
+      : null;
+    const count = el("p.phv-meta-note", {
+      text: tags === 1 ? "1 metadata tag" : `${tags} metadata tags`,
+    });
+    head3();
+    slot.append(count);
+    if (gps) slot.append(gps);
+
+    if (!meta.strippable) {
+      slot.append(el("p.phv-meta-note", { text: "Nothing removable in this format." }));
+      return;
+    }
+
+    const status = el("p.phv-meta-note");
+    const btn = el<"button">("button.phv-meta-btn", {
+      type: "button",
+      text: "Save a clean copy",
+    });
+    btn.addEventListener("click", () => {
+      btn.disabled = true;
+      status.textContent = "Cleaning…";
+      void (async () => {
+        try {
+          // Read whole, not head: the tags are at the front but the picture is
+          // the rest of the file, and a strip that wrote back only the head
+          // would be a delete with extra steps.
+          const all = new Uint8Array(
+            await this.host.fs.readHead(entry.path, entry.size ?? META_BYTES),
+          );
+          const r = strip(all);
+          if (!r) { status.textContent = "Nothing to remove."; return; }
+          const dot = entry.path.lastIndexOf(".");
+          const out = dot > entry.path.lastIndexOf("/")
+            ? `${entry.path.slice(0, dot)}-clean${entry.path.slice(dot)}`
+            : `${entry.path}-clean`;
+          const written = await this.host.fs.writeFile(out, r.bytes, false);
+          status.textContent =
+            `Saved ${written.slice(written.lastIndexOf("/") + 1)} — ` +
+            `${bytes(r.saved) || "0 B"} of metadata removed.`;
+        } catch (e) {
+          status.textContent = `Could not write the copy: ${String(e).slice(0, 80)}`;
+          btn.disabled = false;
+        }
+      })();
+    });
+    slot.append(btn, status);
   }
 
   // ── Gestures ────────────────────────────────────────────────────────────
@@ -1381,7 +1598,7 @@ export class PhoneViewer {
     const entry = this.current;
     if (!entry || entry.kind !== "image" || this.editing) return;
     const w = this.warm.get(entry.path);
-    if (!w || !w.ready || !w.orig || w.url === w.orig) return;
+    if (!w || !w.ready || !w.orig || w.url === w.orig || w.foreign) return;
     if (wantsOriginal(this.scale)) {
       if (this.stageFull) return;
       const seq = this.loadSeq;

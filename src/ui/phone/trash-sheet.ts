@@ -214,6 +214,14 @@ export class TrashSheet {
       this.busy = false;
     }
     if (done.length > 0) this.shell.store.noteRestored(done, restored);
+    // "Restore all" could restore nothing and still close, which read as a
+    // sheet that had done its job.
+    const failed = items.length - done.length;
+    if (failed > 0) {
+      this.shell.flash(done.length === 0
+        ? (failed === 1 ? "Couldn't restore it" : `Couldn't restore any of the ${failed}`)
+        : `${failed} of ${items.length} couldn't be restored`);
+    }
     this.selection.clear();
   }
 
@@ -227,8 +235,10 @@ export class TrashSheet {
       this.shell.store.noteEmptied(paths);
       this.selection.clear();
     } catch {
-      // Rust refused (path check) or the OS did. The list stays as it is,
-      // which is itself the honest report: nothing was deleted.
+      // Rust refused (path check) or the OS did. The list staying put is half
+      // the report; the other half is saying so, because the two-tap arm had
+      // already completed and looked like a confirmed delete.
+      this.shell.flash(paths.length === 1 ? "Couldn't delete it" : "Couldn't empty the trash");
     } finally {
       this.busy = false;
     }

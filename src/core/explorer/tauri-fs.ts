@@ -685,6 +685,33 @@ function toEntry(r: RawEntry): FileEntry {
   return e;
 }
 
+/**
+ * Whether the bundled ffmpeg and ffprobe can actually be run.
+ *
+ * Not the same question as `IS_NATIVE`. The binaries ship for exactly one ABI
+ * (`src-tauri/android-binaries/arm64-v8a`), so on any other device -- or a
+ * desktop with nothing on PATH -- they are simply absent, and a tool offered
+ * as enabled that fails at spawn time is worse than one greyed out with a
+ * reason. Answered by Rust, cached here, and false until the first answer
+ * lands so nothing is promised before it is known.
+ */
+export function mediaReady(): boolean {
+  return mediaOk;
+}
+
+let mediaOk = false;
+
+/** Ask once, at startup. Resolves to the same value `mediaReady()` will report. */
+export async function probeMediaTools(): Promise<boolean> {
+  if (!IS_NATIVE) return false;
+  try {
+    mediaOk = (await invoke("media_ready")) === true;
+  } catch {
+    mediaOk = false;
+  }
+  return mediaOk;
+}
+
 /** True inside the Tauri webview, false in a plain browser tab. */
 export const IS_NATIVE: boolean =
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== undefined;

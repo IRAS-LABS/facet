@@ -60,7 +60,16 @@ export function fitPanels(): void {
       sweep();
     });
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  // `attributes` as well as `childList`: every desktop panel is appended at
+  // startup and parked with `hidden`, which the first sweep skips. One that
+  // opens by clearing `hidden` and nothing else files no childList record, so
+  // it would keep its desktop widths and bare glyphs on a 384 px screen.
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["hidden", "style", "class"],
+  });
 }
 
 /** True when a mutation happened somewhere a panel could plausibly appear —
@@ -99,10 +108,24 @@ function isPanel(node: HTMLElement): boolean {
 
 function label(root: HTMLElement): void {
   for (const btn of Array.from(root.querySelectorAll("button"))) {
+    // An explicit opt-out, set by callers that want their glyph left bare.
     if (btn.dataset["fctLabelled"] !== undefined) continue;
-    btn.dataset["fctLabelled"] = "";
+    // A label already in place is left alone. This is a query on the button
+    // rather than a flag on it, because a flag outlived the thing it stood
+    // for: several buttons reassign their own `textContent` as their meaning
+    // changes -- ▶ becoming ❚❚, ✕ becoming ↗ when a task finishes -- and that
+    // assignment wipes the appended span. Flagged, they stayed bare for the
+    // rest of the session. Asked, they get the word back on the next sweep,
+    // and the sweep is already running because the assignment mutated the DOM.
+    if (btn.querySelector(".fct-blabel") !== null) continue;
 
-    const name = (btn.getAttribute("aria-label") ?? btn.title).trim();
+    // `title` wins for a button whose accessible name we wrote ourselves out of
+    // its title. Several of these buttons change meaning in place and update
+    // their tooltip when they do -- batch's ✕ becoming ↗ when the task finishes
+    // is the clearest -- and reading back the aria-label we pinned on the first
+    // pass would relabel the new glyph with the old word.
+    const derived = btn.dataset["fctNameFromTitle"] !== undefined;
+    const name = (derived ? btn.title : btn.getAttribute("aria-label") ?? btn.title).trim();
     if (name === "") continue;
 
     // What the button already shows. A button holding an `svg` reports empty
@@ -121,7 +144,10 @@ function label(root: HTMLElement): void {
 
     // The glyph was the whole accessible name a moment ago; now that a real
     // word is inside the button, the name has to stay the full one.
-    if (btn.getAttribute("aria-label") === null) btn.setAttribute("aria-label", name);
+    if (btn.getAttribute("aria-label") === null || derived) {
+      btn.setAttribute("aria-label", name);
+      btn.dataset["fctNameFromTitle"] = "";
+    }
   }
 }
 

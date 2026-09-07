@@ -120,9 +120,9 @@ export interface FsAdapter {
 }
 
 const EXT_KINDS: ReadonlyArray<readonly [FileKind, readonly string[]]> = [
-  ["image", ["jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "avif", "avifs", "jxl", "bmp", "tif", "tiff", "heic", "heics", "heif", "svg", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "pef", "srw"]],
+  ["image", ["jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "avif", "avifs", "jxl", "bmp", "tif", "tiff", "heic", "heics", "heif", "svg", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "pef", "srw", "ico"]],
   ["video", ["mp4", "mkv", "mov", "webm", "avi", "m4v", "wmv", "flv", "f4v", "mts", "m2ts", "3gp", "3g2", "mpg", "mpeg", "m2v", "ogv", "vob", "divx", "insv"]],
-  ["audio", ["mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "wma", "aiff", "alac", "mid", "amr"]],
+  ["audio", ["mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "wma", "aiff", "mid", "midi", "amr", "ape", "wv", "mka", "oga", "3ga"]],
   ["document", ["pdf", "docx", "doc", "odt", "rtf", "txt", "md", "epub", "pptx", "ppt"]],
   ["tabular", ["csv", "tsv", "xlsx", "xls", "ods", "parquet", "json", "jsonl", "db", "sqlite", "duckdb"]],
   ["model3d", ["glb", "gltf", "obj", "fbx", "stl", "ply", "blend", "usdz", "usd", "3mf", "dae"]],

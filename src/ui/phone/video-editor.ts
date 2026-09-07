@@ -1281,6 +1281,15 @@ export class VideoBlur {
   private btn(ic: string, title: string, on: () => void): HTMLButtonElement {
     const b = el("button.vb-btn", { type: "button", title }) as HTMLButtonElement;
     b.append(icon(ic));
+    // Opt out of the phone panel auto-labeller (`panel-fit.ts`). It turns a
+    // bare glyph into a 44 px labelled chip, which is right for a panel of
+    // named actions and wrong here: eleven of these live in two rows budgeted
+    // at 48 px and 44 px (`phone-vedit.css`), and labelled they wrap or clip.
+    // Play, undo, step-a-frame are the one set of glyphs nobody needs a word
+    // for. The name is pinned by hand so a screen reader still gets it, minus
+    // the keyboard hint after the double space -- there is no keyboard here.
+    b.dataset["fctLabelled"] = "";
+    b.setAttribute("aria-label", title.split("  ")[0] ?? title);
     b.addEventListener("click", on);
     return b;
   }

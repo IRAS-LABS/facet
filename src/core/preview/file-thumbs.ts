@@ -662,7 +662,8 @@ export const ZIP_EXT = new Set([
 ]);
 export const FONT_EXT = new Set(["ttf", "otf", "woff", "woff2", "ttc"]);
 export const AUDIO_EXT = new Set([
-  "mp3", "flac", "m4a", "m4b", "aac", "mp4a", "wav", "ogg", "opus", "wma", "aiff", "amr",
+  "mp3", "flac", "m4a", "m4b", "aac", "mp4a", "wav", "ogg", "oga", "opus",
+  "wma", "aiff", "aif", "amr", "3ga", "mid", "midi", "mka", "ape", "wv", "au",
 ]);
 export const MODEL_EXT = new Set(["stl", "obj", "ply", "glb", "gltf"]);
 

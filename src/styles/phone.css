@@ -143,8 +143,15 @@ body.fct-phone > #app { display: none; }
   overflow-x: hidden;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  /* Clears the tab bar so the last row of photos is never trapped under it. */
+  /* Clears the tab bar so the last row of photos is never trapped under it,
+     and the audio dock too whenever it is up -- see `audio-dock.ts`, which
+     measures itself into `--fct-dock-h`. Without the second term the last row
+     of the grid is unreachable for as long as music is playing. */
   padding-bottom: var(--fct-sp-4);
+}
+
+body.fct-docked .ph-body {
+  padding-bottom: calc(var(--fct-sp-4) + var(--fct-dock-h, 0px));
 }
 
 /* ── Tab bar ──────────────────────────────────────────────────────────────
@@ -188,6 +195,28 @@ body.fct-phone > #app { display: none; }
 }
 
 .ph-tab[aria-selected="true"] { color: var(--fct-accent); }
+
+/* ── Toast ────────────────────────────────────────────────────────────────
+   One line over the shell, same pill as the viewer's. It clears the tab bar
+   (56px plus whatever the gesture bar takes) so the message is never half
+   under a tab the user is about to press. */
+
+.ph-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(56px + env(safe-area-inset-bottom) + var(--fct-sp-3));
+  z-index: 8;
+  transform: translateX(-50%);
+  max-width: 84vw;
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.82);
+  color: #fff;
+  font-size: var(--fct-fs-sm);
+  text-align: center;
+  pointer-events: none;
+}
+.ph-toast[hidden] { display: none; }
 
 /* ── Photo grid ───────────────────────────────────────────────────────────
    Edge to edge, 2px gutters. A gallery is about the pictures, and a margin
@@ -700,6 +729,43 @@ body.fct-phone > #app { display: none; }
   overflow-wrap: anywhere;
 }
 
+/* The sort row. Four pills, scrolled sideways rather than wrapped, because a
+   second row here would push the first file off a short screen. */
+.ph-sort {
+  display: flex;
+  gap: var(--fct-sp-2);
+  padding: 0 var(--fct-sp-3) var(--fct-sp-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* The list scrolls down, this scrolls across; saying so keeps a sideways
+     drag on the pills from being read as a page scroll. */
+  touch-action: pan-x;
+}
+.ph-sort::-webkit-scrollbar { display: none; }
+
+.ph-sort-pill {
+  flex: 0 0 auto;
+  /* Thumb-sized, but not the 44px the panels use: this row sits above every
+     listing and four full-height buttons would read as a second toolbar. */
+  min-height: 34px;
+  padding: 0 var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ph-sort-pill.is-on {
+  border-color: transparent;
+  background: var(--fct-accent);
+  color: var(--fct-on-accent, #fff);
+  font-weight: 600;
+}
+.ph-sort-pill:active { transform: scale(0.96); }
+
 .ph-truncated {
   padding: var(--fct-sp-3);
   text-align: center;
@@ -919,7 +985,6 @@ body.fct-phone > #app { display: none; }
 
 /* Centred inside the round buttons and badges that used line-height tricks. */
 .phv-icon .fct-icon,
-.phv-tool-icon .fct-icon,
 .ph-row-thumb .fct-icon,
 .ph-cat-icon .fct-icon {
   margin: auto;
@@ -952,6 +1017,12 @@ body.fct-phone > #app { display: none; }
    the file's 48px minimum, which the desktop's 4px-padded ones are nowhere
    near. */
 
+/* A note, not a wall. This used to be a full-width slab: a 1px warning border
+   all the way round a warning-tinted panel, body-size text, and two 48px rows
+   stacked -- about a sixth of the screen to say one sentence nobody asked to
+   read. The colour now does its job as a 3px edge on the left, which is enough
+   to say "something went wrong" without shouting it, and the rows are sized
+   for a thumb rather than for emphasis. */
 .recover.recover-phone {
   left: var(--fct-sp-2);
   right: var(--fct-sp-2);
@@ -962,8 +1033,13 @@ body.fct-phone > #app { display: none; }
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: var(--fct-sp-2);
-  padding: var(--fct-sp-2);
+  gap: 6px var(--fct-sp-2);
+  padding: 8px 8px 8px 10px;
+  border: 0;
+  border-left: 3px solid var(--fct-warning);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-overlay);
+  font-size: var(--fct-fs-sm);
 }
 
 .recover-phone .recover-text {
@@ -976,16 +1052,19 @@ body.fct-phone > #app { display: none; }
 .recover-phone .recover-close {
   grid-column: 2;
   grid-row: 1;
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
 }
 
-/* Each action on its own full-width row. Truncating a filename to 22ch was a
-   concession to sharing a line with the message; nothing shares this one. */
+/* Each action on its own full-width row, and left-aligned: it is a file name,
+   and a file name centred in a button reads as a heading. Truncating to 22ch
+   was a concession to sharing a line with the message; nothing shares this
+   one, so it takes the width and ellipsises at the end of it. */
 .recover-phone .recover-act {
   grid-column: 1 / -1;
-  min-height: 48px;
+  min-height: 40px;
   max-width: none;
+  text-align: left;
 }
 
 /* ── The name on the tile ───────────────────────────────────────────
@@ -1033,14 +1112,51 @@ body.fct-phone > #app { display: none; }
   font-weight: 500;
   line-height: 1.2;
   text-align: center;
-  /* Two lines, then an ellipsis. A long name is nearly always distinctive in
-     its first twenty characters and never in its last. */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
   overflow: hidden;
-  word-break: break-word;
+  /* A hard stop at exactly two lines of content plus this element's own
+     padding. Each line below is a single nowrap row, so nothing can reach a
+     third line -- this only exists so that a future change cannot make one,
+     and so a partial line can never be sliced through its middle at the
+     tile's edge. */
+  max-height: calc(2 * 1.2em + 7px);
   pointer-events: none;
+}
+
+/* Two single-line rows, each ellipsised by the browser rather than by
+   counting characters in JS -- only the browser knows how many characters fit
+   at this tile width, font size and density. `-webkit-line-clamp` used to do
+   this job and cannot: `.ph-cell-cap` is a grid item, grid items are
+   blockified, `display: -webkit-box` is rewritten to `block`, and the clamp
+   stops applying with no warning at all. */
+.ph-cell-cap-h {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Short names use one row, not two. */
+.ph-cell-cap-h:empty { display: none; }
+
+/* The second row: the rest of the stem, which may be trimmed, next to the
+   extension, which may not. `flex: 0 0 auto` on the extension is the whole
+   guarantee -- the stem gives up its characters first, at every width, and
+   `.html` survives a name of any length. */
+.ph-cell-cap-l {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  min-width: 0;
+}
+.ph-cell-cap-t {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ph-cell-cap-x {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* The duration sits in the same corner. Video has no caption, so the two can
@@ -1069,3 +1185,34 @@ body.fct-phone > #app { display: none; }
   color: var(--fct-accent);
 }
 
+
+
+/* ── Quick-look, tightened for a phone ────────────────────────────────────
+ *
+ * Asked for by name: the head and the action bar were "taking up so much room"
+ * around a file that is the only reason the card is open. Every number here is
+ * smaller than its desktop counterpart and nothing has been removed -- the
+ * head is one row because its buttons are glyphs (see `quicklook.ts`), and the
+ * action bar is a row of 44px targets instead of 52px ones. */
+.fct-phone .ql {
+  padding: max(var(--fct-sp-2), env(safe-area-inset-top)) var(--fct-sp-2)
+    max(var(--fct-sp-2), env(safe-area-inset-bottom));
+}
+.fct-phone .ql-card {
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+/* 44px, the smallest target a finger hits reliably. 38 was chosen to keep the
+   head short and it did, but the expand button read as an afterthought at that
+   size next to the ✕ -- and it is the one control the phone layout is built
+   around. The six pixels come out of the file name, which scrolls anyway. */
+.fct-phone .ql-icon,
+.fct-phone .ql-close {
+  min-width: 44px;
+  min-height: 44px;
+}
+.fct-phone .ql-head { gap: 2px; }
+.fct-phone .ql-action { min-height: 44px; gap: 2px; }
+.fct-phone .ql-action-icon { font-size: 17px; }
+.fct-phone svg.ql-action-icon { width: 19px; height: 19px; }
+.fct-phone .ql-action-label { font-size: 9.5px; }

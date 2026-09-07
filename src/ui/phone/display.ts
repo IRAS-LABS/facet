@@ -30,11 +30,36 @@ export interface DisplayCopy {
   original: string;
   /** True when `display` is a copy this cache owns and must revoke. */
   owned: boolean;
+  /**
+   * True when nothing in the WebView can decode `original`, so `display` is
+   * the only picture there will ever be. The viewer must not swap the
+   * original in for a deep zoom: it would replace a photograph with nothing.
+   */
+  foreign: boolean;
 }
 
 interface Host {
   fileUrl(path: string): Promise<string>;
+  /**
+   * One frame, decoded natively and returned as JPEG. Optional so the
+   * harness can hand in a bare `fileUrl`; on the device it is always there,
+   * and it is the only route to HEIC, DNG, TIFF and JXL — the platform
+   * thumbnailer and ffmpeg read them, `createImageBitmap` does not.
+   */
+  frameAt?(path: string, at: number, width: number): Promise<Uint8Array>;
 }
+
+/**
+ * What the WebView itself can decode.
+ *
+ * Everything else in `kind === "image"` reaches the stage only through the
+ * native decoder. Kept here rather than imported so this file has no opinion
+ * about the grid's tables: the question "can `<img>` show this" is local.
+ */
+const WEB_IMAGE = new Set([
+  "jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "avif", "avifs",
+  "bmp", "svg", "ico",
+]);
 
 export class DisplayCache {
   private worker: Worker | null = null;
@@ -119,7 +144,24 @@ export class DisplayCache {
       return null;
     }
     const t1 = performance.now();
-    const fallback: DisplayCopy = { display: original, original, owned: false };
+    const fallback: DisplayCopy = { display: original, original, owned: false, foreign: false };
+
+    // A format the WebView cannot decode never goes near the worker: it would
+    // spend a fetch of the whole file to learn what the extension already
+    // says. The grid has been showing these correctly all along — it asks the
+    // platform thumbnailer — and the viewer asking the same question is the
+    // difference between a photograph and a black screen.
+    if (entry.kind === "image" && !WEB_IMAGE.has(entry.ext)) {
+      const native = await this.native(entry, original);
+      if (native) {
+        this.ready.set(entry.path, native);
+        perf(`display ${entry.name} native in ${Math.round(performance.now() - t0)}ms`);
+        return native;
+      }
+      // Fall through: some WebViews decode more than the table admits, and a
+      // wasted fetch beats a blank stage.
+    }
+
     if (!this.worker || this.workerDead) {
       this.ready.set(entry.path, fallback);
       return fallback;
@@ -130,12 +172,20 @@ export class DisplayCache {
       const small = await this.shrink(blob);
       const t3 = performance.now();
       if (!small) {
+        // The worker threw, which for a still means `createImageBitmap`
+        // refused it. Ask the platform before handing back bytes the <img>
+        // will refuse for exactly the same reason.
+        const native = await this.native(entry, original);
+        if (native) {
+          this.ready.set(entry.path, native);
+          return native;
+        }
         this.ready.set(entry.path, fallback);
         return fallback;
       }
       // The worker hands the input back when the picture was already small
       // enough; a blob URL over it is still cheaper than a second fetch.
-      const copy: DisplayCopy = { display: URL.createObjectURL(small), original, owned: true };
+      const copy: DisplayCopy = { display: URL.createObjectURL(small), original, owned: true, foreign: false };
       this.ready.set(entry.path, copy);
       perf(
         `display ${entry.name} url ${Math.round(t1 - t0)}ms fetch ${Math.round(t2 - t1)}ms ` +
@@ -143,8 +193,39 @@ export class DisplayCache {
       );
       return copy;
     } catch {
+      const native = await this.native(entry, original);
+      if (native) {
+        this.ready.set(entry.path, native);
+        return native;
+      }
       this.ready.set(entry.path, fallback);
       return fallback;
+    }
+  }
+
+  /**
+   * The picture as the phone itself sees it: one JPEG out of the native
+   * decoder, sized for the screen.
+   *
+   * `frame_at` is the same call the grid's stills lane makes for HEIC and raw
+   * (thumbs.ts), and on Android it lands in the platform thumbnailer, which
+   * has codecs for everything the camera can write. Bounded, because a hung
+   * decode must cost one picture and not the viewer.
+   */
+  private async native(entry: FileEntry, original: string): Promise<DisplayCopy | null> {
+    const frameAt = this.host.frameAt;
+    if (!frameAt) return null;
+    const px = Math.max(this.box.w, this.box.h);
+    try {
+      const bytes = await Promise.race([
+        frameAt.call(this.host, entry.path, 0, px),
+        new Promise<null>((r) => window.setTimeout(() => r(null), 15_000)),
+      ]);
+      if (!bytes || bytes.byteLength === 0) return null;
+      const jpeg = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "image/jpeg" });
+      return { display: URL.createObjectURL(jpeg), original, owned: true, foreign: true };
+    } catch {
+      return null;
     }
   }
 

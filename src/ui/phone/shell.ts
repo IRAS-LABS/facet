@@ -32,6 +32,7 @@ import {
   type GalleryItem,
 } from "@core/phone/gallery";
 import { perf } from "@core/phone/mark";
+import { canView } from "@core/model3d/formats";
 import { dropFav } from "./favorites";
 import { el, fill } from "./dom";
 import { icon } from "./icons";
@@ -118,6 +119,11 @@ export class PhoneShell {
   private actionsEl: HTMLElement;
   private body: HTMLElement;
   private tabsEl: HTMLElement;
+  /** One-line messages over the shell, same shape as the viewer's. */
+  private toastEl: HTMLElement;
+  private toastTimer = 0;
+  /** Until when a second back press means "leave the app". */
+  private exitArmedUntil = 0;
 
   private tabs = new Map<TabId, PhoneTab>();
   private buttons = new Map<TabId, HTMLButtonElement>();
@@ -143,8 +149,9 @@ export class PhoneShell {
     this.head = el("header.ph-head", {}, this.titleEl, this.actionsEl);
     this.body = el("main.ph-body");
     this.tabsEl = el("nav.ph-tabs", { role: "tablist" });
+    this.toastEl = el("div.ph-toast", { hidden: true, role: "status" });
 
-    this.el = el("div.ph", {}, this.head, this.body, this.tabsEl);
+    this.el = el("div.ph", {}, this.head, this.body, this.tabsEl, this.toastEl);
 
     this.register(new PhotosTab(this));
     // The same roll again, over everything the scan found — documents,
@@ -383,12 +390,46 @@ export class PhoneShell {
       const home = this.prefs.get().defaultTab;
       if (consumed || this.current !== home) {
         if (!consumed) this.show(home);
-        history.pushState({ fct: "phone" }, "");
+        this.armBack();
+        return;
       }
-      // Otherwise: on the home tab, nothing open, nothing to go back to. Let it
-      // through, and the app closes — which is the correct behaviour and the
-      // one people expect from the root of a gallery.
+
+      /*
+       * At the root, with nothing open. One more press leaves the app -- but
+       * not this one.
+       *
+       * Letting the first press through is what put someone on the Android
+       * home screen two presses after being three folders deep, because a
+       * press that arrives while the shell is still catching up finds no
+       * sentinel and goes straight to the launcher. Every phone app answers
+       * this the same way, and the answer is a warning: the second press
+       * within a couple of seconds means it, and anything else re-arms.
+       */
+      if (Date.now() < this.exitArmedUntil) return; // let it through
+      this.exitArmedUntil = Date.now() + EXIT_CONFIRM_MS;
+      this.flash("Press back again to leave facet");
+      this.armBack();
     });
+  }
+
+  /**
+   * Put the sentinel back so the next press is ours to answer.
+   *
+   * Deferred by a turn on purpose: a `pushState` issued synchronously inside
+   * a `popstate` handler is not reliably in place before a second press lands
+   * on a phone that is dropping frames, and a press that finds no entry
+   * closes the app outright.
+   */
+  private armBack(): void {
+    window.setTimeout(() => { history.pushState({ fct: "phone" }, ""); }, 0);
+  }
+
+  /** A one-line message over the shell. Same shape as the viewer's. */
+  flash(text: string): void {
+    this.toastEl.textContent = text;
+    this.toastEl.hidden = false;
+    window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => { this.toastEl.hidden = true; }, 2400);
   }
 }
 
@@ -439,7 +480,12 @@ function closeTopPanel(): boolean {
   // panel.
   const target = document.activeElement;
   const sink = target instanceof HTMLElement && top.contains(target) ? target : top;
-  sink.dispatchEvent(
+  // `dispatchEvent` is false when something called `preventDefault`. That is a
+  // panel saying it took the press without closing -- quick-look leaving full
+  // screen is the case that needs it -- and it has to count as handled, or the
+  // shell lets the press fall through and the app exits from a panel that is
+  // still on screen.
+  const consumed = !sink.dispatchEvent(
     new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
   );
 
@@ -451,15 +497,42 @@ function closeTopPanel(): boolean {
   // the two: the shell re-pushes a history entry for every press it thinks it
   // handled, so a panel that ignored Escape would swallow back forever and
   // there would be no way out of it at all.
-  return !top.isConnected || top.hidden || getComputedStyle(top).display === "none";
+  return consumed || !top.isConnected || top.hidden || getComputedStyle(top).display === "none";
 }
 
-/** Which desktop panel owns this kind of file. */
+/**
+ * How long a warned back press stays armed.
+ *
+ * Long enough that a deliberate second press lands, short enough that a press
+ * a minute later reads as a fresh intention and gets warned again.
+ */
+const EXIT_CONFIRM_MS = 2200;
+
+/**
+ * The table panel's own list, mirrored.
+ *
+ * `TableView.handles` is the source of truth (table.ts); it is copied rather
+ * than imported because importing the class here would pull the grid, the
+ * parsers and the sorter into the phone bundle to answer a question about
+ * seven strings. Kept short deliberately -- if it drifts, the cost is a file
+ * opening in the card instead of the table, not a broken panel.
+ */
+const TABLE_EXT = new Set(["csv", "tsv", "tab", "xlsx", "xlsm", "parquet", "pq"]);
+
+/**
+ * Which panel owns this file.
+ *
+ * By kind *and* by extension, because the kinds are broader than the panels.
+ * `tabular` covers `.json`, `.db` and `.sqlite`, none of which the table can
+ * parse, and `model3d` covers `.blend`, `.fbx` and `.usdz`, which the viewer
+ * declines. Routing on kind alone sent every one of them to a panel that
+ * opened empty; the card at least shows what is in the file.
+ */
 function panelFor(entry: FileEntry): string {
   switch (entry.kind) {
     case "audio": return "player";
-    case "tabular": return "table";
-    case "model3d": return "scene";
+    case "tabular": return TABLE_EXT.has(entry.ext) ? "table" : "quicklook";
+    case "model3d": return canView(entry.ext) ? "scene" : "quicklook";
     case "document": return "quicklook";
     case "code": return "quicklook";
     default: return "inspector";
