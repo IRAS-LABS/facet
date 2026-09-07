@@ -77,6 +77,21 @@
             </intent-filter>
         </activity>
 
+        <!-- The WebView runs in this process, so anything it fetches is
+             attributed to this app's UID. Two of its defaults reach Google
+             without the app asking:
+               - Safe Browsing pulls its URL list and pings on navigation.
+               - The WebView metrics/UMA client uploads usage stats.
+             Neither is wanted here, and leaving them on made logcat show a
+             real DNS lookup by com.iraslabs.facet — which flatly contradicts
+             the one claim this app makes about itself. Both off. -->
+        <meta-data
+            android:name="android.webkit.WebView.EnableSafeBrowsing"
+            android:value="false" />
+        <meta-data
+            android:name="android.webkit.WebView.MetricsOptOut"
+            android:value="true" />
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"

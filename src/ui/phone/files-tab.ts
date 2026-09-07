@@ -74,6 +74,18 @@ const CATEGORIES: readonly Category[] = [
     shape: "bubble", hue: 190 },
 ];
 
+/** How a listing is ordered. Four columns, because those are the four
+ *  questions people actually ask of a folder: what is it called, when did it
+ *  arrive, how big is it, what sort of thing is it. */
+type SortBy = "name" | "date" | "size" | "kind";
+
+const SORTS: readonly { by: SortBy; label: string }[] = [
+  { by: "name", label: "Name" },
+  { by: "date", label: "Date" },
+  { by: "size", label: "Size" },
+  { by: "kind", label: "Type" },
+];
+
 type View =
   | { kind: "home" }
   | { kind: "category"; id: string }
@@ -98,6 +110,15 @@ export class FilesTab implements PhoneTab {
   /** Where we are, and how we got here. The last entry is the current view. */
   private stack: View[] = [{ kind: "home" }];
   private roots: FileEntry[] = [];
+
+  /**
+   * Newest first, which is right for a phone: the alternative -- strict
+   * alphabetical -- buries the screenshot taken a minute ago under two hundred
+   * files named for their timestamps. It is a default and not a law now, which
+   * is the point: every file manager lets you say how to sort, and one that
+   * decides for you is unusable the first time you want the biggest file.
+   */
+  private sort: { by: SortBy; desc: boolean } = { by: "date", desc: true };
 
   constructor(private readonly shell: PhoneShell) {
     this.body = el("div.ph-screen");
@@ -139,6 +160,57 @@ export class FilesTab implements PhoneTab {
     this.stack.push(view);
     this.shell.scroller.scrollTop = 0;
     void this.draw();
+  }
+
+  /**
+   * The listing in the chosen order. Folders always lead, whichever column is
+   * being sorted: a folder is a place and a file is a thing, and mixing them
+   * by size puts an empty directory between two photographs.
+   */
+  private ordered(list: readonly FileEntry[]): FileEntry[] {
+    const dir = this.sort.desc ? -1 : 1;
+    const by = this.sort.by;
+    return [...list].sort((a, b) => {
+      if ((a.kind === "folder") !== (b.kind === "folder")) return a.kind === "folder" ? -1 : 1;
+      let d = 0;
+      if (by === "name") d = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      else if (by === "size") d = (a.size ?? 0) - (b.size ?? 0);
+      else if (by === "kind") d = (a.ext || a.kind).localeCompare(b.ext || b.kind);
+      else d = (a.modified ?? 0) - (b.modified ?? 0);
+      // Ties fall back to the name, so a folder of files that all arrived in
+      // the same second does not reshuffle itself every time it is drawn.
+      if (d === 0) d = a.name.localeCompare(b.name, undefined, { numeric: true });
+      return d * dir;
+    });
+  }
+
+  /**
+   * The sort row. Four pills rather than a menu: a menu hides the answer to
+   * "how is this sorted right now", which is half of what the control is for.
+   * Pressing the one already chosen turns it round.
+   */
+  private sortBar(): HTMLElement {
+    const bar = el("div.ph-sort", { role: "group", "aria-label": "Sort by" });
+    for (const s of SORTS) {
+      const on = this.sort.by === s.by;
+      const arrow = on ? (this.sort.desc ? " ↓" : " ↑") : "";
+      const b = el<"button">("button.ph-sort-pill", {
+        type: "button",
+        text: s.label + arrow,
+        "aria-pressed": on,
+        title: on ? `Sorted by ${s.label.toLowerCase()} — tap to reverse` : `Sort by ${s.label.toLowerCase()}`,
+      });
+      if (on) b.classList.add("is-on");
+      b.addEventListener("click", () => {
+        if (this.sort.by === s.by) this.sort.desc = !this.sort.desc;
+        // Names read best A-Z and everything else newest/biggest first, so a
+        // fresh column starts the way that column is usually wanted.
+        else this.sort = { by: s.by, desc: s.by !== "name" };
+        void this.draw();
+      });
+      bar.append(b);
+    }
+    return bar;
   }
 
   private async draw(): Promise<void> {
@@ -238,9 +310,11 @@ export class FilesTab implements PhoneTab {
       return;
     }
 
+    const shown = this.ordered(hits);
     fill(this.body,
       el("p.ph-count", { text: `${hits.length.toLocaleString()} items` }),
-      this.rows(hits),
+      this.sortBar(),
+      this.rows(shown),
     );
   }
 
@@ -262,18 +336,13 @@ export class FilesTab implements PhoneTab {
 
     if (this.view.kind !== "folder" || this.view.path !== path) return;
 
-    // Folders first, then newest first. On a phone the alternative — strict
-    // alphabetical — buries the screenshot you took a minute ago under two
-    // hundred files named for their timestamp.
-    entries.sort((a, b) => {
-      if ((a.kind === "folder") !== (b.kind === "folder")) return a.kind === "folder" ? -1 : 1;
-      return (b.modified ?? 0) - (a.modified ?? 0);
-    });
+    const shown = this.ordered(entries);
 
     fill(this.body,
       el("p.ph-count", { text: path }),
+      entries.length > 0 ? this.sortBar() : null,
       entries.length > 0
-        ? this.rows(entries)
+        ? this.rows(shown)
         : el("div.ph-note", {}, el("p.ph-note-title", { text: "Empty folder" })),
     );
   }

@@ -8,6 +8,73 @@ something is fixed.
 
 ## [Unreleased]
 
+### Added
+
+- **Zoom, in Quick Look.** Pinch, double-tap, or hold ctrl and scroll. It goes
+  to 8x and anchors on your fingers rather than jumping to the corner, so the
+  paragraph you were reading stays where you left it. A PDF is the one preview
+  that is drawn onto a canvas rather than laid out as text, so a stretched one
+  goes coarse; its pages are re-rendered at the scale you stopped at instead,
+  which is the "zoom in without lowering quality" part. The scale resets with
+  each file.
+- Quick Look goes full screen: tap the preview, or the ⤢ in its head. The name,
+  the buttons and the action bar go away and the page, picture, PDF or video
+  gets the whole display. Leave it with the chip in the corner, the same
+  button, Esc, or the phone's back gesture.
+- Rename a file from Quick Look. The pencil beside the name opens a field with
+  the extension held out of it, so the `.html` cannot be typed away by
+  accident, and the grid behind refreshes to the new name.
+- Photo details now show the metadata the file is carrying, with coordinates
+  called out as the warning they are.
+- English OCR data now ships inside the app (2 MB), so reading text off a scan
+  needs no network at all. The other nineteen languages still fetch once.
+
+### Fixed
+
+- **OCR and transcription could not work at all in a release build.** Both
+  fetch a model the first time they are used, and the packaged app's content
+  policy named no host they could fetch from -- so OCR stopped at "loading
+  language traineddata" and transcription at its download, in every installed
+  copy, with nothing on screen to say why. English OCR is now bundled instead
+  of fetched, and the two hosts the remaining downloads use are named
+  explicitly. They remain the only two addresses the app is permitted to
+  contact, and neither is contacted unless you ask for a transcript or a
+  language that was not shipped.
+
+- Stripping metadata from a photo left it lying on its side. Phones store a
+  picture in the sensor's own landscape frame and write one EXIF tag saying
+  which way to turn it, so removing EXIF wholesale removed which way is up --
+  and because the stripper deliberately does not re-encode the pixels, the
+  damage was permanent and showed in every app, not just this one. That single
+  tag is now written back, in a 36-byte block that carries nothing else: no
+  make, no model, no time, no position. Files already stripped are not
+  repaired by this; they need their orientation set again by hand.
+- A rendered HTML page had its last inch hidden behind the action bar. The
+  frame asked for `64vh` inside a grid row that was shorter than that, so it
+  overflowed its own track. It now takes the height the row actually has.
+- A long file name wrapped to three lines and pushed every button in Quick
+  Look's head onto a second row, costing a fifth of a phone screen to say what
+  the file was called. The name is one line that scrolls sideways.
+- In the file grid, a long name's extension could be cut off the bottom of the
+  tile — so a tile could not tell you what kind of file it held. The extension
+  is now its own element that is not allowed to shrink.
+- The Android System WebView runs in this process, so its own network traffic
+  is attributed to the app. Safe Browsing and the WebView metrics uploader are
+  both on by default and both reach Google; both are now switched off in the
+  manifest. Nothing in the app was making the requests, but "no remote
+  endpoint" was not the whole truth while the frame it draws in had two.
+- The crash-recovery banner on the phone was as tall as a dialog for one line
+  of text.
+
+### Changed
+
+- Quick Look's head and action bar are smaller on the phone, and the card fills
+  the screen rather than floating in the middle of it.
+- The social artwork under `assets/` is no longer tracked, so `git add -A`
+  cannot sweep an unfinished caption into a release.
+- `serve-capped.py` moved from the repository root into `scripts/`.
+
+
 ## [0.1.1] — 2026-09-06
 
 ### Fixed

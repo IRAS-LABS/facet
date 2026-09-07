@@ -58,6 +58,23 @@ body.fct-phone .fct-phone-panel [class$="-head"] {
   overflow-x: visible;
 }
 
+/* Quick Look's head is the exception, and it has to come after the rule above
+   because it fights it at identical specificity.
+
+   The blanket `[class$="-head"]` is right for a toolbar of labelled controls:
+   let them wrap rather than clip. `.ql-head` is not that. Its one flexible
+   child is the file name, which scrolls sideways on purpose, so it never
+   forces a break -- but `flex-wrap: wrap` still let the five glyph buttons
+   fall to a second row, which is the exact thing the scrolling name was added
+   to stop. One row, no padding of its own (the card already has some), and the
+   name absorbs whatever width the buttons leave. */
+body.fct-phone .fct-phone-panel .ql-head {
+  flex-wrap: nowrap;
+  row-gap: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
 /* The status note in a bar is a full sentence and it was told to stay on one
    line. On a phone it takes the whole second row and wraps like prose — the
    sentence is the only thing in these panels that says why a job failed. */
@@ -98,6 +115,34 @@ body.fct-phone .fct-phone-panel [class$="-title"] {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Quick Look's name is the exception to the ellipsis, for the same reason it
+   is the exception to the wrap: a file name is the one string where the end
+   carries the meaning. `…for-facet.html` cut to `a-really-quite-long…` hides
+   the extension, which is the single thing the head exists to tell you. It
+   scrolls instead -- drag it and read the rest. */
+body.fct-phone .fct-phone-panel .ql-title {
+  overflow: visible;
+  text-overflow: clip;
+  flex: none;
+  width: max-content;
+  min-width: 100%;
+}
+body.fct-phone .fct-phone-panel .ql-titlewrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* And Quick Look's preview is not a two-column split that needs collapsing to
+   one. It is a single stretched child -- an iframe, a canvas stack, a <pre> --
+   in a row the card has already sized. `grid-auto-rows: minmax(0, auto)` made
+   that row content-sized again, so the preview stopped filling the space the
+   card had set aside for it. */
+body.fct-phone .fct-phone-panel .ql-zoom {
+  grid-auto-rows: minmax(0, 1fr);
 }
 
 /* ── Controls: thumb-sized, and they say what they do ─────────────────────── */

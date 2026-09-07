@@ -442,70 +442,11 @@ div.phv-grab {
   color: var(--fct-text-muted);
 }
 
-/* Four across at 384px gives ~88px per tile: a 30px glyph and a two-word
-   label at 11px, which is the smallest a tool name can be and still be read
-   at arm's length. Auto-fill rather than a fixed 4, so a fold or a tablet
-   uses the room instead of leaving a column of white. */
-.phv-tools {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
-  gap: var(--fct-sp-1);
-}
-
-.phv-tool {
-  display: grid;
-  justify-items: center;
-  align-content: start;
-  gap: var(--fct-sp-1);
-  min-height: 76px;
-  padding: var(--fct-sp-2) 2px;
-  border: none;
-  border-radius: var(--fct-radius);
-  background: transparent;
-  color: var(--fct-text);
-  font: inherit;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 90ms ease;
-}
-/* Presses press. The grid cells (`.ph-cat`) established the gesture; every
-   tappable thing in the editor answers the same way. */
-.phv-tool:active,
+/* A press has to be felt on a touchscreen, where there is no hover to say the
+   button noticed. */
 .phv-action:active,
-.phv-swatch:active,
 .phv-sheet-close:active {
   transform: scale(0.96);
-}
-.phv-tool:active { background: var(--fct-surface-raised); }
-.phv-tool[disabled] { opacity: 0.35; cursor: default; }
-
-.phv-tool-icon {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--fct-surface-raised);
-  font-size: 19px;
-}
-.phv-tool[aria-pressed="true"] .phv-tool-icon {
-  background: var(--fct-accent);
-  color: var(--fct-accent-ink);
-}
-
-/* The label is not optional and does not truncate to a glyph. Two lines, hard
-   wrapped, centred — a tool whose name does not fit gets a shorter name, not a
-   hidden one. */
-.phv-tool-label {
-  font-size: calc(10.5px * var(--fct-ui-scale));
-  font-weight: 600;
-  line-height: 1.2;
-  text-align: center;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 /* ── Sliders inside the sheet ─────────────────────────────────────────────
@@ -627,6 +568,50 @@ div.phv-grab {
 .phv-fact dt { color: var(--fct-text-muted); }
 .phv-fact dd { margin: 0; overflow-wrap: anywhere; }
 
+/* ── Metadata ─────────────────────────────────────────────────────────────
+   Under the facts, separated by a rule: the facts are about the file, this is
+   about the person who made it, and they are not the same question. */
+
+.phv-meta {
+  display: grid;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2);
+  margin-top: var(--fct-sp-2);
+  border-top: 1px solid var(--fct-border);
+}
+.phv-meta:empty { display: none; border: 0; margin: 0; padding: 0; }
+.phv-meta-head {
+  margin: 0;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  color: var(--fct-text);
+}
+.phv-meta-note {
+  margin: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+}
+/* The one line in this sheet that is a warning rather than a fact. Coordinates
+   in a photograph are the difference between sharing a picture of a room and
+   publishing the address of it, and that deserves to be the colour it is. */
+.phv-meta-warn {
+  margin: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-danger, #ff6b6b);
+}
+.phv-meta-btn {
+  justify-self: start;
+  padding: var(--fct-sp-2) var(--fct-sp-4);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-md, 10px);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+.phv-meta-btn:disabled { opacity: 0.55; cursor: default; }
+
 /* ── Position counter ─────────────────────────────────────────────────────
    "3 / 128". The reason the ‹ › buttons beside it are not redundant with
    swiping: a swipe tells you nothing about where you are, and in four thousand
@@ -689,30 +674,6 @@ div.phv-grab {
 /* The canvas in edit mode gets the same contain treatment as the picture, and
    a crosshair cursor on the desktop where the editor is being worked on. */
 .phv.editing .phv-stage canvas { cursor: crosshair; }
-
-/* Tint swatches. A grid rather than a row: eight colours in a row on a 384 px
-   screen gives each one 40 px including its gaps, which is under the tap
-   target everything else here is built to. */
-.phv-swatches {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--fct-sp-2);
-  padding-top: var(--fct-sp-2);
-}
-.phv-swatch {
-  min-height: 44px;
-  padding: 0;
-  border: 2px solid var(--fct-border);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: transform 90ms ease;
-}
-/* The selected swatch cannot be marked with colour -- it is a colour -- so it
-   is marked with a ring the background shows through. */
-.phv-swatch[aria-pressed="true"] {
-  border-color: var(--fct-accent);
-  box-shadow: 0 0 0 2px var(--fct-surface) inset;
-}
 
 /* The rename field. Full width and 16px minimum: any smaller and mobile Safari
    and the Android WebView both zoom the whole page when it takes focus. */

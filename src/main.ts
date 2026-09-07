@@ -44,7 +44,7 @@ import "./styles/sign-view.css";
 
 import { themes } from "@core/theme/theme-engine";
 import { MockFs } from "@core/explorer/mock-fs";
-import { IS_NATIVE, TauriFs, type PhoneFs } from "@core/explorer/tauri-fs";
+import { IS_NATIVE, TauriFs, probeMediaTools, type PhoneFs } from "@core/explorer/tauri-fs";
 import { isPhone } from "@core/phone/env";
 import { mark, markVia } from "@core/phone/mark";
 import { PhoneShell } from "./ui/phone/shell";
@@ -139,6 +139,10 @@ const native = IS_ANDROID ? new AndroidFs() : (IS_NATIVE ? new TauriFs() : null)
 // Route timing marks through the native side, which is the only path that
 // reaches `logcat` in a packaged build.
 if (native) markVia((what) => { native.mark(what); });
+// Does this build actually carry runnable ffmpeg binaries? Fire and forget:
+// the answer lands well before anyone reaches an editor strip, and every reader
+// of it treats "not yet known" the same as "no".
+void probeMediaTools();
 mark("module loaded");
 const mock = new MockFs();
 const fs: FsAdapter = native ?? mock;
@@ -549,13 +553,58 @@ const signView = new SignView({
 const readHead = (path: string, max: number): Promise<number[]> =>
   native ? native.readHead(path, max) : Promise.reject(new Error("needs the desktop app"));
 
+/**
+ * What a swipe or an arrow key inside the quick-look card walks through.
+ *
+ * Set by whoever opened the card rather than read from `entries`, for the same
+ * reason `openWith` takes a `list`: the phone shell opens files it found by
+ * scanning storage, and those are often not in the folder the explorer is
+ * currently showing.
+ */
+let quickList: FileEntry[] = [];
+
 const quickLook = new QuickLook({
   fileUrl,
   readHead,
+  // The same native decoder the grid's thumbnails come from. Without it the
+  // card falls back to a hex dump for every HEIC, raw and AVI on the phone.
+  frameAt: async (path, at, width) =>
+    native
+      ? new Uint8Array(await native.frameAt(path, at, width))
+      : Promise.reject(new Error("needs the installed app")),
   actions: (entry) => docActions(entry),
   // A phone opens a file to read it. The path and the byte count go behind the
   // "i" in the header, which is where the picture viewer already keeps them.
   factsFolded: () => isPhone(),
+  // Walking the folder from inside the card. `entries` is the folder as it is
+  // sorted and filtered on screen, so the order the swipe follows is the order
+  // the person can see -- and folders are stepped over, because going "next"
+  // into a directory and being shown one sentence about it is not what a page
+  // turn means.
+  neighbour: (entry, step) => {
+    let i = quickList.findIndex((e) => e.path === entry.path);
+    if (i < 0) return null;
+    for (i += step; i >= 0 && i < quickList.length; i += step) {
+      const e = quickList[i];
+      if (e && e.kind !== "folder") return e;
+    }
+    return null;
+  },
+  // A move within the same folder, which on one volume is a rename and is
+  // instant whatever the file weighs. The card has already trimmed the name
+  // and kept the extension; all that is left is to do it and let the folder
+  // underneath notice.
+  rename: async (entry, name) => {
+    if (!native) throw new Error("renaming needs the installed app");
+    const dir = entry.path.slice(0, entry.path.lastIndexOf("/"));
+    const res = await native.moveFile(entry.path, `${dir}/${name}`, false);
+    // `copied` means it crossed volumes and the original is still sitting
+    // there. Not possible for a rename in place, but the adapter can say it,
+    // and reporting a rename when there are now two files would be a lie.
+    if (res.copied) flash("Copied rather than renamed — the original is still there");
+    void navigate(cwd, false);
+    return res.path;
+  },
 });
 
 const metaPanel = new MetaPanel({
@@ -828,6 +877,7 @@ function openWith(entry: FileEntry, handler: HandlerId, list: FileEntry[] = entr
       void metaPanel.show([entry]);
       return;
     case "quicklook":
+      quickList = list;
       void quickLook.show(entry);
       return;
     case "system":
@@ -3516,9 +3566,10 @@ function phoneTool(entry: FileEntry, tool: string): boolean {
   };
 
   switch (tool) {
-    // Both tiles land in the same panel — the watermark section is one scroll
-    // down from the signatures, and splitting them into two screens would mean
-    // a document you want to both sign and stamp took two round trips.
+    // All four tiles land in the same panel — a document you want to both sign
+    // and stamp should not cost two round trips — but each enters at its own
+    // door, because arriving at a list of signatures after tapping "Watermark"
+    // is how a feature ends up reported as missing.
     case "sign.doc":
     case "sign.mark":
     case "sign.redact":
@@ -3530,7 +3581,9 @@ function phoneTool(entry: FileEntry, tool: string): boolean {
       // feature ends up reported as missing.
       void signView.open(
         path,
-        tool === "sign.redact" ? "redact" : tool === "sign.crop" ? "crop" : "sign",
+        tool === "sign.redact" ? "redact"
+          : tool === "sign.crop" ? "crop"
+            : tool === "sign.mark" ? "mark" : "sign",
       );
       return true;
 
@@ -3909,7 +3962,10 @@ async function boot(): Promise<void> {
       if (inspector.key(e)) { e.preventDefault(); return; }
       // Same arrangement for the grid, which binds arrows, Home/End and "/".
       if (table.key(e)) { e.preventDefault(); return; }
-      if (e.key === "Escape" && quickLook.isOpen) quickLook.close();
+      // `escape`, not `close`: full screen is a state inside the card and it
+      // unwinds first, so one press gives the chrome back and the next puts
+      // the file away.
+      if (e.key === "Escape" && quickLook.isOpen) quickLook.escape();
       if (e.key === " " && quickLook.isOpen) { e.preventDefault(); quickLook.close(); }
       if (metaPanel.isOpen && (e.key === "Escape" || e.key.toLowerCase() === "i")) {
         e.preventDefault();

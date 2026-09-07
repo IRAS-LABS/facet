@@ -38,7 +38,7 @@
  *    so the shape of a menu is stable and worth learning.
  */
 
-import { IS_NATIVE } from "@core/explorer/tauri-fs";
+import { IS_NATIVE, mediaReady } from "@core/explorer/tauri-fs";
 import type { FileKind } from "@core/explorer/types";
 
 import { ContextMenu, type RunnableCommand } from "./menu";
@@ -168,7 +168,7 @@ export class EditRail {
    * `true` in a browser tab would offer a Save that has nowhere to write.
    */
   private entriesFor(group: ToolGroup): Array<{ tool: PhoneTool; enabled: boolean; why: string }> {
-    return groupTools(group, this.host.kind(), { native: IS_NATIVE, ffmpeg: IS_NATIVE });
+    return groupTools(group, this.host.kind(), { native: IS_NATIVE, ffmpeg: mediaReady() });
   }
 
   private button(group: ToolGroup, heading: string): HTMLButtonElement {

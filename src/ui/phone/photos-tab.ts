@@ -1165,7 +1165,12 @@ export class PhotosTab implements PhoneTab {
   private shareSelected(): void {
     const paths = this.selected().map((it) => it.path);
     if (paths.length === 0) return;
-    void this.shell.fs.shareFiles(paths).catch(() => {});
+    // Say so when it fails. The single-file paths in the viewer and the editor
+    // both do; this one swallowed the error, so a share sheet that never
+    // appeared was indistinguishable from a tap that never registered.
+    void this.shell.fs.shareFiles(paths).catch(() => {
+      this.shell.flash("Nothing available to share to");
+    });
   }
 
   /**
@@ -1177,7 +1182,16 @@ export class PhotosTab implements PhoneTab {
     const items = this.selected();
     if (items.length === 0) return;
     this.endSelect();
-    for (const it of items) await this.shell.trashItem(it);
+    let failed = 0;
+    for (const it of items) if (!await this.shell.trashItem(it)) failed += 1;
+    // `trashItem` returns false on a refusal -- a read-only volume, a file
+    // already gone. Silently, a "Delete" that deleted nothing looked exactly
+    // like one that worked.
+    if (failed > 0) {
+      this.shell.flash(failed === items.length
+        ? (failed === 1 ? "Couldn't move it to Trash" : `Couldn't move any of the ${failed} to Trash`)
+        : `${failed} of ${items.length} couldn't be moved to Trash`);
+    }
   }
 
   /**
@@ -1189,11 +1203,22 @@ export class PhotosTab implements PhoneTab {
    * and a guess at which glyph was blur.
    */
   private blurSelected(): void {
-    const items = this.selected();
+    // Pictures only. `enterEdit` returns immediately for anything else, so an
+    // unfiltered selection opened the viewer on a video and then did nothing
+    // at all -- a dead tap with no message. Videos have their own blur, in the
+    // vedit panel, reached from the viewer's own Edit button.
+    const items = this.selected().filter((it) => it.kind === "image");
     const first = items[0];
-    if (!first) return;
+    if (!first) {
+      this.shell.flash("Blur works on photos. Open a video and use Edit.");
+      return;
+    }
+    const skipped = this.selection.size - items.length;
     this.shell.viewer.open(first, items, { tool: "blur.shape.full" });
     this.endSelect();
+    if (skipped > 0) {
+      this.shell.flash(skipped === 1 ? "Skipped 1 that isn't a photo" : `Skipped ${skipped} that aren't photos`);
+    }
   }
 
   // ── Pinch ───────────────────────────────────────────────────────────────

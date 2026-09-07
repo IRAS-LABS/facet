@@ -300,6 +300,9 @@ export class MediaPlayer {
       this.video.muted = m;
       this.audio.muted = m;
       mute.textContent = m ? "🔇" : "🔊";
+      // The tooltip is also the word the phone prints under the glyph (see
+      // `panel-fit.ts`), so a button that has become "unmute" has to say so.
+      mute.title = m ? "Unmute  (M)" : "Mute  (M)";
     });
     const range = document.createElement("input");
     range.type = "range";
@@ -564,7 +567,7 @@ function clampRate(r: number): number {
  * decode this format" — the second is the common one here, because a desktop
  * codec pack does not help a webview, and it is the case a transcode would fix.
  */
-function describeMediaError(err: MediaError | null): string {
+export function describeMediaError(err: MediaError | null): string {
   switch (err?.code) {
     case MediaError.MEDIA_ERR_ABORTED:
       return "playback was cancelled";

@@ -86,5 +86,38 @@ export function shortDate(ms: number | undefined, now = Date.now()): string {
  */
 export function tileCaption(kind: string, name: string): HTMLElement | null {
   if (kind === "image" || kind === "video") return null;
-  return el("span.ph-cell-cap", { text: name, "aria-hidden": true });
+  const cap = el("span.ph-cell-cap", { "aria-hidden": true });
+  const dot = name.lastIndexOf(".");
+  // `.tar.gz` is one extension to a person and two to `lastIndexOf`, and a
+  // trailing dot-something fourteen characters long is a name, not a suffix.
+  const hasExt = dot > 0 && name.length - dot <= 12;
+  const stem = hasExt ? name.slice(0, dot) : name;
+  const ext = hasExt ? name.slice(dot) : "";
+  const cut = stem.length > CAP_SPLIT ? Math.ceil(stem.length / 2) : 0;
+  cap.append(
+    el("span.ph-cell-cap-h", { text: stem.slice(0, cut) }),
+    el(
+      "span.ph-cell-cap-l",
+      {},
+      el("span.ph-cell-cap-t", { text: stem.slice(cut) }),
+      el("span.ph-cell-cap-x", { text: ext }),
+    ),
+  );
+  return cap;
 }
+
+/**
+ * How long a stem has to be before it is split across two lines.
+ *
+ * This number decides nothing about correctness -- it only picks one line or
+ * two. Whether the text *fits* is measured by the browser, because only the
+ * browser knows the tile width, the font and the display density. Counting
+ * characters here is what put `one-building-then-the-coun……` on a tile with
+ * its `.html` sliced off the bottom: thirty-eight characters is under two
+ * lines on paper and over two lines on a phone.
+ *
+ * The extension is a separate element that is not allowed to shrink, so it
+ * survives every width, every font size and every name length. A file grid
+ * that hides what kind of file a tile holds has failed at its one job.
+ */
+const CAP_SPLIT = 18;

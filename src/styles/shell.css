@@ -9,7 +9,24 @@
   inset: 0;
   z-index: 45;
   display: grid;
-  place-items: center;
+  /* An explicit row, not the implicit `auto` one.
+
+     `.ql-card` asks for `height: 100%`. A percentage height only resolves
+     against a containing block whose own height does not depend on it, and an
+     auto row is sized by its contents -- so the percentage was cyclic, quietly
+     became `auto`, and the card shrank to fit its preview instead of filling
+     the overlay. `1fr` of a `inset: 0` container is definite, so the card
+     gets a real number to take a percentage of. */
+  grid-template-rows: minmax(0, 1fr);
+  /* Stretch, not centre. The card also asks for `height: 100%`, and that is
+     kept as a second belt -- but a percentage needs the grid area to be a
+     resolved number at the time it is asked, and on the device it was not:
+     the card came out content-sized and floated as a strip with the page
+     squeezed into it. `stretch` is the same result computed the other way
+     round, by the row telling the item its height instead of the item asking
+     the row for it, and it cannot fail to resolve. Horizontally the card is
+     still centred -- `width: min(940px, 100%)` needs the room on a desktop. */
+  place-items: stretch center;
   padding: 5vh 4vw;
   background: color-mix(in srgb, var(--fct-bg) 72%, transparent);
   backdrop-filter: blur(6px);
@@ -18,11 +35,20 @@
 
 .ql-card {
   display: grid;
-  /* head, preview, actions, facts. The last two collapse to nothing when they
-     are hidden, so a desktop card with neither looks exactly as it did. */
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  /* head, rename row, its note, preview, actions, facts. Everything but the
+     preview collapses to nothing when it is hidden, so a desktop card with
+     none of them looks exactly as it did. */
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   gap: 10px;
   width: min(940px, 100%);
+  /* No `height` here on purpose, and that is the fix rather than an omission.
+     The card must fill the overlay -- content-sizing it collapsed it to a strip
+     floating mid-screen with the page squeezed into it -- and it is the row
+     that fills it, through `place-items: stretch` on `.ql`. Asking for
+     `height: 100%` as well does not help and actively breaks it: stretch only
+     applies to an item whose cross size is `auto`, so a declared percentage
+     switches stretching off and then resolves to nothing, which is precisely
+     the strip. Two builds were spent on that. */
   max-height: 100%;
   padding: 14px 16px 16px;
   border: 1px solid var(--fct-border-strong);
@@ -30,6 +56,8 @@
   background: var(--fct-surface-overlay);
   box-shadow: var(--fct-shadow);
   overflow: hidden;
+  /* The full-screen exit chip is positioned against this. */
+  position: relative;
 }
 
 .ql-head {
@@ -37,9 +65,36 @@
   align-items: center;
   gap: 10px;
 }
-.ql-title {
+/* One line that scrolls sideways, never a paragraph that grows.
+
+   An 80-character name used to wrap to three rows and push every button in the
+   head down below it, which cost a fifth of a phone screen to say what the
+   file was called. It scrolls now: the head is one row tall whatever the name
+   is, and the whole name is still readable by dragging it.
+
+   The scrolling lives here and not on the button. `overflow-x: auto` on a
+   `<button>` is ignored -- a button is not a scroll container -- so the name
+   was clipped mid-word with no ellipsis and no way to see the rest, which is
+   the bug this whole arrangement exists to prevent. `pan-x` because the card
+   under it scrolls the other way and a sideways drag on the name must not be
+   read as a page scroll. */
+.ql-titlewrap {
   flex: 1;
   min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+.ql-titlewrap::-webkit-scrollbar { display: none; }
+
+.ql-title {
+  flex: none;
+  width: max-content;
+  max-width: none;
+  min-width: 100%;
   margin: 0;
   padding: 0;
   border: none;
@@ -49,8 +104,9 @@
   font-weight: 600;
   color: var(--fct-text);
   text-align: left;
-  overflow-wrap: anywhere;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: visible;
 }
 
 /* The "i". Same size and shape as the ✕ beside it.
@@ -71,11 +127,59 @@
   font: inherit;
   cursor: pointer;
 }
+/* U+2922 and U+2921 are drawn at roughly two thirds the size of the other
+   glyphs in the system font, so the one button people are told to press looked
+   like a rendering mistake beside the ✕. Sized to match its neighbours by eye,
+   which is the only test that applies to a row of icons. */
+.ql-full-glyph { font-size: 1.5em; line-height: 1; }
+
 .ql-icon:hover { background: var(--fct-surface-raised); color: var(--fct-text); }
 .ql-icon[aria-pressed="true"] { background: var(--fct-accent); color: var(--fct-accent-ink); }
 /* The stacked word is dimmed by default; on the filled pill that reads as
    greyed-out. It takes the button's ink instead. */
 .ql-icon[aria-pressed="true"] .fct-blabel { color: inherit; }
+
+/* Rename, in the head's own row. Appears where the name was, so the thing
+   being changed and the field changing it are in the same place. */
+.ql-rename {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ql-rename[hidden] { display: none; }
+.ql-rename-field {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--fct-border-strong);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.ql-rename-field:focus { outline: 2px solid var(--fct-accent); outline-offset: -1px; }
+.ql-rename-go,
+.ql-rename-no {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  cursor: pointer;
+}
+.ql-rename-go { border-color: var(--fct-accent); color: var(--fct-accent); }
+.ql-rename-note {
+  margin: 0;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+}
+.ql-rename-note[hidden] { display: none; }
+.ql-rename-note.is-bad { color: var(--fct-warning); }
 
 /* What can be done with the file. Icon and word on every button, for the same
    reason the picture viewer's bar carries both: a finger cannot hover, so the
@@ -103,7 +207,10 @@
 }
 .ql-action:hover { background: var(--fct-surface-raised); }
 .ql-action:active { background: var(--fct-selection); }
+/* Sized for both shapes: an SVG from the icon set (the ordinary case) and the
+   bare text `icon()` falls back to for a glyph it does not know. */
 .ql-action-icon { font-size: 19px; line-height: 1; }
+svg.ql-action-icon { width: 20px; height: 20px; display: block; }
 .ql-action-label {
   font-size: var(--fct-fs-xs);
   color: var(--fct-text-dim);
@@ -127,12 +234,33 @@
 .ql-close:hover { background: var(--fct-surface-raised); color: var(--fct-text); }
 
 .ql-body {
-  display: grid;
-  place-items: center;
   min-height: 0;
   overflow: auto;
+  /* The body is the scroller and nothing else now; the layout the previews
+     were written against moved down one level, to `.ql-zoom`. */
+  overscroll-behavior: contain;
+  /* Panning is allowed, so a zoomed page can be dragged around with one
+     finger. Pinching is not -- `zoom.ts` takes two fingers itself and turns
+     this off for the length of the gesture, because the browser's own
+     two-finger scroll would otherwise pan while we scale. */
+  touch-action: pan-x pan-y;
   border-radius: 8px;
   background: var(--fct-canvas-bg);
+}
+
+/* The zoom layer. `transform: scale()` lands here rather than on the scroller
+   so the scrollbars stay life size, and the origin is the top-left corner so
+   every pixel the zoom creates is below and to the right of it -- which is
+   exactly the region a scroller can reach. Anything above or left of the
+   origin would be unscrollable and therefore lost. */
+.ql-zoom {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  /* `min-height`, not `height`: it has to fill an empty card and still be
+     free to grow past it once the content or the zoom is taller. */
+  min-height: 100%;
+  transform-origin: 0 0;
 }
 .ql-media { max-width: 100%; max-height: 56vh; border-radius: 8px; }
 .ql-audio { width: min(560px, 90%); }
@@ -148,12 +276,42 @@
   justify-items: center;
   padding: 10px;
 }
+/* A page that has not been drawn yet. It holds exactly the height the real
+   page will take, so the scrollbar is honest from the first frame and nothing
+   under the finger moves when the pixels land. */
+.ql-slot {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+}
 .ql-page {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
   box-shadow: 0 1px 6px rgb(0 0 0 / 0.4);
 }
+/* A rendered page, in a frame sandboxed to nothing (see `previewPage`).
+   Stretched rather than centred: a document laid out 320px wide inside a
+   560px card reads as a phone screenshot of itself. The white ground is the
+   page's own -- a document that sets no background expects paper, and giving
+   it the app's dark canvas would show black text on black. */
+.ql-html {
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  /* `align-self: stretch` above is what gives it the height -- exactly the
+     space the card has left once the head and the action bar have taken
+     theirs. Not `height: 100%`: a declared cross size turns stretching off
+     (see `.ql-card`). Not `64vh` either, which is what it used to ask for and
+     is taller than that row on a phone, so the frame ran under the action bar
+     and the last inch of every page sat behind it. A viewport height inside a
+     sized track is always that bug. */
+  min-height: 240px;
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .ql-note { padding: 34px 16px; color: var(--fct-text-muted); font-size: 12px; }
 
 .ql-text,
@@ -162,7 +320,9 @@
   justify-self: stretch;
   margin: 0;
   padding: 12px 14px;
-  overflow: auto;
+  /* No scroller of its own: the card has exactly one, `.ql-body`, and a
+     second one nested inside the zoom layer meant a zoomed dump scrolled the
+     wrong box under the finger. */
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 11.5px;
   line-height: 1.5;
@@ -188,6 +348,79 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+
+/* ── Quick-look, full screen ───────────────────────────────────────────────
+ *
+ * Asked for by name: "take away the file name and all these buttons and have
+ * it full screen if I want". So it is not a bigger card -- it is the card
+ * gone. No dimmed ground, no padding, no border, no radius, no shadow, and
+ * the head, the action bar and the facts all removed from the grid rather
+ * than hidden inside it, so the preview gets every pixel.
+ *
+ * The way back is `.ql-exit`, floating over the content, because the two
+ * previews that most want this are an iframe and a canvas stack and neither
+ * of them ever hands a tap back up to us. */
+.ql.ql-full {
+  padding: 0;
+  background: var(--fct-canvas-bg);
+  backdrop-filter: none;
+}
+.ql-full .ql-card {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  width: 100%;
+  /* Still no `height`: the row stretches it. See the note on `.ql-card`. */
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--fct-canvas-bg);
+  box-shadow: none;
+}
+.ql-full .ql-head,
+.ql-full .ql-actions,
+.ql-full .ql-facts { display: none; }
+.ql-full .ql-body { border-radius: 0; }
+.ql-full .ql-html { border-radius: 0; }
+/* A picture is capped at 56vh in the card so the details below it stay on
+   screen. Nothing is below it here. */
+.ql-full .ql-media { max-height: 100%; }
+
+/* Scrolling content starts below the exit chip and ends above the gesture
+   bar, so the first line is not printed under the button that dismisses it
+   and the last line is not printed under the phone's own handle. A rendered
+   page gets neither: it is a sandboxed frame and we cannot reach inside it,
+   which is why the chip is small and in a corner. */
+.ql-full .ql-text,
+.ql-full .ql-hex,
+.ql-full .ql-pdf {
+  padding-top: calc(env(safe-area-inset-top) + 64px);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 16px);
+}
+
+/* Small, dark, and out of the way in the corner the thumb reaches, but a real
+   44px target and clear of the gesture bar and the notch. */
+.ql-exit {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: calc(env(safe-area-inset-right) + 10px);
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--fct-border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fct-surface-overlay) 88%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ql-exit[hidden] { display: none; }
+.ql-exit:hover { background: var(--fct-surface-raised); }
 
 /* ── Command palette ───────────────────────────────────────────────────── */
 
@@ -865,3 +1098,19 @@
   cursor: pointer;
 }
 .recover-close:hover { background: var(--fct-surface-raised); color: var(--fct-text); }
+
+/* A native frame plus the one line that says it is a frame. The note sits
+   under the picture rather than over it: covering part of a photograph to
+   explain the photograph is the wrong trade. */
+.ql-native {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-height: 0;
+}
+.ql-native .ql-note {
+  padding: 0 16px;
+  text-align: center;
+}

@@ -425,8 +425,11 @@ const REST: readonly PhoneTool[] = [
     need: "native", hint: "The bytes, for when nothing else will tell you",
   },
   {
-    id: "info.undo", label: "History", icon: "↺", group: "info", kinds: "any",
-    need: "none", hint: "Every edit made to this file, and the way back",
+    // "History" was the label here and "Undo" on the chip that actually
+    // renders it (editor.ts, the More strip), which does exactly one step
+    // back. Named for what it does.
+    id: "info.undo", label: "Undo", icon: "↺", group: "info", kinds: "any",
+    need: "none", hint: "Step back one edit",
   },
   {
     id: "info.redo", label: "Redo", icon: "↻", group: "info", kinds: "any",
@@ -437,8 +440,12 @@ const REST: readonly PhoneTool[] = [
     need: "native", hint: "Change the file name",
   },
   {
-    id: "info.openwith", label: "Open with", icon: "⌥", group: "info", kinds: "any",
-    need: "native", hint: "Hand this file to another panel, or to the system",
+    // Not "Open with" on the phone: it opens FACET's own file-association
+    // panel, which picks which of FACET's viewers owns an extension. Android
+    // apps are not on offer -- `AndroidFs.runProgram` rejects outright -- and
+    // a phone user reads "Open with" as the system share-to-app sheet.
+    id: "info.openwith", label: "Opens in", icon: "⌥", group: "info", kinds: "any",
+    need: "native", hint: "Choose which of FACET's viewers handles this file type",
   },
   {
     id: "info.watch", label: "Watch folder", icon: "◎", group: "info", kinds: "any",

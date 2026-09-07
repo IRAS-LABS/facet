@@ -122,6 +122,37 @@ fn cmd(exe: &str) -> Command {
     c
 }
 
+/// Whether the media tools can actually run on this build.
+///
+/// The phone's editor used to be told `ffmpeg: true` unconditionally, so on any
+/// device the binaries were not packaged for -- there is only an `arm64-v8a`
+/// directory under `src-tauri/android-binaries` -- fifteen tools were offered
+/// as enabled and then failed at spawn time with a job error. `tools.ts`
+/// already knows how to grey a tool out with a reason; it just needed the
+/// truth. Answered once and cached: it cannot change while the app is running.
+#[tauri::command]
+pub fn media_ready() -> bool {
+    static READY: OnceLock<bool> = OnceLock::new();
+    *READY.get_or_init(|| {
+        #[cfg(target_os = "android")]
+        {
+            // Both, not either: every tool needs ffmpeg and most of them probe
+            // first, and a half-packaged build is a worse lie than no build.
+            match native_lib_dir() {
+                Some(dir) => dir.join("libffmpeg.so").is_file() && dir.join("libffprobe.so").is_file(),
+                None => false,
+            }
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            // On the desktop it is whatever is on PATH, so the only honest
+            // answer is to run it. `-version` writes a few lines and exits.
+            cmd("ffmpeg").arg("-version").output().is_ok()
+                && cmd("ffprobe").arg("-version").output().is_ok()
+        }
+    })
+}
+
 // ---------------------------------------------------------------- probing
 
 #[derive(Debug, Serialize, Clone)]

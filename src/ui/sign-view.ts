@@ -189,6 +189,9 @@ export class SignView {
   private pdfTask: import("pdfjs-dist").PDFDocumentLoadingTask | null = null;
   private pdfDoc: import("pdfjs-dist").PDFDocumentProxy | null = null;
 
+  /** The Watermark heading, so `open(_, "mark")` can scroll to it. */
+  private wmHead: HTMLElement | null = null;
+
   private wm: WmState = {
     on: false, sigId: null, preset: "draft", colour: "#8a1220", opacity: 0.1,
     rotate: 35, width: 220, tiled: true, gap: 90, scope: "all", from: 1, to: 1,
@@ -257,7 +260,7 @@ export class SignView {
    * tapping "Redact" and landing on a signature list with the cover tool three
    * scrolls down would be the same complaint that got this written.
    */
-  async open(path: string, mode: "sign" | "redact" | "crop" = "sign"): Promise<void> {
+  async open(path: string, mode: "sign" | "redact" | "crop" | "mark" = "sign"): Promise<void> {
     this.path = path;
     this.isPdf = /\.pdf$/i.test(path);
     this.at = 0;
@@ -284,7 +287,15 @@ export class SignView {
     // After the page, because both need to know how big it is.
     if (mode === "redact") this.addRedaction();
     if (mode === "crop") this.toggleCrop(true);
+    // "Watermark" used to land on the signature list, which is exactly the
+    // failure the redact and crop doors were added to prevent. Turn the
+    // watermark on and put its controls in front of the eye.
+    if (mode === "mark") this.wm.on = true;
     this.buildSide();
+    if (mode === "mark") {
+      this.wmHead?.scrollIntoView({ block: "start" });
+      this.paintMarks();
+    }
   }
 
   close(): void {
@@ -801,7 +812,8 @@ export class SignView {
     }
 
     // Watermark
-    kids.push(el("h3.fct-signv-h", undefined, "Watermark"));
+    this.wmHead = el("h3.fct-signv-h", undefined, "Watermark");
+    kids.push(this.wmHead);
     const onBtn = el("button.fct-signv-toggle", {
       type: "button", "aria-pressed": this.wm.on ? "true" : "false",
     }, icon("watermark"), this.wm.on ? "On" : "Off");

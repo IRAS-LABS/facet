@@ -196,6 +196,9 @@ const GLYPH_TO_NAME: Record<string, string> = {
   "↗": "share", "🧹": "sparkles", "⇄": "convert", "❐": "camera",
   "▶": "play", "⏸": "pause", "ⓘ": "info", "⬢": "hex", "↺": "undo", "↻": "redo",
   "✎": "rename", "⌥": "open-with", "🗑": "trash",
+  // Quick Look's action bar. "■" is the black bar a redaction leaves
+  // behind, which is what `bar` already draws.
+  "✍": "signature", "✍️": "signature", "■": "bar",
   "←": "arrow-left", "‹": "chevron-left", "›": "chevron-right",
   "☆": "star", "★": "star", "☰": "select", "⌕": "search", "⊞": "grid",
   "✓": "check", "↓": "download", "▩": "table", "‹›": "code",

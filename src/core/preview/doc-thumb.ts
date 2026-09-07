@@ -90,10 +90,12 @@ const TEXT_EXT = new Set([
  * so it is ours.
  */
 const PICTURE_EXT = new Set([
-  "jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "ico", "heic", "heif",
-  "tif", "tiff", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "jxl",
-  "mp4", "mkv", "mov", "webm", "avi", "m4v", "3gp", "mts", "m2ts", "wmv", "flv",
-  "mpg", "mpeg",
+  "jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "avif", "avifs",
+  "bmp", "ico", "heic", "heics", "heif",
+  "tif", "tiff", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "pef",
+  "srw", "jxl",
+  "mp4", "mkv", "mov", "webm", "avi", "m4v", "3gp", "3g2", "mts", "m2ts",
+  "wmv", "flv", "f4v", "mpg", "mpeg", "m2v", "ogv", "vob", "divx", "insv",
 ]);
 
 /**

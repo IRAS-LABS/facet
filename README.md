@@ -1,14 +1,17 @@
-<img src="brand/out/android/play-store-512.png" alt="" width="110" align="left">
+<div align="center">
 
-# Facet
+<img src="brand/out/android/play-store-512.png" alt="" width="104">
 
-### All-in-one file explorer and media studio.<br>Desktop and Android, fully on-device.
+### Facet
+
+**All-in-one file explorer and media studio.**<br>
+Desktop and Android, fully on-device.
 
 [![Download](https://img.shields.io/github/v/release/IRAS-LABS/facet?label=download&color=15a34a)](https://github.com/IRAS-LABS/facet/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-15a34a)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-15a34a)
 
-<br clear="left">
+</div>
 
 Browse your files, then edit what you find without leaving. Cut a video, clean
 up a recording, blur the faces out of a photo, pull the text off a scan, get a
@@ -16,9 +19,22 @@ transcript of a meeting, strip the GPS out of a picture before you send it —
 all in the window you were already looking at.
 
 Everything happens on your machine. There is no account, no sign-in, no
-telemetry, and nothing is uploaded. Transcription, OCR and face detection are
-models that run inside the app, not services it calls. The only socket it opens
-is a loopback server it uses to hand video to its own player.
+telemetry, and **nothing you open is ever uploaded** — no file, no picture, no
+audio, no text. Transcription, OCR and face detection are models that run
+inside the app, not services it calls.
+
+One model is not in the download, and it is the one place Facet reaches the
+internet on purpose. **Transcription** fetches its Whisper model from the
+Hugging Face hub the first time you pick a quality (80 MB, 150 MB or 500 MB),
+then keeps it and works with the radio off from then on. Everything else is
+already inside: face and plate detection, and **OCR in English**. OCR in one of
+the other nineteen languages fetches that language once (about 2 MB, from
+jsDelivr) and then caches it too.
+
+Those two hosts are the entire list — they are the only ones the app is even
+allowed to contact — and neither is touched unless you ask for a transcript or
+a language Facet did not ship with. If a first-run download is not acceptable
+to you, transcription is the one feature to leave alone.
 
 It is one codebase: Windows desktop and an Android app with a phone-shaped
 interface, not a remote control for the desktop. Built with
@@ -375,9 +391,9 @@ The inspector maps regions rather than just dumping bytes for `jpeg`, `png`,
 
 ### Anything else
 
-Every file, of every type, can be renamed, moved, tagged, hashed, batch-
-processed, opened in the hex inspector, inspected for metadata, and handed to
-the default application. Nothing is hidden because Facet does not understand
+Every file, of every type, can be renamed, moved, batch-processed, opened in
+the hex inspector, inspected for metadata, and handed to the default
+application. Nothing is hidden because Facet does not understand
 it.
 
 ## Build from source
@@ -537,13 +553,33 @@ breaking the app.
 | `CAMERA` | the in-app capture screen, and nothing else |
 | `RECORD_AUDIO` | voice recording and live transcription |
 | `MODIFY_AUDIO_SETTINGS` | audio routing while recording and during playback |
-| `INTERNET` | the **loopback** server that hands video to the app's own player |
+| `INTERNET` | the **loopback** server that hands video to the app's own player, and the first-run model downloads for Transcribe and OCR |
 
 `INTERNET` is the one to be suspicious of in an app that claims to be offline,
-so to be concrete about it: Android's video player takes a URL, so Facet serves
-the file to itself over `127.0.0.1`. There is no remote endpoint in the app.
-Check that the way you would check any such claim — watch its traffic, or grep
-the source for a hostname.
+so here is the whole of it. Android's video player takes a URL, so Facet serves
+the file to itself over `127.0.0.1` — that is what the permission is mostly
+for. Beyond that there are exactly two remote hosts, both of them model
+registries, both of them reached only when you use the feature that needs one:
+
+| host | what for | when |
+|---|---|---|
+| `huggingface.co` | the Whisper speech model, and the two speaker models if speaker labelling is on | first time you transcribe at a given quality |
+| `cdn.jsdelivr.net` | Tesseract `.traineddata` for one language | first time you OCR in that language |
+
+Nothing is sent to either one but the request for the file. Your audio and your
+pictures stay on the device — the model comes to them.
+
+Check all of that the way you would check any such claim: watch its traffic, or
+grep the source for a hostname. Those two are what you will find.
+
+One thing that claim does *not* cover on its own, and which a packet capture
+would have caught us on: the Android System WebView runs inside this process,
+so anything **it** fetches is billed to Facet's UID. Two of its defaults go to
+Google without the app asking — Safe Browsing, which pulls a URL list and
+checks navigations, and the WebView metrics client, which uploads usage stats.
+Both are switched off in the manifest (`EnableSafeBrowsing` false,
+`MetricsOptOut` true), because “no remote endpoint in the app” is worth
+nothing if the frame it draws in is talking to someone.
 
 Camera and microphone are declared `required="false"`, so Facet installs on
 hardware that lacks them and hides those features instead of refusing to run.

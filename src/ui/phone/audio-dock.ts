@@ -40,6 +40,7 @@ export class AudioDock {
   async play(item: { name: string; path: string }): Promise<void> {
     this.nameEl.textContent = item.name;
     this.el.hidden = false;
+    this.reserve();
     try {
       this.audio.src = await this.shell.fs.fileUrl(item.path);
       await this.audio.play();
@@ -55,6 +56,27 @@ export class AudioDock {
     this.audio.removeAttribute("src");
     this.audio.load();
     this.el.hidden = true;
+    document.body.classList.remove("fct-docked");
+    document.body.style.removeProperty("--fct-dock-h");
+  }
+
+  /**
+   * Tell the scrolling body how tall the dock is.
+   *
+   * The dock is `position: fixed`, so it is outside every layout it covers --
+   * and what it covers is the last row of whatever is behind it. Scroll a photo
+   * grid to the end with music playing and the final row sits under the player
+   * with no way to reach it. The height is measured rather than written down
+   * because the dock grows with the file name and with the bottom safe area,
+   * and a number typed into the stylesheet would be wrong on the first phone
+   * that disagreed.
+   */
+  private reserve(): void {
+    requestAnimationFrame(() => {
+      if (this.el.hidden) return;
+      document.body.style.setProperty("--fct-dock-h", `${Math.ceil(this.el.getBoundingClientRect().height)}px`);
+      document.body.classList.add("fct-docked");
+    });
   }
 
   dispose(): void {

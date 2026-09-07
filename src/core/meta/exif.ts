@@ -800,6 +800,17 @@ function stripJpeg(b: Uint8Array): StripResult {
   let scanAt = b.length;
   let i = 2;
 
+  // Orientation is the one EXIF tag that is not information about you -- it is
+  // information about the file. A phone stores its pictures in the sensor's own
+  // landscape frame and writes a tag saying which way to turn them, so throwing
+  // the tag out with the rest of EXIF leaves a portrait photo lying on its side
+  // in every viewer that ever opens it, permanently. Re-encoding the pixels
+  // upright is not an option here (see the note on `strip`), so the tag is
+  // written back on its own, in a 36-byte APP1 that carries nothing else: no
+  // make, no model, no time, no position.
+  const turn = jpegOrientation(b);
+  const upright = turn > 1 ? orientationApp1(turn) : null;
+
   while (i + 4 <= b.length) {
     if (b[i] !== 0xff) break;
     const marker = b[i + 1]!;
@@ -811,8 +822,10 @@ function stripJpeg(b: Uint8Array): StripResult {
     const drop =
       (marker >= 0xe1 && marker <= 0xef) || // APP1..APP15
       marker === 0xfe;                       // COM
-    if (drop) removed.push(labelFor(b, marker, i + 4, len - 2));
-    else keep.push([i, i + 2 + len]);
+    if (drop) {
+      const label = labelFor(b, marker, i + 4, len - 2);
+      removed.push(label === "EXIF" && upright ? "EXIF (orientation kept)" : label);
+    } else keep.push([i, i + 2 + len]);
     i += 2 + len;
   }
 
@@ -822,7 +835,7 @@ function stripJpeg(b: Uint8Array): StripResult {
   const end = jpegEnd(b, 2);
   if (end < b.length) removed.push(describeTrailer(b, end));
 
-  let size = 2;
+  let size = 2 + (upright?.length ?? 0);
   for (const [from, to] of keep) size += to - from;
   size += end - scanAt;
 
@@ -830,13 +843,96 @@ function stripJpeg(b: Uint8Array): StripResult {
   out[0] = 0xff;
   out[1] = 0xd8;
   let w = 2;
+
+  // JFIF wants APP0 to be the first marker after SOI, so the orientation APP1
+  // goes after it when there is one and straight after SOI when there is not.
+  let placed = false;
+  const place = (): void => {
+    if (!upright || placed) return;
+    out.set(upright, w);
+    w += upright.length;
+    placed = true;
+  };
+  if (!(keep.length > 0 && b[keep[0]![0] + 1] === 0xe0)) place();
   for (const [from, to] of keep) {
     out.set(b.subarray(from, to), w);
     w += to - from;
+    place();
   }
+  place();
   out.set(b.subarray(scanAt, end), w);
 
   return { bytes: out, removed, saved: b.length - out.length };
+}
+
+/**
+ * The EXIF orientation of a JPEG, 1 when there is none or it is unreadable.
+ *
+ * Deliberately narrower than `readMetadata`: only the first APP1 that says
+ * `Exif  `, only IFD0, only tag 0x0112. This runs inside the stripper, where
+ * the single thing worth knowing about the file is which way is up.
+ */
+function jpegOrientation(b: Uint8Array): number {
+  let i = 2;
+  while (i + 4 <= b.length) {
+    if (b[i] !== 0xff) return 1;
+    const marker = b[i + 1]!;
+    if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+    if (marker === 0xda) return 1;
+    const len = (b[i + 2]! << 8) | b[i + 3]!;
+    if (len < 2 || i + 2 + len > b.length) return 1;
+    if (marker === 0xe1 && str(b, i + 4, 6) === "Exif  ") {
+      const base = i + 10;
+      const le = tiffOrder(b, base);
+      if (le === null) return 1;
+      const head = reader(b, base, le);
+      const ifd = base + head.u32(4);
+      if (ifd + 2 > b.length) return 1;
+      const dir = reader(b, ifd, le);
+      const n = dir.u16(0);
+      for (let e = 0; e < n; e++) {
+        const at = ifd + 2 + e * 12;
+        if (at + 12 > b.length) break;
+        const entry = reader(b, at, le);
+        if (entry.u16(0) !== 0x0112) continue;
+        // A SHORT is left-justified in the four-byte value field, so the first
+        // two bytes hold it whichever way round the file is.
+        const v = entry.u16(8);
+        return v >= 1 && v <= 8 ? v : 1;
+      }
+      return 1;
+    }
+    i += 2 + len;
+  }
+  return 1;
+}
+
+/**
+ * An APP1/EXIF segment carrying exactly one tag: Orientation. 36 bytes.
+ *
+ * Little-endian TIFF header, one IFD, one entry, no next IFD. Written by hand
+ * rather than by copying the original segment, because copying would bring back
+ * whatever else was sitting in IFD0 -- which is the entire thing being removed.
+ */
+function orientationApp1(value: number): Uint8Array {
+  const seg = new Uint8Array(36);
+  const v = new DataView(seg.buffer);
+  seg[0] = 0xff;
+  seg[1] = 0xe1;
+  v.setUint16(2, 34);                  // segment length, counting these two bytes
+  seg.set([0x45, 0x78, 0x69, 0x66, 0, 0], 4); // "Exif  "
+  const t = 10;                        // TIFF header; every offset below is from here
+  seg[t] = 0x49;
+  seg[t + 1] = 0x49;                   // "II" -- little-endian
+  v.setUint16(t + 2, 42, true);
+  v.setUint32(t + 4, 8, true);         // IFD0 sits immediately after the header
+  v.setUint16(t + 8, 1, true);         // one entry
+  v.setUint16(t + 10, 0x0112, true);   // Orientation
+  v.setUint16(t + 12, 3, true);        // SHORT
+  v.setUint32(t + 14, 1, true);        // count
+  v.setUint16(t + 18, value, true);    // left-justified in the value field
+  v.setUint32(t + 22, 0, true);        // no next IFD
+  return seg;
 }
 
 function labelFor(b: Uint8Array, marker: number, start: number, len: number): string {
