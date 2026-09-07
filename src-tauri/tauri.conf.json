@@ -12,7 +12,7 @@
   "app": {
     "withGlobalTauri": false,
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost https://asset.localhost blob: data: http://127.0.0.1:*; media-src 'self' asset: http://asset.localhost https://asset.localhost blob: data: http://127.0.0.1:*; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost blob: data: http://127.0.0.1:*; object-src 'none'; frame-src 'self' blob: data:",
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost https://asset.localhost blob: data: http://127.0.0.1:*; media-src 'self' asset: http://asset.localhost https://asset.localhost blob: data: http://127.0.0.1:*; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost blob: data: http://127.0.0.1:* https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co; object-src 'none'; frame-src 'self' blob: data:",
       "assetProtocol": {
         "enable": true,
         "scope": ["**"]

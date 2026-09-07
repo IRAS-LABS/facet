@@ -38,6 +38,34 @@ import { createWorker, type Worker } from "tesseract.js";
 import coreUrl from "tesseract.js-core/tesseract-core-simd-lstm.wasm.js?url";
 import workerUrl from "tesseract.js/dist/worker.min.js?url";
 
+/**
+ * Where English comes from, and it is out of the bundle rather than a CDN.
+ *
+ * Left to itself tesseract.js fetches from `cdn.jsdelivr.net`
+ * (`worker-script/index.js`), which is not in the packaged app's `connect-src`
+ * (`src-tauri/tauri.conf.json`) -- so *every* OCR run in a release build died
+ * at "loading language traineddata" with nothing in the UI to explain it. The
+ * fix for the common case is not a CSP hole, it is shipping the file: English
+ * is what nearly every scan on this machine is in, and it should work with the
+ * radio off like the rest of the app.
+ *
+ * `public/tessdata/eng.traineddata.gz` is fetched by `scripts/fetch-models.py`
+ * alongside the detector models, on the same terms -- pinned by sha256,
+ * gitignored, licence beside it. `tessdata_fast` rather than the full set:
+ * this engine is LSTM-only (see `LSTM_ONLY`), the legacy tables in the full
+ * file are never read, and fast is 1.9 MB gzipped against 10.9 MB.
+ *
+ * The other nineteen languages still come from the CDN, which is why it is now
+ * named in `connect-src` -- twenty bundled languages would be forty megabytes,
+ * and the README has always said a language costs a download the first time.
+ * Only exactly `eng` uses the local copy: a combination like `eng+heb` needs a
+ * directory holding both, and that is the CDN's.
+ *
+ * Vite serves `public/` from the root, so the path is stable across the dev
+ * server and the bundle, and no hashing is involved.
+ */
+const LANG_PATH = "/tessdata";
+
 import { fromRaw, rescale, type OcrPage, type RawResult } from "./page";
 
 /** LSTM only. The legacy engine needs different data files and is worse. */
@@ -199,9 +227,20 @@ export class Tesseract implements Recogniser {
     const worker = await createWorker(language, LSTM_ONLY, {
       workerPath: workerUrl,
       corePath: coreUrl,
+      // Omitted, not set to the CDN by hand: tesseract.js picks its own URL
+      // when this is absent, and it knows which of the two data sets an
+      // LSTM-only worker wants.
+      ...(language === "eng" ? { langPath: LANG_PATH } : {}),
       // Language data is the one thing not in the bundle; caching it means the
       // network is touched once per language for the life of the install.
-      cacheMethod: "refresh",
+      //
+      // That is what `write` does. `refresh` was the wrong constant and it
+      // defeated the sentence above: tesseract.js skips the cache *read*
+      // entirely for `refresh` and `none` (`worker-script/index.js`, the
+      // `readCache` ternary), so every worker start re-downloaded four
+      // megabytes of traineddata over the CDN -- once per OCR session, not
+      // once per install, and never while offline.
+      cacheMethod: "write",
       logger: (m: { status?: string; progress?: number }) => {
         if (!this.report) return;
         this.report({

@@ -11,6 +11,15 @@
 `src/core/vision/lbpcascade_frontalface_improved.xml` is the OpenCV LBP cascade
 (KU Leuven, BSD-style license; header kept intact).
 
+## Bundled OCR data (`public/tessdata/`, fetched by the same script)
+
+| Data | Use | License |
+| --- | --- | --- |
+| `eng.traineddata` (tesseract-ocr/tessdata_fast) | English OCR | Apache-2.0 (`LICENSE-tessdata.txt`) |
+
+It is bundled rather than fetched at runtime: the packaged app's CSP allows no
+outside host, and the app is meant to work with the network off.
+
 ## FFmpeg (Android)
 
 The Android app execs `ffmpeg` / `ffprobe` binaries placed in
