@@ -38,6 +38,8 @@ import {
   type ListDir,
 } from "@core/phone/handoff";
 import type { FileEntry } from "@core/explorer/types";
+import { MockFs } from "@core/explorer/mock-fs";
+import { PhoneShell } from "@ui/phone/shell";
 
 let pass = 0;
 let fail = 0;
@@ -64,7 +66,83 @@ function fakeFs(tree: Record<string, string[]>): { list: ListDir; calls: string[
 }
 
 const DCIM = "/storage/emulated/0/DCIM/Camera";
+
+/** The live section runs against `MockFs`, whose tree is a desktop one. */
+const HOME = "C:/Users/me";
+const PICS = `${HOME}/Pictures`;
 const DOWN = "/storage/emulated/0/Download";
+
+/**
+ * A real `PhoneShell`, mounted, against a `MockFs` that has been handed files.
+ *
+ * The section below is the reason this exists. Everything above tests
+ * `resolveHandoff` as a function, which is the part with the rules in it -- but
+ * a hand-off that resolves perfectly and never reaches the viewer is still a
+ * tap that did nothing. What is unproven by the pure tests is the wiring:
+ * `mount` -> `drainHandoff` -> `fs.openPending` -> `resolveHandoff` ->
+ * `shell.open` -> the viewer, on a *cold* mount, before the store has finished
+ * its first scan. That is exactly the sequence a cold "Open with FACET" takes,
+ * and it is the sequence that cannot be checked on a desk any other way.
+ *
+ * Off-screen rather than hidden: `display:none` gives every element a zero
+ * rect, and the viewer's own layout would then be measuring nothing.
+ */
+interface Panelled {
+  entry: FileEntry;
+  panel: string;
+  siblings: readonly FileEntry[];
+}
+
+interface Live {
+  shell: PhoneShell;
+  fs: MockFs;
+  panels: Panelled[];
+  holder: HTMLElement;
+}
+
+/** Let the mount's promise chain finish: openPending, then one listing. */
+async function settle(turns = 8): Promise<void> {
+  for (let i = 0; i < turns; i++) await new Promise((r) => setTimeout(r, 0));
+}
+
+async function live(queued: readonly string[]): Promise<Live> {
+  const fs = new MockFs();
+  const panels: Panelled[] = [];
+  const holder = document.createElement("div");
+  holder.style.cssText =
+    "position:absolute;left:-99999px;top:0;width:390px;height:844px;overflow:hidden";
+  document.body.append(holder);
+  const shell = new PhoneShell({
+    fs,
+    home: HOME,
+    openPanel: (entry, panel, siblings) => { panels.push({ entry, panel, siblings }); },
+    runTool: () => false,
+    native: false,
+  });
+  // Queued *before* mount: this is a cold start from a file, where the intent
+  // was taken in `onCreate` and has been waiting for the WebView ever since.
+  if (queued.length > 0) fs.handOff(...queued);
+  shell.mount(holder);
+  await settle();
+  return { shell, fs, panels, holder };
+}
+
+function teardown(l: Live): void {
+  l.shell.unmount();
+  l.holder.remove();
+}
+
+/** The viewer is showing something. `hidden` is what `open`/`close` toggle. */
+const showing = (l: Live): boolean => !l.shell.viewer.el.hidden;
+
+/** What the viewer would swipe through. Private, and worth reading anyway. */
+const strip = (l: Live): FileEntry[] =>
+  (l.shell.viewer as unknown as { items: FileEntry[] }).items ?? [];
+
+const toast = (l: Live): string =>
+  (l.holder.querySelector(".ph-toast") as HTMLElement | null)?.hidden === false
+    ? (l.holder.querySelector(".ph-toast")?.textContent ?? "")
+    : "";
 
 async function main(): Promise<void> {
   // ---------------------------------------------------------------- paths --
@@ -216,6 +294,98 @@ async function main(): Promise<void> {
     const got = await resolveHandoff([`${DCIM}//a.jpg`], list);
     ok("a doubled separator still matches its entry",
       got?.entry.size === 1234, JSON.stringify(got?.entry));
+  }
+
+
+  // ================================================== the wiring, for real ==
+  // A mounted shell, a MockFs, and the same call the phone makes.
+
+  {
+    // The ordinary launch. Nothing was handed over, so nothing opens -- and
+    // this is the case that runs on every single cold start, so a viewer that
+    // appeared here would be the most visible bug in the app.
+    const l = await live([]);
+    ok("an ordinary launch opens no viewer", !showing(l));
+    ok("and shows no toast", toast(l) === "", toast(l));
+    teardown(l);
+  }
+
+  {
+    // The whole point: tapped in another app, opened here, swipeable.
+    const fs = new MockFs();
+    const listing = await fs.list(PICS);
+    const img = listing.entries.find((e) => e.kind === "image");
+    ok("the mock folder has a picture to hand over", img !== undefined);
+    const l = await live([img?.path ?? ""]);
+    ok("a handed-over picture opens the viewer on a cold mount", showing(l));
+    ok("on the file that was handed over",
+      strip(l)[(l.shell.viewer as unknown as { index: number }).index]?.path === img?.path,
+      JSON.stringify(strip(l).slice(0, 2).map((e) => e.path)));
+    ok("and its folder is the swipe set, so it is not a dead end",
+      strip(l).length > 1, String(strip(l).length));
+    ok("one file is not announced -- the viewer is the announcement",
+      toast(l) === "", toast(l));
+    teardown(l);
+  }
+
+  {
+    // Not a picture. The phone shell owns images and video and hands the other
+    // eighteen kinds to the panel that already knows them; a hand-off must go
+    // down that road too, or "Open with FACET" works for photos only.
+    const l = await live([`${PICS}/ghost.pdf`]);
+    ok("a handed-over document goes to a panel, not the viewer",
+      !showing(l) && l.panels.length === 1, JSON.stringify(l.panels.map((p) => p.panel)));
+    ok("as the file that was handed over",
+      l.panels[0]?.entry.name === "ghost.pdf", l.panels[0]?.entry.name ?? "-");
+    teardown(l);
+  }
+
+  {
+    // A share of several files. The selection is the set, and the count is
+    // said out loud because arriving in another app on a photo you did not
+    // tap, with eleven more behind it, needs a word of explanation.
+    const fs = new MockFs();
+    const listing = await fs.list(PICS);
+    const picked = listing.entries.filter((e) => e.kind === "image").slice(0, 3);
+    ok("the mock folder has three pictures to share", picked.length === 3);
+    const l = await live(picked.map((e) => e.path));
+    ok("a shared selection opens the viewer", showing(l));
+    ok("on exactly the files that were shared",
+      strip(l).length === 3, String(strip(l).length));
+    ok("and says how many arrived",
+      toast(l) === "Opened 3 files", toast(l));
+    teardown(l);
+  }
+
+  {
+    // The mail-attachment shape: a path whose folder lists fine but does not
+    // contain it. It still opens, alone. Refusing here would fail the exact
+    // case `OpenBridge.copyIn` exists to serve.
+    const l = await live([`${PICS}/not-in-the-listing.jpg`]);
+    ok("a file the listing cannot see still opens", showing(l));
+    ok("alone, rather than not at all",
+      strip(l).length === 1 && strip(l)[0]?.name === "not-in-the-listing.jpg",
+      JSON.stringify(strip(l).map((e) => e.name)));
+    teardown(l);
+  }
+
+  {
+    // Mount and a wake can both fire at once -- the activity comes forward and
+    // the WebView regains focus in the same frame. Two drains racing would
+    // double-open, or worse, drain half the queue into each.
+    const fs = new MockFs();
+    const listing = await fs.list(PICS);
+    const picked = listing.entries.filter((e) => e.kind === "image").slice(0, 2);
+    const l = await live([]);
+    // `l.fs`, not `fs`: the shell is holding its own MockFs, and this is an
+    // intent arriving at a shell that is already up.
+    l.fs.handOff(...picked.map((e) => e.path));
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("focus"));
+    await settle();
+    ok("two wakes at once open the selection once, not twice",
+      strip(l).length === 2, String(strip(l).length));
+    teardown(l);
   }
 
   const line = `handoff: ${pass} passed, ${fail} failed`;
