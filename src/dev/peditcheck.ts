@@ -446,6 +446,70 @@ async function main(): Promise<void> {
     ok("Blur still lives in the editor's rail", RAIL.some(([id]) => id === "blur"));
   }
 
+  // ── Handing a file to a desktop panel ───────────────────────────────────
+  // `.phv` is `position: fixed; inset: 0; z-index: 500`; every panel it can
+  // delegate to tops out at 74 (associations). So a rail chip that opens a
+  // panel and leaves the viewer up opens it *underneath an opaque black
+  // screen* -- around twenty-five chips that each read as a dead tap and then
+  // took two backs to escape. The fix is one line in the viewer and there is
+  // nothing on screen to notice if it is deleted, so it is pinned here.
+  {
+    const fs = { shareFiles: async () => {} };
+    const runs: string[] = [];
+    let takes = true;
+    const host = {
+      fs, home: "/", native: false, openPanel() {},
+      runTool: (_e: unknown, id: string) => { runs.push(id); return takes; },
+    } as unknown as PhoneHost;
+    const viewer = new PhoneViewer(host, {} as unknown as MediaStore, {} as unknown as Thumbs);
+    document.body.append(viewer.el);
+
+    const entry = {
+      name: "a.jpg", path: "/pics/a.jpg", kind: "image", ext: "jpg",
+      size: 1024, modified: 0, hidden: false,
+    } as unknown as Parameters<PhoneViewer["open"]>[0];
+
+    // The rail belongs to the viewer, and its `runTool` is the callback under
+    // test. Reached through the instance rather than rebuilt here, because a
+    // rebuilt one would be a copy of the code it is meant to be checking.
+    const rail = (viewer as unknown as { editor: PhoneEditor }).editor;
+
+    const handOff = (id: string): void => {
+      const canvas = el<"canvas">("canvas");
+      rail.begin(src, canvas, "image");
+      rail.open("more");
+      chipFor(rail, id)!.click();
+    };
+
+    viewer.open(entry, [entry]);
+    ok("the viewer is up before the hand-off", viewer.el.hidden === false);
+    handOff("info.meta");
+    ok("a rail chip reaches the host", runs[0] === "info.meta", runs.join(","));
+    ok("and the viewer gets out of the panel's way", viewer.el.hidden === true);
+
+    // The other half of the contract: a tool that declines must not cost the
+    // picture. Losing the file you were looking at to a tool that did nothing
+    // is the worse of the two bugs, because there is no error to explain it.
+    takes = false;
+    viewer.open(entry, [entry]);
+    handOff("info.meta");
+    ok("a declined tool leaves the viewer alone", viewer.el.hidden === false);
+
+    // Delete and Rename are the two the rail must *not* hand over: they are
+    // this screen's own bar buttons under another name, and the shell has no
+    // viewer to act on.
+    takes = true;
+    const before = runs.length;
+    viewer.open(entry, [entry]);
+    handOff("info.rename");
+    ok("Rename is handled here, not delegated", runs.length === before);
+    ok("and renaming keeps the viewer up", viewer.el.hidden === false);
+
+    viewer.close();
+    rail.end();
+    viewer.el.remove();
+  }
+
   // ── Encode ──────────────────────────────────────────────────────────────
   {
     const editor = new PhoneEditor(mockHost(true));

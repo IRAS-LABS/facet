@@ -66,6 +66,9 @@
         "vblur",
         "autoblur",
         "live",
+        // Was on disk but not in this list, so 36 harnesses reported 35.
+        "sign",
+        "zoom",
       ];
 
       const rows = document.getElementById("rows");
@@ -91,6 +94,38 @@
          and takes whichever carries a score. */
       const SCORE = /(\d+)\s+passed/;
 
+      /**
+       * A console line as a person would read it, not as the console eats it.
+       *
+       * Half the harnesses colour their score with `console.log("%cocr: 164
+       * passed", "color:#3ddc84")`, which the browser renders green and this
+       * runner used to render as the literal text `%cocr: 164 passed
+       * color:#3ddc84` in the results table. Applying the substitutions the
+       * console itself would apply costs a dozen lines and makes the column
+       * readable: `%c` swallows its style argument, the value directives put
+       * their argument in place, and `%%` is an escaped percent sign.
+       */
+      function plain(args) {
+        const [first, ...rest] = args;
+        if (typeof first !== "string" || !/%[csdifoOj%]/.test(first)) {
+          return args.map(String).join(" ");
+        }
+        let i = 0;
+        const out = first.replace(/%([csdifoOj%])/g, (m, kind) => {
+          if (kind === "%") return "%";
+          if (i >= rest.length) return m;   // more directives than arguments
+          const v = rest[i++];
+          if (kind === "c") return "";      // a style, and styles are not text
+          if (kind === "d" || kind === "i") return String(Math.trunc(Number(v)));
+          if (kind === "f") return String(Number(v));
+          return String(v);
+        });
+        // Anything the format string had no directive for still gets appended,
+        // which is what the console does too.
+        const extra = rest.slice(i).map(String);
+        return [out.trim(), ...extra].filter(Boolean).join(" ");
+      }
+
       /** Load one harness and wait for a line that carries a score. */
       function runOne(name) {
         return new Promise((resolve) => {
@@ -110,7 +145,7 @@
               win.__facetPatched = true;
               const real = win.console.log.bind(win.console);
               win.console.log = (...args) => {
-                logs.push(args.map(String).join(" "));
+                logs.push(plain(args));
                 real(...args);
               };
             } catch {

@@ -32,6 +32,7 @@ import "../styles/base.css";
 import "../styles/shell.css";
 
 import { TableView } from "@ui/table";
+import { fixtureBytes, guarded } from "./fixture";
 import { themes } from "@core/theme/theme-engine";
 import type { FileEntry } from "@core/explorer/types";
 
@@ -52,7 +53,7 @@ const files = new Map<string, Uint8Array>();
 let served = 0;
 
 const load = async (name: string): Promise<FileEntry> => {
-  const bytes = new Uint8Array(await (await fetch(`/_tablecheck/${name}`)).arrayBuffer());
+  const bytes = await fixtureBytes(`/_tablecheck/${name}`);
   files.set(name, bytes);
   return {
     name, path: name, kind: "tabular", ext: name.split(".").pop() ?? "",
@@ -347,7 +348,4 @@ async function run(): Promise<void> {
   console.log(document.title);
 }
 
-void run().catch((e: unknown) => {
-  document.title = `table: threw — ${String(e)}`;
-  console.error(e);
-});
+guarded("table", run);
