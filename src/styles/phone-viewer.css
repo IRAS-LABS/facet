@@ -290,6 +290,23 @@
 }
 .phv-sheet[hidden] { display: none; animation: none; }
 
+/* Under the finger: no transition, or the sheet lags behind by 180 ms and the
+   drag feels like it is happening to somebody else. The opening animation is
+   killed too -- a drag can start before it has finished. */
+.phv-sheet.phv-dragging {
+  transition: none;
+  animation: none;
+  will-change: transform;
+}
+/* Let go past the threshold and it leaves through the bottom edge. */
+.phv-sheet.phv-dropping {
+  animation: none;
+  transition: transform 160ms ease-in, opacity 160ms ease-in;
+}
+@media (prefers-reduced-motion: reduce) {
+  .phv-sheet.phv-dropping { transition: none; }
+}
+
 @keyframes phv-sheet-in {
   from { transform: translateY(24px); opacity: 0.6; }
   to { transform: translateY(0); opacity: 1; }
@@ -326,15 +343,23 @@
 }
 .phv-grab:active::before { background: var(--fct-accent); }
 
-/* The info sheet still puts a plain div here, and it is decoration there. */
+/* The info sheet puts a plain div here. It is no longer decoration: the whole
+   strip is the handle you push the sheet down by, so it is a full-width band
+   with the same 36x4 pill (from the rule above) drawn in the middle of it,
+   rather than a 4 px line nobody could put a thumb on. */
 div.phv-grab {
-  display: block;
-  width: 36px;
-  height: 4px;
-  margin: var(--fct-sp-2) auto var(--fct-sp-1);
-  border-radius: 999px;
-  background: var(--fct-border-strong);
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 24px;
+  margin: var(--fct-sp-1) 0 0;
+  background: none;
 }
+
+/* The handle and the title row belong to the drag, not to the scroller under
+   them; without this Chrome starts a scroll and the sheet never moves. */
+.phv-grab,
+.phv-sheet-head { touch-action: none; }
 
 .phv-sheet-head {
   display: flex;
