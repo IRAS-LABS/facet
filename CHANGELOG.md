@@ -8,6 +8,8 @@ something is fixed.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-09-06
+
 ### Fixed
 
 - The tab-switch timing mark went straight to `console.log` instead of through
@@ -18,7 +20,7 @@ something is fixed.
   `READ_MEDIA_VISUAL_USER_SELECTED` was tested for but never declared in the
   manifest, and Android reports an undeclared permission as denied — so the
   app told you it could see nothing while showing you the photos you had
-  picked. **Needs a new APK to reach a phone; 0.1.0 still has it.**
+  picked. 0.1.0 has this bug; this release is the fix reaching a phone.
 - `.jpe`, `.jfif`, `.apng` and `.avifs` files had no thumbnail. They are JPEG,
   JPEG, PNG and AVIF under other names, and the viewer always opened them —
   only the preview cache's extension list had not kept up.
@@ -83,5 +85,6 @@ and 3D model preview.
 - Video work on the desktop needs `ffmpeg` and `ffprobe` on `PATH`. The APK
   bundles FFmpeg and needs nothing.
 
-[Unreleased]: https://github.com/IRAS-LABS/facet/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/IRAS-LABS/facet/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/IRAS-LABS/facet/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/IRAS-LABS/facet/releases/tag/v0.1.0
