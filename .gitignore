@@ -16,6 +16,11 @@ src-tauri/gen/android/tauri.properties
 *.apk
 *.idsig
 *.aab
+# Release artifacts staged here on the way to a GitHub release. They belong on
+# the release page, not in git history — a 24 MB installer per version would
+# be in every clone forever.
+*.exe
+SHA256SUMS.txt
 
 # signing material and env (none should ever be committed)
 *.keystore

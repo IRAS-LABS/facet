@@ -29,8 +29,8 @@ TypeScript on top.
 
 | | | |
 | --- | --- | --- |
-| **Windows 10/11 (x64)** | [`Facet_0.1.0_x64-setup.exe`](https://github.com/IRAS-LABS/facet/releases/latest/download/Facet_0.1.0_x64-setup.exe) | 24 MB — run it, it installs like any other app |
-| **Android 7.0+ (arm64)** | [`facet-0.1.0-arm64.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.0-arm64.apk) | 52 MB — your phone will ask you to allow the install once |
+| **Windows 10/11 (x64)** | [`Facet_0.1.1_x64-setup.exe`](https://github.com/IRAS-LABS/facet/releases/latest/download/Facet_0.1.1_x64-setup.exe) | 24 MB — run it, it installs like any other app |
+| **Android 7.0+ (arm64)** | [`facet-0.1.1-arm64.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.1-arm64.apk) | 52 MB — your phone will ask you to allow the install once |
 
 The Windows installer is not code-signed, so SmartScreen will say "Windows
 protected your PC" — **More info**, then **Run anyway**. On desktop, put
@@ -44,7 +44,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 
 There is no Play Store listing — sideload it.
 
-1. Download `facet-0.1.0-arm64.apk` onto the phone.
+1. Download `facet-0.1.1-arm64.apk` onto the phone.
 2. Open it. Android asks permission to install from this source; grant it, and
    revoke it afterwards if you prefer.
 3. Launch Facet. It asks for storage on first run — see
@@ -60,7 +60,7 @@ The APK is signed with the project key. Check the *certificate*, rather than
 trusting the file or wherever you got it:
 
 ```
-apksigner verify --print-certs facet-0.1.0-arm64.apk
+apksigner verify --print-certs facet-0.1.1-arm64.apk
 ```
 
 ```
@@ -73,11 +73,11 @@ there. The certificate digest is the part that matters and it does not change
 between releases — an APK signed with any other key did not come from this
 project, whoever handed it to you.
 
-File hashes do change every release. For 0.1.0:
+File hashes do change every release. For 0.1.1:
 
 ```
-75dedade62f8766e066a9992cf069997a26a3a285269ebb4477fbe283fa31ca8  facet-0.1.0-arm64.apk
-d1df51d032aa6d9d9ee147f246a6ded66ea6c6a0652b9b9a4f6c36c0247fc9d2  Facet_0.1.0_x64-setup.exe
+5fb5cefc74f963e763de65ca949981d03f3035a00bf2a18d2f5a08ace102609a  facet-0.1.1-arm64.apk
+c6591edba6ee7081dc5124a90ca34fdf203777e958a0f11f6512ae98313de16f  Facet_0.1.1_x64-setup.exe
 ```
 
 Both are published as
