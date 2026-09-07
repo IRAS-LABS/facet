@@ -98,6 +98,12 @@ function shipOnly(): Plugin {
     "index.html",
     "assets",
     "models",
+    // The bundled English OCR data. It is here for the same reason `models`
+    // is: fetched by `scripts/fetch-models.py`, pinned by sha256, and needed
+    // at runtime. Without this line the build silently dropped it and OCR
+    // fell back to a CDN fetch the packaged app's CSP had no host for -- the
+    // exact failure bundling it was meant to end.
+    "tessdata",
     "favicon.ico",
     "icon-192.png",
     "icon-512.png",
