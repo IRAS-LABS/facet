@@ -29,6 +29,7 @@ import { dropFav, isFav, toggleFav } from "./favorites";
 import { icon } from "./icons";
 import { DisplayCache } from "./display";
 import { PhoneEditor, type SaveOptions } from "./editor";
+import { dragToDismiss } from "./sheet-drag";
 import type { PhoneHost } from "./shell";
 import type { MediaStore } from "./store";
 import type { Thumbs } from "./thumbs";
@@ -376,6 +377,12 @@ export class PhoneViewer {
     // the editor's element, borrowed; the editor is now a top bar and a dock,
     // neither of which is a sheet.
     this.aux = el("div.phv-sheet", { hidden: true });
+    // Push it back down to close it. Both sheets that borrow `aux` close the
+    // same two ways, so the gesture is wired once here rather than in each.
+    dragToDismiss(this.aux, {
+      dismiss: () => this.shutAux(),
+      scroller: () => this.aux.querySelector(".phv-sheet-body"),
+    });
 
     this.editor = new PhoneEditor({
       native: host.native,
@@ -451,8 +458,7 @@ export class PhoneViewer {
       return;
     }
     if (!this.aux.hidden) {
-      this.aux.hidden = true;
-      this.el.classList.remove("editing");
+      this.shutAux();
       return;
     }
     this.release();
@@ -1353,12 +1359,7 @@ export class PhoneViewer {
 
     const note = el("p.phv-ctl-note", { text: ext ? `Keeps the ${ext} ending` : "" });
 
-    const shut = (): void => {
-      this.aux.hidden = true;
-      // The class came from opening this sheet, not from real edit mode, so
-      // leaving it on keeps the bottom action bar display:none for good.
-      this.el.classList.remove("editing");
-    };
+    const shut = (): void => { this.shutAux(); };
 
     const go = async (): Promise<void> => {
       const typed = field.value.trim();
@@ -1423,6 +1424,18 @@ export class PhoneViewer {
     requestAnimationFrame(() => { field.focus(); field.select(); });
   }
 
+  /**
+   * Put the Details/Rename sheet away.
+   *
+   * The class has to come off with it. It came from opening the sheet, not
+   * from real edit mode, and left on it keeps the bottom action bar at
+   * `display: none` until the viewer itself is closed.
+   */
+  private shutAux(): void {
+    this.aux.hidden = true;
+    this.el.classList.remove("editing");
+  }
+
   /** File facts, in the same sheet the tools use. */
   private showInfo(): void {
     const entry = this.current;
@@ -1451,12 +1464,7 @@ export class PhoneViewer {
     void this.showMeta(entry, metaSlot);
 
     const close = el<"button">("button.phv-sheet-close", { type: "button", text: "Close" });
-    close.addEventListener("click", () => {
-      this.aux.hidden = true;
-      // Same as the rename sheet: drop the class or the action bar never
-      // comes back until the viewer itself is closed.
-      this.el.classList.remove("editing");
-    });
+    close.addEventListener("click", () => { this.shutAux(); });
 
     fill(this.aux,
       el("div.phv-grab", { "aria-hidden": true }),
