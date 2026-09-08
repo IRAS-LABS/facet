@@ -525,8 +525,19 @@ async function main(): Promise<void> {
     ok("...and saying the file itself is fine", /untouched/.test(why), why);
     ok("...and the dead <img> is taken off the stage", inner.img.hidden);
 
-    // No extension is a different sentence: blaming a format that was never
-    // named would be a guess dressed as a diagnosis.
+    // A format the phone reads perfectly well is the other failure entirely,
+    // and it was wearing the same sentence: a corrupt .png said "No PNG
+    // decoder", which is false, and sent you looking for a decoder you have.
+    inner.showBlank({ ...entry, path: "/a/x.png", name: "x.png", ext: "png" } as unknown as FileEntry);
+    const bad = inner.blank.querySelector(".phv-blank-what")?.textContent ?? "";
+    const badWhy = inner.blank.querySelector(".phv-blank-why")?.textContent ?? "";
+    ok("a format the phone can read blames the file, not the phone",
+       bad === "This PNG is damaged", bad);
+    ok("...and does not claim the file is fine, because it is not",
+       !/untouched/.test(badWhy), badWhy);
+
+    // No extension is a different sentence again: blaming a format that was
+    // never named would be a guess dressed as a diagnosis.
     inner.showBlank({ ...entry, ext: "" } as unknown as FileEntry);
     ok(
       "a file with no extension is not told which decoder is missing",
