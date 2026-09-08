@@ -336,6 +336,27 @@ async function checkDisplayCache(): Promise<void> {
   const missing = await cache.get(fileEntry("/nope.jpg"));
   ok("display: a file with no url resolves null, never throws", missing === null);
 
+  // An animation is handed over whole. The copy is one frame drawn into a
+  // canvas, so making one turns a GIF into a photograph of its first frame --
+  // which is what the viewer did to every GIF on the phone.
+  const gif = new Uint8Array([
+    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+    0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02,
+    0x44, 0x01, 0x00, 0x3b,
+  ]);
+  urls.set("/moving.gif", URL.createObjectURL(new Blob([gif], { type: "image/gif" })));
+  const anim = await cache.get({ ...fileEntry("/moving.gif"), ext: "gif" });
+  ok(
+    "display: an animation is not copied -- it is handed over whole",
+    anim !== null && !anim.owned && anim.display === anim.original,
+    anim ? `owned=${String(anim.owned)}` : "null",
+  );
+  ok(
+    "display: ...and it is not marked foreign, the WebView plays it",
+    anim !== null && !anim.foreign,
+  );
+
   // Evict: `DISPLAY_KEEP` more distinct pictures push the first one out and
   // its blob URL is revoked, which an <img> reports as an error.
   const first = copyL?.display ?? "";
