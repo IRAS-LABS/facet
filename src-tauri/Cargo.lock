@@ -786,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "facet"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "jni",
  "serde",
