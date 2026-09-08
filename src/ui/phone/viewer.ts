@@ -124,6 +124,8 @@ export class PhoneViewer {
   private video: HTMLVideoElement;
   private canvas: HTMLCanvasElement;
   private nameEl: HTMLElement;
+  /** Holds the fade. It must not be the element that scrolls -- see `fitName`. */
+  private nameWrap: HTMLElement;
   private starEl: HTMLElement;
   private countEl: HTMLElement;
   private actions: HTMLElement;
@@ -388,6 +390,7 @@ export class PhoneViewer {
     this.video.addEventListener("loadedmetadata", () => { this.paintTime(); });
 
     this.nameEl = el("span.phv-name", { text: "" });
+    this.nameWrap = el("div.phv-namewrap", {}, this.nameEl);
     this.countEl = el("span.phv-count", { text: "" });
 
     const back = iconBtn("←", "Close", () => this.close());
@@ -397,7 +400,7 @@ export class PhoneViewer {
     // at 384 px, and a star is a glance-and-tap, not a workflow.
     this.starEl = iconBtn("☆", "Favorite", () => this.toggleStar());
 
-    const bar = el("div.phv-bar", {}, back, this.nameEl, this.countEl, this.starEl, prev, next);
+    const bar = el("div.phv-bar", {}, back, this.nameWrap, this.countEl, this.starEl, prev, next);
 
     this.actions = el("div.phv-actions");
     this.toast = el("div.phv-toast", { hidden: true, role: "status" });
@@ -1132,12 +1135,17 @@ export class PhoneViewer {
    * its last letter and nothing to drag.
    */
   private fitName(): void {
-    this.nameEl.classList.remove("is-long");
+    // The fade lives on the wrapper, not on the strip that scrolls. A mask on a
+    // scroll container is painted in the container's own scrolled coordinates in
+    // Chromium, so one drag carried the transparent end of the gradient over the
+    // text and the name went invisible. The wrapper never moves, so its mask
+    // stays where it was put.
+    this.nameWrap.classList.remove("is-long");
     this.nameEl.scrollLeft = 0;
     // One pixel of slack: sub-pixel text metrics round a name that fits exactly
     // up past the box it fits in.
     if (this.nameEl.scrollWidth > this.nameEl.clientWidth + 1) {
-      this.nameEl.classList.add("is-long");
+      this.nameWrap.classList.add("is-long");
     }
   }
 
