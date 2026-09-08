@@ -135,6 +135,14 @@ export class FilesTab implements PhoneTab {
     const v = this.view;
     if (v.kind === "home") return "Files";
     if (v.kind === "category") return CATEGORIES.find((c) => c.id === v.id)?.name ?? "Files";
+    // A storage volume is called what the Storage list on the front page calls
+    // it. The last path segment is the right answer for every folder on the
+    // device except the one everybody opens first: `/storage/emulated/0` is
+    // the phone's own storage, and tapping "Home" put the word `0` in the
+    // title bar -- a heading that names nothing, on the screen where you have
+    // just navigated and most need to know where you are.
+    const root = this.roots.find((r) => r.path === v.path);
+    if (root) return root.name;
     return v.path.split("/").filter(Boolean).pop() ?? v.path;
   }
 
