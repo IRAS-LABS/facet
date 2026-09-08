@@ -45,8 +45,8 @@ TypeScript on top.
 
 | | | |
 | --- | --- | --- |
-| **Windows 10/11 (x64)** | [`Facet_0.1.2_x64-setup.exe`](https://github.com/IRAS-LABS/facet/releases/latest/download/Facet_0.1.2_x64-setup.exe) | 26 MB — run it, it installs like any other app |
-| **Android 7.0+ (arm64)** | [`facet-0.1.2-arm64.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.2-arm64.apk) | 52 MB — your phone will ask you to allow the install once |
+| **Windows 10/11 (x64)** | [`Facet_0.1.5_x64-setup.exe`](https://github.com/IRAS-LABS/facet/releases/latest/download/Facet_0.1.5_x64-setup.exe) | 26 MB — run it, it installs like any other app |
+| **Android 7.0+ (arm64)** | [`facet-0.1.5-universal-release.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.5-universal-release.apk) | 51 MB — your phone will ask you to allow the install once |
 
 The Windows installer is not code-signed, so SmartScreen will say "Windows
 protected your PC" — **More info**, then **Run anyway**. On desktop, put
@@ -54,13 +54,17 @@ protected your PC" — **More info**, then **Run anyway**. On desktop, put
 everything else works without them. On Android, FFmpeg is already inside the
 APK.
 
+`universal` in the APK's name is the Gradle output directory, not the
+contents: it holds one ABI, `arm64-v8a`. See
+[Installing the APK](#installing-the-apk-on-android) for what that covers.
+
 Prefer to build it yourself? See [Build from source](#build-from-source).
 
 ### Installing the APK on Android
 
 There is no Play Store listing — sideload it.
 
-1. Download `facet-0.1.2-arm64.apk` onto the phone.
+1. Download `facet-0.1.5-universal-release.apk` onto the phone.
 2. Open it. Android asks permission to install from this source; grant it, and
    revoke it afterwards if you prefer.
 3. Launch Facet. It asks for storage on first run — see
@@ -76,7 +80,7 @@ The APK is signed with the project key. Check the *certificate*, rather than
 trusting the file or wherever you got it:
 
 ```
-apksigner verify --print-certs facet-0.1.2-arm64.apk
+apksigner verify --print-certs facet-0.1.5-universal-release.apk
 ```
 
 ```
@@ -89,11 +93,11 @@ there. The certificate digest is the part that matters and it does not change
 between releases — an APK signed with any other key did not come from this
 project, whoever handed it to you.
 
-File hashes do change every release. For 0.1.2:
+File hashes do change every release. For 0.1.5:
 
 ```
-ba51c764eba3a22164e5b7c3870832aa3e0a0ec8c25e1e6b10ef55ebb32680e3  facet-0.1.2-arm64.apk
-a9c9e01c25dbdad126f4711f09218b26e40a2688d55049e655482e1553a7cb54  Facet_0.1.2_x64-setup.exe
+d0d6f85d74876071df48e534bc0eb50a4f195fb1e6e67efc7eb644f511175a50  facet-0.1.5-universal-release.apk
+0572ee15149a4e4f8e2ef212f79bc3f9ef86ae2ff2847764751652e725fd6308  Facet_0.1.5_x64-setup.exe
 ```
 
 Both are published as
