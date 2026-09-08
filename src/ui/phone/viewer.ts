@@ -27,7 +27,7 @@ import { describeMediaError } from "../media";
 import { bytes, el, fill, shortDate } from "./dom";
 import { dropFav, isFav, toggleFav } from "./favorites";
 import { icon } from "./icons";
-import { DisplayCache } from "./display";
+import { DisplayCache, webCanDecode } from "./display";
 import { PhoneEditor, type SaveOptions } from "./editor";
 import { dragToDismiss } from "./sheet-drag";
 import type { PhoneHost } from "./shell";
@@ -1125,11 +1125,27 @@ export class PhoneViewer {
     const ext = entry.ext ? entry.ext.toUpperCase() : "";
     const what = this.blank.querySelector(".phv-blank-what");
     const why = this.blank.querySelector(".phv-blank-why");
-    if (what) what.textContent = ext ? `No ${ext} decoder` : "Can't show this file";
+
+    // Two failures wearing the same black screen, and they need different
+    // words. A `.jxl` is a format this phone has no decoder for, and nothing
+    // the app does will change that. A `.png` that fails is a damaged file --
+    // the phone reads PNG perfectly well, and saying otherwise sends someone
+    // hunting for a decoder they already have. The line about the file being
+    // untouched only belongs on the first: on a broken file it reads as a
+    // promise that it is fine, which is the one thing it is not.
+    const known = entry.ext !== "" && webCanDecode(entry.ext);
+
+    if (what) {
+      what.textContent = known
+        ? `This ${ext} is damaged`
+        : ext ? `No ${ext} decoder` : "Can't show this file";
+    }
     if (why) {
-      why.textContent = ext
-        ? `Nothing on this phone can read ${ext}. The file itself is untouched -- share it to an app that can, or convert it.`
-        : "The file could not be decoded. It may be damaged.";
+      why.textContent = known
+        ? "The file is on the phone, but nothing readable is inside it. It was probably cut short on the way here."
+        : ext
+          ? `Nothing on this phone can read ${ext}. The file itself is untouched -- share it to an app that can, or convert it.`
+          : "The file could not be decoded. It may be damaged.";
     }
     this.img.hidden = true;
     this.blank.hidden = false;

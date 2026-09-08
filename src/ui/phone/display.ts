@@ -62,6 +62,19 @@ const WEB_IMAGE = new Set([
   "bmp", "svg", "ico",
 ]);
 
+/**
+ * Can this phone's WebView read that format at all?
+ *
+ * Asked by the viewer when a picture has failed to load, because the two
+ * failures need different words. A `.jxl` nothing on the device can decode is
+ * a format problem and there is nothing to be done about it here; a `.png`
+ * that fails is a damaged file, and telling someone their phone cannot read
+ * PNG is simply false.
+ */
+export function webCanDecode(ext: string): boolean {
+  return WEB_IMAGE.has(ext.toLowerCase());
+}
+
 export class DisplayCache {
   private worker: Worker | null = null;
   private workerDead = false;
