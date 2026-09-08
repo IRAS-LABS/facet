@@ -136,9 +136,13 @@
   transition: opacity var(--fct-t-med), transform var(--fct-t-med);
 }
 
-.phv-name {
+.phv-namewrap {
   flex: 1;
   min-width: 0;
+}
+
+.phv-name {
+  display: block;
   font-size: var(--fct-fs-sm);
   font-weight: 500;
   overflow: hidden;
@@ -147,21 +151,31 @@
   text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
 }
 
-/* A name that does not fit. Ellipsis throws away the tail for good, so drag it
-   instead, and fade the right edge so it reads as "there is more" rather than
-   as a name that happens to end mid-word. No scrollbar -- it is one line of
-   text in a photo's chrome, not a pane. */
-.phv-name.is-long {
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
+/* A name that does not fit. Ellipsis throws away the tail for good, and the tail
+   is the half that tells two files apart, so drag it instead and fade the right
+   edge so it reads as "there is more" rather than as a name that stops mid-word.
+   No scrollbar -- it is one line of text in a photo's chrome, not a pane.
+
+   The fade is on the wrapper and the scrolling is on the strip inside it, and
+   they cannot be the same element: Chromium paints a mask in the scroll
+   container's own scrolled coordinates, so putting both on one box meant the
+   first drag slid the transparent end of the gradient over the text and the
+   name disappeared completely. */
+.phv-namewrap.is-long {
   mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
 }
 
-.phv-name.is-long::-webkit-scrollbar { display: none; }
+.phv-namewrap.is-long .phv-name {
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-overflow: clip;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.phv-namewrap.is-long .phv-name::-webkit-scrollbar { display: none; }
 
 /* Round, 48px, white-on-photo. Same target as everywhere else in the shell. */
 .phv-icon {

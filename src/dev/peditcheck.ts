@@ -562,7 +562,7 @@ async function main(): Promise<void> {
     const host = { fs, home: "/", native: false, openPanel() {}, runTool: () => true } as unknown as PhoneHost;
     const thumbs = { get: async () => null, retain() {}, release() {} } as unknown as Thumbs;
     const viewer = new PhoneViewer(host, {} as unknown as MediaStore, thumbs);
-    const inner = viewer as unknown as { nameEl: HTMLElement; fitName(): void };
+    const inner = viewer as unknown as { nameEl: HTMLElement; nameWrap: HTMLElement; fitName(): void };
 
     // Measuring needs a real box, so the viewer goes on the page at a phone's
     // width and comes off again at the end.
@@ -572,24 +572,42 @@ async function main(): Promise<void> {
 
     inner.nameEl.textContent = "short.jpg";
     inner.fitName();
-    ok("a name that fits is a plain label", !inner.nameEl.classList.contains("is-long"));
+    ok("a name that fits is a plain label", !inner.nameWrap.classList.contains("is-long"));
 
     inner.nameEl.textContent =
       "a-really-absurdly-long-file-name-that-goes-on-and-on-and-should-scroll-" +
       "at-the-top-instead-of-eating-the-entire-header-bar-2026-09-07-final-v3.png";
     inner.fitName();
-    ok("a name too wide for the bar can be dragged", inner.nameEl.classList.contains("is-long"));
+    ok("a name too wide for the bar can be dragged", inner.nameWrap.classList.contains("is-long"));
     ok("...and there is something to drag to",
        inner.nameEl.scrollWidth > inner.nameEl.clientWidth,
        `${inner.nameEl.scrollWidth} vs ${inner.nameEl.clientWidth}`);
 
+    // The one that shipped broken. Chromium paints a mask in the scroll
+    // container's own scrolled coordinates, so a fade on the element that
+    // scrolls slid its transparent end over the text on the first drag and the
+    // name vanished. The fade and the scrolling have to be two boxes.
+    const scrolls = getComputedStyle(inner.nameEl).overflowX;
+    const faded = getComputedStyle(inner.nameWrap);
+    ok("the strip that scrolls is not the box that carries the fade",
+       scrolls === "auto" && getComputedStyle(inner.nameWrap).overflowX !== "auto",
+       scrolls);
+    ok("...and the fade is on the box that stays put",
+       /gradient/.test(faded.maskImage ?? "") || /gradient/.test(faded.webkitMaskImage ?? ""),
+       String(faded.maskImage));
+
+    // Dragging it must not take the text with the fade.
+    inner.nameEl.scrollLeft = 400;
+    ok("a name dragged to its tail is still on screen",
+       inner.nameEl.scrollLeft > 0 && getComputedStyle(inner.nameEl).opacity === "1",
+       String(inner.nameEl.scrollLeft));
+
     // Swiping to the next picture must not leave the old name half-scrolled.
-    inner.nameEl.scrollLeft = 200;
     inner.nameEl.textContent = "next.jpg";
     inner.fitName();
     ok("the next file starts at the beginning of its name", inner.nameEl.scrollLeft === 0,
        String(inner.nameEl.scrollLeft));
-    ok("...and drops the fade with it", !inner.nameEl.classList.contains("is-long"));
+    ok("...and drops the fade with it", !inner.nameWrap.classList.contains("is-long"));
 
     viewer.el.remove();
   }
