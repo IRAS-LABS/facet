@@ -9,6 +9,7 @@
  * into allcheck.html under "pedit".
  */
 
+import type { FileEntry } from "@core/explorer/types";
 import "../styles/base.css";
 import "../styles/phone.css";
 import "../styles/phone-viewer.css";
@@ -444,6 +445,50 @@ async function main(): Promise<void> {
     ok("every action has an icon and a word",
       Array.from(viewer.el.querySelectorAll(".phv-action")).every((a) => a.querySelector(".phv-action-icon") && (a.querySelector(".phv-action-label")?.textContent ?? "").length > 2));
     ok("Blur still lives in the editor's rail", RAIL.some(([id]) => id === "blur"));
+  }
+
+  // ── A file nothing can decode says so ───────────────────────────────────
+  //
+  // `display.get` hands back the original's URL whenever it cannot make a copy
+  // -- some formats never report a decode failure, so the <img> is meant to
+  // get its say. Nothing listened for the <img>'s error, so it never did: a
+  // .jxl opened as a black rectangle with a file name over it, indistinguish-
+  // able from a damaged file and from a bug in the app.
+  {
+    const fs = { shareFiles: async () => {} };
+    const host = { fs, home: "/", native: false, openPanel() {}, runTool: () => true } as unknown as PhoneHost;
+    const thumbs = { get: async () => null, retain() {}, release() {} } as unknown as Thumbs;
+    const viewer = new PhoneViewer(host, {} as unknown as MediaStore, thumbs);
+    const inner = viewer as unknown as {
+      blank: HTMLElement;
+      img: HTMLImageElement;
+      showBlank(entry: FileEntry): void;
+    };
+    const entry = { path: "/a/x.jxl", name: "x.jxl", kind: "image", ext: "jxl", size: 1, modified: 0 } as unknown as FileEntry;
+
+    ok("nothing is said while there is a picture", inner.blank.hidden);
+
+    inner.showBlank(entry);
+    const what = inner.blank.querySelector(".phv-blank-what")?.textContent ?? "";
+    const why = inner.blank.querySelector(".phv-blank-why")?.textContent ?? "";
+    ok("an undecodable file puts a reason on the stage", !inner.blank.hidden);
+    ok("...naming the format, in the words of the format", what === "No JXL decoder", what);
+    ok("...and saying the file itself is fine", /untouched/.test(why), why);
+    ok("...and the dead <img> is taken off the stage", inner.img.hidden);
+
+    // No extension is a different sentence: blaming a format that was never
+    // named would be a guess dressed as a diagnosis.
+    inner.showBlank({ ...entry, ext: "" } as unknown as FileEntry);
+    ok(
+      "a file with no extension is not told which decoder is missing",
+      (inner.blank.querySelector(".phv-blank-what")?.textContent ?? "") === "Can't show this file",
+    );
+
+    ok(
+      "the message is quiet -- no icon, no alarm, just the two lines",
+      inner.blank.querySelectorAll("*").length === 2,
+      String(inner.blank.querySelectorAll("*").length),
+    );
   }
 
   // ── Zoom reaches every surface on the stage ─────────────────────────────

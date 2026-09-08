@@ -128,6 +128,8 @@ export class PhoneViewer {
   private countEl: HTMLElement;
   private actions: HTMLElement;
   private toast: HTMLElement;
+  /** What is on stage when there is no picture and never will be. */
+  private blank: HTMLElement;
 
   /**
    * The video transport, built here rather than left to the browser.
@@ -306,6 +308,33 @@ export class PhoneViewer {
       void this.posterOnly(entry, describeMediaError(this.video.error), this.loadSeq);
     });
 
+    /*
+     * The same courtesy for a still.
+     *
+     * `display.get` hands back the original's URL whenever it cannot make a
+     * copy, on the reasoning that some formats never report a decode failure
+     * and the <img> should get its say. The <img> was never asked. Nothing
+     * listened for its error, so a .jxl -- recognised by the app, decodable by
+     * nothing on the device -- opened as a black rectangle with a file name
+     * over it and no way to tell a broken file from a broken app.
+     *
+     * So: ask the platform for its thumbnail, which is a real picture of the
+     * file for HEIC, DNG and TIFF even when the WebView cannot read the
+     * original. If that is nothing either, say so on the stage, in words, and
+     * leave it there -- a toast that fades after two seconds is no use to
+     * someone who walked away while the file was loading.
+     */
+    this.img.addEventListener("error", () => {
+      const entry = this.current;
+      if (!entry || entry.kind !== "image" || this.img.hidden) return;
+      // Clearing the source between files can itself raise `error`. Only a
+      // source that is actually set can have failed to load.
+      if (!this.img.getAttribute("src")) return;
+      void this.stillFailed(entry, this.loadSeq);
+    });
+
+    this.blank = el("div.phv-blank", { hidden: true }, el("p.phv-blank-what"), el("p.phv-blank-why"));
+
     this.canvas = el<"canvas">("canvas", { hidden: true });
 
     // Never `hidden`. A pane that is `display: none` between swipes is not
@@ -318,7 +347,7 @@ export class PhoneViewer {
     this.parkPanes();
 
     this.stage = el("div.phv-stage", {},
-      this.prevPane, this.img, this.video, this.canvas, this.nextPane,
+      this.prevPane, this.img, this.video, this.canvas, this.nextPane, this.blank,
     );
 
     // ── The transport ─────────────────────────────────────────────────────
@@ -555,6 +584,8 @@ export class PhoneViewer {
     const seq = ++this.loadSeq;
     this.release();
     this.stageFull = false;
+    // Whatever could not be shown last time is not this file's problem.
+    this.blank.hidden = true;
     // A hand-over from the strip: the pane that was dragged in is still on
     // screen, over the stage, showing this very picture. The stage stays a
     // page width off to the side with the transform it has -- resetting it
@@ -1056,6 +1087,52 @@ export class PhoneViewer {
     }
     if (seq !== this.loadSeq) return;
     if (typeof poster === "string") this.img.src = poster;
+  }
+
+  /**
+   * The still equivalent of `posterOnly`: the <img> refused the file.
+   *
+   * The platform thumbnailer is tried first and is genuinely a different
+   * decoder -- it reads HEIC, DNG, TIFF and CR2, none of which a WebView
+   * touches -- so a failure here is often still recoverable into a real
+   * picture of the file. Only when that comes back empty is the stage given
+   * over to a sentence.
+   */
+  private async stillFailed(entry: FileEntry, seq: number): Promise<void> {
+    let poster: unknown = null;
+    try {
+      poster = await this.thumbs.get(entry, true);
+    } catch {
+      poster = null;
+    }
+    if (seq !== this.loadSeq || this.current?.path !== entry.path) return;
+    if (typeof poster === "string" && poster !== this.img.src) {
+      this.img.src = poster;
+      return;
+    }
+    this.showBlank(entry);
+  }
+
+  /**
+   * No picture, and no prospect of one. Say which file and why, and stop.
+   *
+   * The reason is the extension, because that is the true one and it is also
+   * the actionable one: "this phone has no JPEG XL decoder" tells you the file
+   * is fine and the device is the limit, which is a different problem from a
+   * file that is damaged, and the two used to look identical -- both black.
+   */
+  private showBlank(entry: FileEntry): void {
+    const ext = entry.ext ? entry.ext.toUpperCase() : "";
+    const what = this.blank.querySelector(".phv-blank-what");
+    const why = this.blank.querySelector(".phv-blank-why");
+    if (what) what.textContent = ext ? `No ${ext} decoder` : "Can't show this file";
+    if (why) {
+      why.textContent = ext
+        ? `Nothing on this phone can read ${ext}. The file itself is untouched -- share it to an app that can, or convert it.`
+        : "The file could not be decoded. It may be damaged.";
+    }
+    this.img.hidden = true;
+    this.blank.hidden = false;
   }
 
   private say(text: string): void {
