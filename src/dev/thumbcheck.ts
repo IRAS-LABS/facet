@@ -47,6 +47,7 @@
  *   box and took the only explanation away with it.
  */
 
+import { isAnimated } from "@core/phone/animated";
 import type { FileEntry } from "@core/explorer/types";
 import type { CachedThumb, PhoneFs } from "@core/explorer/tauri-fs";
 import { splitBatch } from "@core/explorer/tauri-fs";
@@ -854,6 +855,76 @@ async function checkShrinkFallback(): Promise<void> {
   markVia(() => {});
 }
 
+/**
+ * The animation sniffer, from bytes alone.
+ *
+ * This is the check that keeps a GIF a GIF. Everything the viewer does to a
+ * still -- decode it, draw it into a canvas, re-encode it small -- destroys an
+ * animation, and the only thing standing between the two paths is this
+ * function reading a header.
+ */
+function checkAnimated(): void {
+  const bytes = (...parts: (string | number[])[]): Uint8Array => {
+    const out: number[] = [];
+    for (const part of parts) {
+      if (typeof part === "string") for (const ch of part) out.push(ch.charCodeAt(0));
+      else out.push(...part);
+    }
+    return new Uint8Array(out);
+  };
+  const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+  ok("a GIF is an animation", isAnimated(bytes("GIF89a", [0, 1, 0, 1])));
+  ok(
+    "...including GIF87a, which is not worth re-encoding either",
+    isAnimated(bytes("GIF87a", [0, 1, 0, 1])),
+  );
+
+  ok(
+    "an APNG is one: acTL before the pixels",
+    isAnimated(bytes(PNG, "IHDR", [0, 0, 0, 8], "acTL", [0, 0, 0, 2], "IDAT")),
+  );
+  ok(
+    "a plain PNG is not",
+    !isAnimated(bytes(PNG, "IHDR", [0, 0, 0, 8], "IDAT", [1, 2, 3])),
+  );
+  ok(
+    "and `acTL` spelled by the pixel data does not promote a still",
+    !isAnimated(bytes(PNG, "IHDR", "IDAT", "acTL")),
+    "acTL after IDAT is image data, not a control chunk",
+  );
+
+  ok(
+    "an animated WebP is one: the VP8X ANIM flag",
+    isAnimated(bytes("RIFF", [0, 0, 1, 0], "WEBP", "VP8X", [10, 0, 0, 0], [0x02, 0, 0, 0])),
+  );
+  ok(
+    "a still WebP with an extended header is not",
+    !isAnimated(bytes("RIFF", [0, 0, 1, 0], "WEBP", "VP8X", [10, 0, 0, 0], [0x10, 0, 0, 0])),
+  );
+  ok(
+    "a plain lossy WebP is not",
+    !isAnimated(bytes("RIFF", [0, 0, 1, 0], "WEBP", "VP8 ", [10, 0, 0, 0])),
+  );
+
+  ok(
+    "an AVIF sequence is one",
+    isAnimated(bytes([0, 0, 0, 0x18], "ftyp", "avis", [0, 0, 0, 0], "avisavif")),
+  );
+  ok(
+    "a still AVIF is not",
+    !isAnimated(bytes([0, 0, 0, 0x14], "ftyp", "avif", [0, 0, 0, 0], "avifmif1")),
+  );
+
+  ok("a JPEG is not", !isAnimated(bytes([0xff, 0xd8, 0xff, 0xe0], "JFIF")));
+  ok("nothing at all is not", !isAnimated(new Uint8Array(0)));
+  ok(
+    "and a header cut short answers no rather than throwing",
+    !isAnimated(bytes("GIF")),
+    "three bytes is not yet a GIF",
+  );
+}
+
 async function run(): Promise<void> {
   const steps: [string, () => Promise<void>][] = [
     ["wire", checkWire],
@@ -869,6 +940,7 @@ async function run(): Promise<void> {
     ["lru", checkLru],
     ["undecodable", checkUndecodable],
     ["shrink", checkShrinkFallback],
+    ["animated", async () => { checkAnimated(); }],
   ];
   for (const [name, step] of steps) {
     try {

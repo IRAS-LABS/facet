@@ -20,6 +20,7 @@
 import type { FileEntry } from "@core/explorer/types";
 import { DISPLAY_KEEP, Lru, displayBox } from "@core/phone/display";
 import type { DisplayBox } from "@core/phone/display";
+import { SNIFF, isAnimated } from "@core/phone/animated";
 import { perf } from "@core/phone/mark";
 
 /** A picture the viewer can put on stage. */
@@ -169,6 +170,20 @@ export class DisplayCache {
     try {
       const blob = await (await fetch(original)).blob();
       const t2 = performance.now();
+
+      // A GIF, an APNG, an animated WebP: the copy is made by drawing one
+      // decoded frame into a canvas, and a canvas has no second frame. Every
+      // animation in the app came out of here as a still, which read as the
+      // file being broken rather than the viewer throwing the rest away.
+      // There is no shrinking an animation, so it goes to the <img> whole and
+      // the WebView plays it -- the size these files come in is the size they
+      // have to be.
+      if (isAnimated(new Uint8Array(await blob.slice(0, SNIFF).arrayBuffer()))) {
+        perf(`display ${entry.name} animated, kept whole (${Math.round(blob.size / 1024)}k)`);
+        this.ready.set(entry.path, fallback);
+        return fallback;
+      }
+
       const small = await this.shrink(blob);
       const t3 = performance.now();
       if (!small) {
