@@ -147,6 +147,22 @@
   text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
 }
 
+/* A name that does not fit. Ellipsis throws away the tail for good, so drag it
+   instead, and fade the right edge so it reads as "there is more" rather than
+   as a name that happens to end mid-word. No scrollbar -- it is one line of
+   text in a photo's chrome, not a pane. */
+.phv-name.is-long {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+
+.phv-name.is-long::-webkit-scrollbar { display: none; }
+
 /* Round, 48px, white-on-photo. Same target as everywhere else in the shell. */
 .phv-icon {
   flex: 0 0 auto;

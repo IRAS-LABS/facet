@@ -608,6 +608,7 @@ export class PhoneViewer {
     }
 
     this.nameEl.textContent = entry.name;
+    this.fitName();
     this.countEl.textContent = this.items.length > 1
       ? `${this.index + 1} / ${this.items.length}`
       : "";
@@ -1121,6 +1122,25 @@ export class PhoneViewer {
    * is fine and the device is the limit, which is a different problem from a
    * file that is damaged, and the two used to look identical -- both black.
    */
+  /**
+   * Decide whether the name in the bar has to scroll.
+   *
+   * A name too long for the bar used to end in an ellipsis, and the end of a
+   * filename is where the useful part lives -- the date, the version, the
+   * extension. So it drags instead. The class only goes on when the text really
+   * does not fit: a short name stays a plain label, with no fade sitting over
+   * its last letter and nothing to drag.
+   */
+  private fitName(): void {
+    this.nameEl.classList.remove("is-long");
+    this.nameEl.scrollLeft = 0;
+    // One pixel of slack: sub-pixel text metrics round a name that fits exactly
+    // up past the box it fits in.
+    if (this.nameEl.scrollWidth > this.nameEl.clientWidth + 1) {
+      this.nameEl.classList.add("is-long");
+    }
+  }
+
   private showBlank(entry: FileEntry): void {
     const ext = entry.ext ? entry.ext.toUpperCase() : "";
     const what = this.blank.querySelector(".phv-blank-what");
