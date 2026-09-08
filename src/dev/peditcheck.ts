@@ -446,6 +446,48 @@ async function main(): Promise<void> {
     ok("Blur still lives in the editor's rail", RAIL.some(([id]) => id === "blur"));
   }
 
+  // ── Zoom reaches every surface on the stage ─────────────────────────────
+  //
+  // The stage holds three surfaces -- the still, the video and the edit canvas
+  // -- and one set of gestures, wired to the stage itself. So a pinch over a
+  // video always *ran*: the scale went up, the source swap was consulted, and
+  // then the single line that writes the number to the screen only ever named
+  // the image and the canvas. A video you cannot zoom, beside a photograph you
+  // can, with nothing on screen to explain the difference.
+  //
+  // Pinned here because it is one line per surface, invisible when it is
+  // missing, and the next surface added to the stage will forget it too.
+  {
+    const fs = { shareFiles: async () => {} };
+    const host = { fs, home: "/", native: false, openPanel() {}, runTool: () => true } as unknown as PhoneHost;
+    const viewer = new PhoneViewer(host, {} as unknown as MediaStore, {} as unknown as Thumbs);
+    const inner = viewer as unknown as {
+      scale: number; img: HTMLElement; video: HTMLElement; canvas: HTMLElement;
+      applyTransform(): void; glide(on: boolean): void;
+    };
+
+    inner.scale = 3;
+    inner.applyTransform();
+    const zoomed = (n: HTMLElement): boolean => /scale\(3[.)]/.test(n.style.transform);
+    ok("a zoom reaches the still", zoomed(inner.img), inner.img.style.transform);
+    ok("...and the video", zoomed(inner.video), inner.video.style.transform);
+    ok("...and the edit canvas", zoomed(inner.canvas), inner.canvas.style.transform);
+    ok("all three are given the same transform, not three near-misses",
+      inner.img.style.transform === inner.video.style.transform
+      && inner.video.style.transform === inner.canvas.style.transform,
+      `${inner.img.style.transform} | ${inner.video.style.transform} | ${inner.canvas.style.transform}`);
+
+    // And the spring-back animates the video too, or a released pinch snaps
+    // the frame back instantly while the photograph beside it eases.
+    inner.glide(true);
+    ok("the settle animates the video as well as the still",
+      inner.video.style.transition !== "" && inner.video.style.transition === inner.img.style.transition,
+      inner.video.style.transition);
+    inner.glide(false);
+    ok("...and is cleared again for the next drag", inner.video.style.transition === "",
+      inner.video.style.transition);
+  }
+
   // ── Handing a file to a desktop panel ───────────────────────────────────
   // `.phv` is `position: fixed; inset: 0; z-index: 500`; every panel it can
   // delegate to tops out at 74 (associations). So a rail chip that opens a

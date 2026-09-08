@@ -25,6 +25,7 @@
 
 import { structure, type Region, type Structure } from "@core/inspect/structure";
 import { formatSize, type FileEntry } from "@core/explorer/types";
+import { attachTextZoom } from "@ui/zoom";
 
 export interface InspectHost {
   /** A window of the file. Must clamp at EOF rather than throwing. */
@@ -125,6 +126,21 @@ export class Inspector {
     this.scroll.append(this.spacer);
     this.scroll.addEventListener("scroll", () => this.paint());
 
+    // Pinch to change the type size. A hex dump on a phone is 16 columns of
+    // monospace against a screen 6.7 inches wide, and it was the one document
+    // in the app you could open, could not read, and could do nothing about.
+    // The font rather than a transform because this view is virtualised: it
+    // builds the rows you can see and lies about the rest with a spacer, all
+    // from `rowH`, which `measureRow` measures. Grow the type and the measure
+    // tells the truth again; scale the layer and it does not.
+    attachTextZoom(this.scroll, this.root, {
+      remeasure: () => {
+        this.measureRow();
+        this.spacer.style.height = `${this.spacerHeight()}px`;
+        this.paint();
+      },
+    });
+
     this.values.className = "hx-values";
     this.note.className = "hx-note";
     this.keyBox.className = "hx-legend";
@@ -182,16 +198,7 @@ export class Inspector {
     this.note.textContent = "";
     this.keyBox.replaceChildren();
 
-    // Row height comes from the stylesheet, not from a constant here, so a
-    // theme that changes the monospace size does not desynchronise the
-    // virtual scroll from what is actually on screen.
-    this.rowLayer.style.transform = "translateY(0)";
-    const probe = document.createElement("div");
-    probe.className = "hx-row";
-    probe.textContent = "0";
-    this.rowLayer.append(probe);
-    this.rowH = probe.getBoundingClientRect().height || 18;
-    probe.remove();
+    this.measureRow();
 
     this.spacer.style.height = `${this.spacerHeight()}px`;
     this.scroll.scrollTop = 0;
@@ -411,6 +418,26 @@ export class Inspector {
     if (span <= 0) return 0;
     const frac = Math.min(1, Math.max(0, this.scroll.scrollTop / span));
     return Math.round(frac * Math.max(0, total - this.pageRows()));
+  }
+
+  /**
+   * Ask the stylesheet how tall a row is.
+   *
+   * Row height comes from the stylesheet, not from a constant here, so a theme
+   * that changes the monospace size -- or a pinch, which changes it by the
+   * `--zoom` multiplier -- does not desynchronise the virtual scroll from what
+   * is actually on screen. Everything else in this view is derived from the
+   * number this measures, which is why the zoom can be a font size and does
+   * not have to be a transform.
+   */
+  private measureRow(): void {
+    this.rowLayer.style.transform = "translateY(0)";
+    const probe = document.createElement("div");
+    probe.className = "hx-row";
+    probe.textContent = "0";
+    this.rowLayer.append(probe);
+    this.rowH = probe.getBoundingClientRect().height || 18;
+    probe.remove();
   }
 
   private paint(): void {

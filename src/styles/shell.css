@@ -787,11 +787,11 @@ svg.ql-action-icon { width: 20px; height: 20px; display: block; }
 .hx-rows { position: absolute; top: 0; left: 0; will-change: transform; }
 .hx-row {
   display: flex;
-  gap: 16px;
+  gap: calc(16px * var(--zoom, 1));
   padding: 0 var(--fct-sp-3);
   font-family: var(--fct-font-mono);
-  font-size: 12.5px;
-  line-height: 18px;
+  font-size: calc(12.5px * var(--zoom, 1));
+  line-height: calc(18px * var(--zoom, 1));
   white-space: pre;
 }
 .hx-off { color: var(--fct-text-muted); }
@@ -884,7 +884,7 @@ svg.ql-action-icon { width: 20px; height: 20px; display: block; }
   /* Column widths are handed to the header and the body in `ch`, so the two
      have to agree on what a character is. One token, used by both, is the only
      way that stays true when the UI scale changes underneath it. */
-  --tbl-fs: calc(12.5px * var(--fct-ui-scale));
+  --tbl-fs: calc(12.5px * var(--fct-ui-scale) * var(--zoom, 1));
 }
 .tbl[hidden] { display: none; }
 
@@ -955,7 +955,7 @@ svg.ql-action-icon { width: 20px; height: 20px; display: block; }
 }
 .tbl-hcell {
   flex: none;
-  padding: 5px 8px;
+  padding: calc(5px * var(--zoom, 1)) calc(8px * var(--zoom, 1));
   font-style: normal;
   font-family: var(--fct-font-mono);
   font-size: var(--tbl-fs);
@@ -981,7 +981,7 @@ svg.ql-action-icon { width: 20px; height: 20px; display: block; }
   white-space: pre;
   font-family: var(--fct-font-mono);
   font-size: var(--tbl-fs);
-  line-height: 22px;
+  line-height: calc(22px * var(--zoom, 1));
 }
 .tbl-row.is-currentrow { background: color-mix(in srgb, var(--fct-accent) 9%, transparent); }
 /* The row number is the source row, so it stays put while a sort moves
