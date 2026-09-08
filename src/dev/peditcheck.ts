@@ -447,6 +447,55 @@ async function main(): Promise<void> {
     ok("Blur still lives in the editor's rail", RAIL.some(([id]) => id === "blur"));
   }
 
+  // ── Two real fingers on a video ─────────────────────────────────────────
+  //
+  // The assertions above pin `applyTransform`. This pins the whole path: two
+  // Touch objects on the stage, through the gesture code, to a transform on
+  // the <video>. It is the shape of the bug that was reported -- "I currently
+  // can't pinch a video" -- rather than the shape of the fix, so it stays true
+  // however the fix is later rearranged.
+  {
+    const fs = { shareFiles: async () => {} };
+    const host = { fs, home: "/", native: false, openPanel() {}, runTool: () => true } as unknown as PhoneHost;
+    const viewer = new PhoneViewer(host, {} as unknown as MediaStore, {} as unknown as Thumbs);
+    document.body.append(viewer.el);
+    const inner = viewer as unknown as { stage: HTMLElement; video: HTMLVideoElement; scale: number };
+    const stage = inner.stage;
+
+    const at = (x: number, y: number, id: number): Touch =>
+      new Touch({ identifier: id, target: stage, clientX: x, clientY: y });
+    const fire = (type: string, touches: Touch[]): void => {
+      stage.dispatchEvent(new TouchEvent(type, {
+        touches, targetTouches: touches, changedTouches: touches,
+        bubbles: true, cancelable: type !== "touchstart",
+      }));
+    };
+
+    fire("touchstart", [at(100, 400, 1), at(200, 400, 2)]);
+    fire("touchmove", [at(50, 400, 1), at(350, 400, 2)]);
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
+    ok(
+      "a two-finger spread on the stage raises the zoom",
+      inner.scale > 1.9 && inner.scale < 3.1,
+      String(inner.scale),
+    );
+    ok(
+      "...and the <video> is the element it moves",
+      /scale\(/.test(inner.video.style.transform),
+      inner.video.style.transform || "(no transform)",
+    );
+
+    // And back down again: pinching in returns to 1x, which is the gesture
+    // people actually use to undo an over-zoom.
+    fire("touchstart", [at(50, 400, 1), at(350, 400, 2)]);
+    fire("touchmove", [at(195, 400, 1), at(205, 400, 2)]);
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    ok("a pinch in comes back to life size", inner.scale === 1, String(inner.scale));
+
+    viewer.el.remove();
+  }
+
   // ── A file nothing can decode says so ───────────────────────────────────
   //
   // `display.get` hands back the original's URL whenever it cannot make a copy
