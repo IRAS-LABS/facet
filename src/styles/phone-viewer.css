@@ -817,3 +817,45 @@ div.phv-grab {
   pointer-events: none;
   will-change: transform;
 }
+
+/* ── Nothing to show ──────────────────────────────────────────────────────
+ *
+ * A file the device has no decoder for used to be a black rectangle: the same
+ * thing a damaged file looked like, and the same thing a bug would look like.
+ * This is the stage saying which of the three it is.
+ *
+ * Deliberately quiet -- no icon, no colour, no border. It is a fact about the
+ * file, not an alarm, and the loud yellow treatment the app used elsewhere for
+ * this kind of message took a third of the screen to say one sentence.
+ */
+.phv-blank {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fct-sp-2);
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--fct-sp-5);
+  text-align: center;
+  pointer-events: none;
+}
+.phv-blank[hidden] { display: none; }
+
+.phv-blank-what {
+  margin: 0;
+  color: #fff;
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+}
+
+.phv-blank-why {
+  /* A readable measure. Full-bleed on a 1080 px screen is a 90-character line,
+     which is a paragraph nobody finishes. */
+  max-width: 30ch;
+  margin: 0;
+  color: rgb(255 255 255 / 0.62);
+  font-size: var(--fct-fs-sm);
+  line-height: 1.45;
+}
