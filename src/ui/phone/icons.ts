@@ -196,6 +196,9 @@ const GLYPH_TO_NAME: Record<string, string> = {
   "↗": "share", "🧹": "sparkles", "⇄": "convert", "❐": "camera",
   "▶": "play", "⏸": "pause", "ⓘ": "info", "⬢": "hex", "↺": "undo", "↻": "redo",
   "✎": "rename", "⌥": "open-with", "🗑": "trash",
+  // The two header buttons on the phone. ❍ and 🗣 already reach the same
+  // two drawings; these are the glyphs anybody writing the call would type.
+  "📷": "camera", "🎤": "mic",
   // Quick Look's action bar. "■" is the black bar a redaction leaves
   // behind, which is what `bar` already draws.
   "✍": "signature", "✍️": "signature", "■": "bar",

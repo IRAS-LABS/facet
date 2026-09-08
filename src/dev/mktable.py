@@ -124,6 +124,9 @@ variants = {
     "gzip.parquet": "(FORMAT PARQUET, COMPRESSION GZIP, ROW_GROUP_SIZE 12000)",
     "plain.parquet": "(FORMAT PARQUET, COMPRESSION UNCOMPRESSED, ROW_GROUP_SIZE 25000)",
     "v2.parquet": "(FORMAT PARQUET, COMPRESSION SNAPPY, PARQUET_VERSION V2, ROW_GROUP_SIZE 8000)",
+    # Zstandard is what a recent Spark, Arrow or DuckDB writes by default, so
+    # it is the variant most likely to be the file somebody actually opens.
+    "zstd.parquet": "(FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 6000)",
 }
 for name, opts in variants.items():
     con.execute(f"COPY t TO '{OUT}/{name}' {opts}")

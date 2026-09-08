@@ -336,6 +336,30 @@ async function run(): Promise<void> {
     /25,000 rows/.test(text(".tbl-title")) && painted().every((r) => r[2] !== ""),
     text(".tbl-title"));
 
+  /*
+   * Every codec, against the same truth.
+   *
+   * The four variants have been staged since the fixtures script was written
+   * and only Snappy was ever opened, so gzip and page-v2 were asserted by
+   * nobody and Zstandard did not decode at all. A codec is exactly the kind of
+   * thing that is either completely right or completely wrong, so one row read
+   * out of each file is enough -- and it is the row the Snappy pass above
+   * already checked character for character.
+   */
+  const ROW_ONE = "1|name 1|1.5|false|2020-01-02|2020-01-01 00:01:00|1000000000|cat1|0.0100";
+  for (const name of ["gzip.parquet", "plain.parquet", "v2.parquet", "zstd.parquet"]) {
+    const f = await load(name);
+    await table.open(f);
+    await settle(500);
+    const r = (painted()[0] ?? []).join("|");
+    ok(`${name} decodes to the same 25 000 rows`,
+      /25,000 rows.*9 columns/.test(text(".tbl-title")), text(".tbl-title"));
+    ok(`${name} row one is byte-for-byte the Snappy row`, r === ROW_ONE, r);
+  }
+
+  await table.open(pq);
+  await settle(500);
+
   // ── Keys ──────────────────────────────────────────────────────────────────
   const key = (k: string): boolean => table.key(new KeyboardEvent("keydown", { key: k }));
   ok("the grid claims the arrow keys", key("ArrowDown") && key("ArrowRight"));

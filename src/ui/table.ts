@@ -72,6 +72,20 @@ const blockCache = (): number => settings.get<number>(PREF.tableBlocks);
  */
 const SORT_CAP = 3_000_000;
 
+/**
+ * Turn whatever was thrown into a line somebody can read.
+ *
+ * A reader that has decided a file is out of scope has already written the
+ * sentence and gets to keep it whole. Anything else is a real failure, and
+ * those are wrapped, because "Could not read this file" is the part that
+ * matters and `String(e)` on its own can be as unhelpful as "[object Object]".
+ */
+function reason(e: unknown): string {
+  if (e instanceof Error && e.name === "ParquetUnsupported") return e.message;
+  const detail = e instanceof Error ? e.message : String(e);
+  return `Could not read this file — ${detail}`;
+}
+
 export class TableView {
   private readonly root = document.createElement("div");
   private readonly title = document.createElement("div");
@@ -277,7 +291,7 @@ export class TableView {
     } catch (e) {
       if (this.token !== mine) return;
       this.title.textContent = entry.name;
-      this.note.textContent = `Could not read this file — ${String(e)}`;
+      this.note.textContent = reason(e);
     }
   }
 
@@ -535,7 +549,7 @@ export class TableView {
           this.paint();
         })
         .catch((e: unknown) => {
-          if (this.token === mine) this.note.textContent = String(e);
+          if (this.token === mine) this.note.textContent = reason(e);
         })
         .finally(() => this.inflight.delete(b));
     }

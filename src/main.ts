@@ -335,7 +335,19 @@ const camera = new CameraView({
   // Read at the moment of saving, never cached: the preference wins if it is
   // set, and otherwise a capture lands in whatever folder you are looking at,
   // which is what someone who never opened the settings will expect.
-  folder: () => settings.get<string>(PREF.cameraFolder).trim() || cwd,
+  /*
+   * Where a capture lands: the preference if it is set, then the folder you
+   * are looking at. On Android neither is right by default -- `cwd` on the
+   * phone is whichever roll you last opened, and writing a photograph into
+   * somebody's Downloads because that is where they happened to be is not
+   * what any camera does. DCIM/Facet is where the phone's own gallery, and
+   * ours, already look.
+   */
+  folder: () => {
+    const set = settings.get<string>(PREF.cameraFolder).trim();
+    if (set !== "") return set;
+    return IS_ANDROID ? "/sdcard/DCIM/Facet" : cwd;
+  },
   writeFile: (path, bytes, overwrite) =>
     native
       ? native.writeFile(path, bytes, overwrite)
@@ -380,7 +392,13 @@ const recorder = new RecorderView({
   },
   // Read once when a take starts, unlike the camera's: a recording that is
   // already being written cannot change where it is going halfway through.
-  folder: () => settings.get<string>(PREF.recFolder).trim() || cwd,
+  // Same reasoning as the camera's folder: `cwd` on a phone is wherever you
+  // last browsed, and a recording is not a thing to drop there.
+  folder: () => {
+    const set = settings.get<string>(PREF.recFolder).trim();
+    if (set !== "") return set;
+    return IS_ANDROID ? "/sdcard/Music/Facet" : cwd;
+  },
   writeFile: (path, bytes, overwrite) =>
     native
       ? native.writeFile(path, bytes, overwrite)
@@ -3473,6 +3491,10 @@ function mountPhone(home: string): void {
     openPanel: (entry, panel, siblings) =>
       openWith(entry, panel as HandlerId, siblings.length > 0 ? [...siblings] : [entry]),
     runTool: phoneTool,
+    openCamera: () => camera.open(),
+    // Microphone only. The other two sources do not exist on Android and the
+    // panel hides them rather than offering a switch that cannot work.
+    recordVoice: () => void recorder.open({ screen: false, system: false, mic: true }),
   });
   phone.mount(document.body);
   // The eighteen panels the phone shell delegates to were written for a mouse.

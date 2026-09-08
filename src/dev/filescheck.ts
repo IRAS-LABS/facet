@@ -185,8 +185,15 @@ async function checkTitle(): Promise<void> {
   await tick();
   ok("back: and again lands on the front page", tab.title() === "Files", tab.title());
   ok("back: which refuses to pop further", tab.back() === false);
+  // Not "the header is empty" — the root header carries the voice memo. The
+  // claim is narrower and it is the one that matters: with nothing to pop,
+  // there is no Back arrow to press.
+  const labels = (): string[] =>
+    tab.actions().map((b) => b.getAttribute("aria-label") ?? b.title);
   ok("back: the front page offers no Back button of its own",
-     tab.actions().length === 0, String(tab.actions().length));
+     !labels().includes("Back"), labels().join(", ") || "(none)");
+  ok("back: the front page does offer the voice memo",
+     labels().includes("Voice memo"), labels().join(", ") || "(none)");
 
   tab.el.remove();
 }

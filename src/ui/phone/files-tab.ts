@@ -150,7 +150,11 @@ export class FilesTab implements PhoneTab {
     if (this.stack.length > 1) {
       return [iconBtn("←", "Back", () => { this.back(); })];
     }
-    return [];
+    // At the root, where recording is the only thing a header button could
+    // sensibly do: there is nowhere to go back to, and a new voice memo has to
+    // land somewhere, which is what a file browser is. Inside a folder the back
+    // arrow wins the space, because getting out beats making something new.
+    return [iconBtn("🎤", "Voice memo", () => this.shell.recordVoice())];
   }
 
   back(): boolean {

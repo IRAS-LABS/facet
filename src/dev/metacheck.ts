@@ -48,7 +48,19 @@ const ok = (name: string, cond: boolean, detail = ""): void => {
 
 const written = new Map<string, Uint8Array>();
 
-const bytesOf = (path: string): Promise<Uint8Array> => fixtureBytes("/_metacheck/" + path);
+/**
+ * The photographs come off disk; `nope.bin` is made here.
+ *
+ * It stands for a file the panel can open but find nothing in, so its bytes
+ * only have to be twelve bytes that are not any format we parse. Staging it
+ * would put a junk file in the fixtures folder for no reason, and fetching it
+ * from a dev server that does not have it fails as a *missing fixture* — which
+ * is a different bug than the one this case is testing for.
+ */
+const bytesOf = (path: string): Promise<Uint8Array> =>
+  path === "nope.bin"
+    ? Promise.resolve(new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x7f, 0x80, 0xfe, 0xff, 0x10, 0x20, 0x30, 0x40]))
+    : fixtureBytes("/_metacheck/" + path);
 
 const panel = new MetaPanel({
   readAll: (path) => bytesOf(path),

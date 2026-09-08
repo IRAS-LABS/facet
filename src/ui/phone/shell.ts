@@ -97,6 +97,27 @@ export interface PhoneHost {
    * Returns false when the tool has no home, so the caller can say so.
    */
   runTool(entry: FileEntry, tool: string): boolean;
+  /**
+   * Open the camera.
+   *
+   * The camera surface is shared with the desktop -- same device picker, same
+   * looks, same countdown -- and the Android build has held the permission and
+   * the WebChromeClient grant that make it work since the first APK. What it
+   * has never had is anything to press. A phone with a camera in it, running a
+   * gallery, with no way to take a picture is the kind of gap that reads as a
+   * missing feature rather than a missing button, which is what it was.
+   */
+  openCamera(): void;
+  /**
+   * Record a voice memo.
+   *
+   * The microphone third of the desktop recorder, with the screen and the
+   * system-sound switches hidden because an Android WebView has no
+   * `getDisplayMedia` to give them. RECORD_AUDIO is already requested and
+   * already granted through the WebChromeClient, so this is another case of a
+   * capability that shipped without anything to press.
+   */
+  recordVoice(): void;
   /** True when running under Tauri. Gates every tool that touches disk. */
   native: boolean;
 }
@@ -291,6 +312,16 @@ export class PhoneShell {
   }
 
   /** The trash screen, over whatever tab is showing. Built on first use. */
+  /** Straight through to the host. Here so a tab never holds the host. */
+  openCamera(): void {
+    this.host.openCamera();
+  }
+
+  /** Straight through to the host, as `openCamera`. */
+  recordVoice(): void {
+    this.host.recordVoice();
+  }
+
   openTrash(): void {
     this.trashSheet ??= new TrashSheet(this);
     this.trashSheet.open();

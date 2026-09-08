@@ -29,6 +29,7 @@
     "@crabnebula/tauri-plugin-drag": "^2.1.0",
     "@huggingface/transformers": "^4.2.0",
     "@tauri-apps/api": "^2.11.1",
+    "fzstd": "^0.1.1",
     "libheif-js": "^1.19.8",
     "onnxruntime-web": "1.26.0-dev.20260416-b7804b056c",
     "pdf-lib": "^1.17.1",

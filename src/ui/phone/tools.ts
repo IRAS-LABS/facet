@@ -87,16 +87,22 @@ const AUDIO: readonly FileKind[] = ["audio"];
  * Typed against `BlurKind` rather than loose strings so that adding a ninth
  * kind to the engine and forgetting it here is a compile error, not a tool that
  * silently never appears on the phone.
+ *
+ * None of them is called "Blur". They are all blurs -- the strip they live in
+ * is the blur strip -- so the name has to say which one, and "Blur" next to
+ * "Blur all", "Box" next to "Box blur" and "Blur faces" read as the same word
+ * four times rather than as four different things. Gaussian and box are named
+ * Soft and Hard, for the only difference anyone can see between them.
  */
 const BLUR_KINDS: ReadonlyArray<readonly [BlurKind, string, string, string]> = [
-  ["gaussian", "Blur", "🌫", "Ordinary soft blur — what most people mean by blur"],
+  ["gaussian", "Soft", "🌫", "Ordinary soft blur — what most people mean by blur"],
   ["pixelate", "Pixelate", "▦", "Big hard squares. Reads as deliberate censorship"],
   ["solid", "Black bar", "▬", "A flat fill. The redaction bar — no pixels survive"],
   ["mosaic", "Mosaic", "◈", "Pixelate on a diamond lattice. Softer, less clinical"],
   ["motion", "Motion", "≡", "Directional smear along an angle you set"],
   ["radial", "Spin", "◎", "Zoom or spin smear radiating from the centre"],
   ["frosted", "Frosted", "❄", "Blur plus fine noise — frosted glass, not out-of-focus"],
-  ["box", "Box blur", "▢", "Cheap square-kernel blur. Harsher than gaussian"],
+  ["box", "Hard", "▢", "Cheap square-kernel blur. Blockier and harsher than Soft"],
 ];
 
 /**
@@ -108,9 +114,9 @@ const BLUR_KINDS: ReadonlyArray<readonly [BlurKind, string, string, string]> = [
  * geometric name is how it stayed unfindable.
  */
 const BLUR_SHAPES: ReadonlyArray<readonly [ShapeKind, string, string, string]> = [
-  ["full", "Blur all", "⬛", "The entire picture. Then punch holes in it if you like"],
+  ["full", "Whole picture", "⬛", "The entire picture. Then punch holes in it if you like"],
   ["brush", "Brush", "🖌", "Paint the mask with a finger. Variable width"],
-  ["rect", "Box", "▭", "Corner-handled rectangle. Round the corners if you want"],
+  ["rect", "Rectangle", "▭", "Corner-handled rectangle. Round the corners if you want"],
   ["ellipse", "Oval", "⬭", "An ellipse in the same handles as the box"],
   ["polygon", "Lasso", "⬡", "Tap to place points around an arbitrary shape"],
   ["linear", "Band", "▤", "A band across the frame — tilt-shift"],

@@ -289,6 +289,37 @@ async function main(): Promise<void> {
     editor.el.querySelector<HTMLButtonElement>(".phe-slider-back")!.click();
     ok("the changed chip shows its value", chipFor(editor, "light.brightness")!.classList.contains("phe-chip-set"));
 
+    // ── The strip keeps its place across a rebuild ────────────────────────
+    //
+    // Reported as a major bug and it was one: every chip tap rebuilds the
+    // strip, so setting Strength or picking a tint threw it back to the far
+    // left and left the chip you had just pressed off the right-hand edge.
+    // Twelve chips in, that is most of a swipe back on every single tap.
+    //
+    // The offset is only asserted when the strip actually overflows -- in a
+    // window wide enough to show every chip there is nothing to preserve, and
+    // the assertion would be measuring the window, not the fix.
+    {
+      const strip = editor.el.querySelector<HTMLElement>(".phe-strip")!;
+      const room = strip.scrollWidth - strip.clientWidth;
+      if (room > 8) {
+        strip.scrollLeft = room;
+        const before = strip.scrollLeft;
+        chipFor(editor, "light.brightness")!.click();
+        editor.el.querySelector<HTMLButtonElement>(".phe-slider-back")!.click();
+        ok("a chip tap does not throw the strip back to the left",
+           Math.abs(strip.scrollLeft - before) <= 2,
+           `${before} -> ${strip.scrollLeft}`);
+      }
+      // Switching rails is the one case that *should* start at the left: it is
+      // a different set of chips and the old offset means nothing in it.
+      editor.open("filters");
+      ok("switching rails does start at the left",
+         editor.el.querySelector<HTMLElement>(".phe-strip")!.scrollLeft === 0,
+         String(editor.el.querySelector<HTMLElement>(".phe-strip")!.scrollLeft));
+      editor.open("adjust");
+    }
+
     // Preset.
     editor.open("filters");
     editor.el.querySelector<HTMLButtonElement>('[data-preset="vivid"]')!.click();

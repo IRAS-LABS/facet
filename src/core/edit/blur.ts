@@ -206,7 +206,11 @@ function drawEffect(
     case "mosaic": {
       // Downscale then upscale with smoothing off. `max(1, …)` matters: a
       // zero-width intermediate throws in Chromium rather than no-oping.
-      const cells = Math.max(1, Math.round(unit / Math.max(2, px)));
+      // The cell is capped so the region always spans at least six of them.
+      // Sized off the frame alone, a small region fell inside one or two cells
+      // and came out as two flat colours instead of as pixelation.
+      const cell = Math.max(2, Math.min(px, regionSpan(w, h, r) / 6));
+      const cells = Math.max(1, Math.round(unit / cell));
       const sw = Math.max(1, Math.round((w / unit) * cells));
       const sh = Math.max(1, Math.round((h / unit) * cells));
       const tmp = document.createElement("canvas");
@@ -292,6 +296,58 @@ function drawEffect(
 // ── The mask pass ──────────────────────────────────────────────────────────
 
 /**
+ * The short side of what this region actually covers, in destination pixels.
+ *
+ * Every strength in a `BlurRegion` is a fraction of the *image* short edge, so
+ * that a look set on a 900 px preview survives export at 4000 px. That is the
+ * right unit for choosing a strength and the wrong one for applying it, and
+ * the difference only shows on a region much smaller than the frame:
+ *
+ *   * A feather of 0.01 on a 1080 px frame is an 11 px blur of the mask. Run
+ *     over a 40 px region -- a face in a wide shot, a phone number, a name on
+ *     an envelope -- the alpha at the centre never reaches 1. The region is
+ *     seen through, and the way it looked from the outside was "I have to
+ *     select much larger than the thing I want to cover". On a **solid**
+ *     region that is a redaction bar you can read through, which is the worst
+ *     thing in this file.
+ *   * Pixelate sizes its grid off the frame too, so a 40 px region landed
+ *     inside one or two 33 px cells and came out as two flat colours rather
+ *     than as pixelation.
+ *
+ * Both are the same mistake and this is the number that fixes them: callers
+ * clamp against the region, so a strength can never be wider than the thing
+ * it is applied to.
+ */
+function regionSpan(w: number, h: number, r: BlurRegion): number {
+  const unit = Math.min(w, h);
+  switch (r.shape) {
+    case "full":
+      return unit;
+
+    case "brush": {
+      // A stroke is as wide as the pen, however long the line is.
+      let widest = 0;
+      for (const st of r.strokes) widest = Math.max(widest, st.width * unit);
+      return widest > 0 ? widest : unit * 0.05;
+    }
+
+    case "polygon": {
+      if (r.points.length === 0) return unit;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of r.points) {
+        x0 = Math.min(x0, p.x * w); x1 = Math.max(x1, p.x * w);
+        y0 = Math.min(y0, p.y * h); y1 = Math.max(y1, p.y * h);
+      }
+      return Math.max(1, Math.min(x1 - x0, y1 - y0));
+    }
+
+    default:
+      // rect, ellipse, linear, radial -- all carry a normalised bounding rect.
+      return Math.max(1, Math.min(r.rect.w * w, r.rect.h * h));
+  }
+}
+
+/**
  * White where the effect applies, transparent where it does not.
  *
  * Feather is a blur of the mask itself, which is why the edge quality is the
@@ -305,7 +361,11 @@ function drawMask(
   r: BlurRegion,
 ): void {
   const unit = Math.min(w, h);
-  const feather = r.feather * unit;
+  // Never soften by more than a quarter of the region's own short side. Past
+  // that the falloff meets itself in the middle, the centre stops reaching
+  // full alpha, and the region is see-through however hard the blur under it
+  // is working. See `regionSpan`.
+  const feather = Math.min(r.feather * unit, regionSpan(w, h, r) * 0.25);
   const R = { x: r.rect.x * w, y: r.rect.y * h, w: r.rect.w * w, h: r.rect.h * h };
 
   g.fillStyle = "#ffffff";

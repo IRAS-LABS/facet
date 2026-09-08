@@ -117,6 +117,8 @@ async function live(queued: readonly string[]): Promise<Live> {
     home: HOME,
     openPanel: (entry, panel, siblings) => { panels.push({ entry, panel, siblings }); },
     runTool: () => false,
+    openCamera: () => {},
+    recordVoice: () => {},
     native: false,
   });
   // Queued *before* mount: this is a cold start from a file, where the intent

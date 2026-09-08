@@ -72,6 +72,14 @@ const BRUSH_MIN = 0.004;
 const BRUSH_MAX = 0.4;
 const BRUSH_W = 0.06;
 
+/**
+ * Edge softness for a newly drawn region, as a fraction of the image short
+ * edge. Halved from 0.01: `drawMask` now clamps the softness to a quarter of
+ * the region, so the old value was only ever reached on a large one, where it
+ * was heavier than anybody asked for.
+ */
+const DEFAULT_FEATHER = 0.005;
+
 /** Undo depth. Forty is more than a phone edit ever needs and bounds memory. */
 const HISTORY_CAP = 40;
 
@@ -282,7 +290,7 @@ export class PhoneEditor {
   private style: BlurKind = "gaussian";
   /** Settings a new blur region is born with. See the old file for why. */
   private arm = {
-    brush: BRUSH_W, amount: 0.03, feather: 0.01, opacity: 1, corners: 0, angle: 0,
+    brush: BRUSH_W, amount: 0.03, feather: DEFAULT_FEATHER, opacity: 1, corners: 0, angle: 0,
     color: "#000000", colorAmount: 0,
   };
   /** The marker's own settings. */
@@ -720,6 +728,9 @@ export class PhoneEditor {
   open(id: RailId): void {
     if (this.group === "crop" && id !== "crop") this.commitCrop();
     if (id !== "text") this.selectedText = null;
+    // A different rail is a different set of chips, so this one rebuild -- and
+    // only this one -- is allowed to start at the left. See `setStrip`.
+    if (this.group !== id) this.stripReset = true;
     this.group = id;
 
     for (const b of this.rail.querySelectorAll<HTMLButtonElement>(".phe-rail-btn")) {
@@ -781,9 +792,62 @@ export class PhoneEditor {
     return el("span.phe-divider", { "aria-hidden": true });
   }
 
+  /**
+   * A word in front of a run of chips.
+   *
+   * The blur strip is twenty-six chips long and was one undifferentiated run
+   * split by hairlines. Seven of them say where, eight say what it looks like,
+   * seven are numbers and four find things for you -- four different questions
+   * that all looked like the same row of buttons. A hairline cannot say which
+   * is which; a word can.
+   */
+  private caption(text: string): HTMLElement {
+    return el("span.phe-cap", { text, "aria-hidden": true });
+  }
+
+  /** Where the chip strip is scrolled to, carried across every rebuild. */
+  private stripLeft = 0;
+
+  /**
+   * Set by `open` to make the next rebuild start at the left.
+   *
+   * A rail switch is a different set of chips, so the old offset would mean
+   * nothing in it. This cannot be `stripLeft = 0` in `open`, because the
+   * rebuild that follows reads the offset back off the strip still on screen
+   * and would put the old number straight back.
+   */
+  private stripReset = false;
+
+  /**
+   * Rebuild the chip strip, keeping where it was scrolled to.
+   *
+   * Every chip tap rebuilds -- that is how a chip shows its new value, how a
+   * toggle shows it is on, how the slider hands the strip back. Resetting to
+   * the left on each of those meant that setting Strength, or picking a tint,
+   * threw the strip to the start and left the chip you had just used off the
+   * right-hand edge. Twelve chips in, that is most of a swipe to get back to
+   * where you were, on every single tap.
+   *
+   * Only `open` starts at the left, because a rail switch really is a
+   * different set of chips and the old offset would mean nothing in it.
+   */
   private setStrip(...kids: (Node | string)[]): void {
+    // Read the offset back only from a strip that could actually hold one.
+    // The slider takes the whole row and has nothing to scroll, so its
+    // scrollLeft is always 0 -- and remembering *that* on the way in is how
+    // the offset was still being lost on the way back out. Changing Strength
+    // and returning to the chips went through exactly that path.
+    if (this.stripReset) {
+      this.stripLeft = 0;
+      this.stripReset = false;
+    } else if (this.strip.scrollWidth - this.strip.clientWidth > 2) {
+      this.stripLeft = this.strip.scrollLeft;
+    }
     fill(this.strip, ...kids);
-    this.strip.scrollLeft = 0;
+    // Reading scrollWidth forces the layout the restore needs: assigning
+    // scrollLeft before the new chips have been measured clamps it to 0.
+    void this.strip.scrollWidth;
+    this.strip.scrollLeft = this.stripLeft;
     this.hintScroll(this.strip);
     // The rail's active button may just have been scrolled into view.
     this.hintScroll(this.rail);
@@ -1180,6 +1244,7 @@ export class PhoneEditor {
     const frag = document.createDocumentFragment();
     const have = { native: this.host.native, ffmpeg: this.host.ffmpeg };
 
+    frag.append(this.caption("Where"));
     for (const { tool, enabled, why } of groupTools("shape", this.kind, have)) {
       const id = tool.id.slice(11) as ShapeKind;
       frag.append(this.chip(tool.label, () => this.setShape(id), {
@@ -1187,6 +1252,7 @@ export class PhoneEditor {
       }));
     }
     frag.append(this.divider());
+    frag.append(this.caption("Look"));
     for (const { tool, enabled, why } of groupTools("blur", this.kind, have)) {
       if (!tool.id.startsWith("blur.kind.")) continue;
       const id = tool.id.slice(10) as BlurKind;
@@ -1196,6 +1262,7 @@ export class PhoneEditor {
     }
     frag.append(this.divider());
 
+    frag.append(this.caption("Adjust"));
     const t = this.blurTarget();
     const val = (f: "amount" | "feather" | "opacity" | "corners" | "angle"): number =>
       t ? t[f] : this.arm[f];
@@ -1214,8 +1281,9 @@ export class PhoneEditor {
       (v) => `${Math.round((v * 180) / Math.PI)}°`), { icon: "angle", tool: "adj.angle" }));
     frag.append(this.chip("Tint", () => this.showSwatches("blur"), { icon: "tint", tool: "adj.color" }));
     frag.append(this.divider());
+    frag.append(this.caption("Find it for me"));
     frag.append(this.chip("Faces", () => void this.blurFaces(), { icon: "face", tool: "ai.faces" }));
-    frag.append(this.chip("Auto-blur", () => this.showAutoSheet(), { icon: "sparkles", tool: "ai.auto" }));
+    frag.append(this.chip("Everything", () => this.showAutoSheet(), { icon: "sparkles", tool: "ai.auto" }));
     frag.append(this.chip("Invert", () => this.patch("Invert", (r) => { r.invert = !r.invert; }), {
       icon: "invert", tool: "blur.invert", on: !!t?.invert, disabled: !t,
     }));
@@ -1251,10 +1319,22 @@ export class PhoneEditor {
     this.open("blur");
   }
 
+  /**
+   * Pick what the covered area looks like.
+   *
+   * A black bar is a redaction, not an effect, and a redaction with a soft
+   * edge is a redaction you can read the ends of. Choosing it squares the edge
+   * off; choosing anything else puts the soft edge back. Both are written to
+   * the armed defaults as well as to the selected region, so the next box you
+   * draw behaves the same way as this one.
+   */
   private setStyle(kind: BlurKind): void {
     this.style = kind;
+    const hard = kind === "solid";
+    const feather = hard ? 0 : Math.max(this.arm.feather, DEFAULT_FEATHER);
+    this.arm = { ...this.arm, feather };
     const t = this.blurTarget();
-    if (t) this.patch("Blur style", (r) => { r.kind = kind; });
+    if (t) this.patch("Blur style", (r) => { r.kind = kind; r.feather = feather; });
     else this.showBlur();
   }
 

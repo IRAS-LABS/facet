@@ -319,6 +319,7 @@ export class PhotosTab implements PhoneTab {
     // its own — see `MediaStore.startWatch`. A button for it would be a lie
     // about how the gallery works.
     return [
+      iconBtn("📷", "Camera", () => this.shell.openCamera()),
       iconBtn("🗑", "Trash", () => this.shell.openTrash()),
       iconBtn("☰", "Select photos", () => this.beginSelect()),
     ];

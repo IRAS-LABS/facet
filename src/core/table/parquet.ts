@@ -8,14 +8,42 @@
  * loading it.
  *
  * What is implemented is what real files contain: PLAIN, RLE dictionary, and
- * RLE/bit-packed levels; data pages v1 and v2; uncompressed, Snappy and gzip.
- * What is not — LZO, Brotli, Zstd, and repeated (list/map) columns — is
- * declined by name rather than approximated, because a table viewer that shows
- * subtly wrong numbers is worse than one that says it cannot read something.
+ * RLE/bit-packed levels; data pages v1 and v2; uncompressed, Snappy, gzip and
+ * Zstandard. What is not — LZO, Brotli, LZ4, and repeated (list/map) columns
+ * — is declined by name rather than approximated, because a table viewer that
+ * shows subtly wrong numbers is worse than one that says it cannot read
+ * something. When it declines it says so in a sentence, not by throwing the
+ * name of a codec at somebody who opened a spreadsheet.
  */
+
+import { decompress as zstdDecompress } from "fzstd";
 
 import { ThriftReader, asList, asNum, asStr, asStruct, type ThriftStruct, type ThriftValue } from "./thrift";
 import { snappyDecompress } from "./snappy";
+
+/**
+ * A file this reader has decided not to guess at.
+ *
+ * Separate from a plain Error so the viewer can print the sentence on its own.
+ * `String(new Error(...))` is `"Error: ..."`, and "Could not read this file —
+ * Error: compressed with brotli, which this reader does not implement" is a
+ * stack trace wearing a coat: it reads as a crash, it names a codec nobody
+ * chose, and it does not say the one useful thing, which is what to do next.
+ */
+export class ParquetUnsupported extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ParquetUnsupported";
+  }
+}
+
+/** What to tell somebody whose file uses a codec that is not here. */
+const CODEC_HELP: Record<string, string> = {
+  lzo: "LZO",
+  brotli: "Brotli",
+  lz4: "LZ4",
+  lz4_raw: "LZ4",
+};
 
 export interface ParquetHost {
   readRange(path: string, offset: number, len: number): Promise<number[]>;
@@ -226,7 +254,24 @@ async function decompress(data: Uint8Array, codec: number, expect: number): Prom
     for (const p of parts) { out.set(p.subarray(0, out.length - at), at); at += p.length; }
     return out;
   }
-  throw new Error(`compressed with ${CODEC[codec] ?? codec}, which this reader does not implement`);
+  if (codec === 6) {
+    // fzstd, decompress-only and dependency-free. Zstandard turns up in
+    // anything written by a recent Spark, Arrow or DuckDB, so declining it
+    // meant declining most Parquet written in the last few years.
+    // fzstd's second argument is an output buffer, not a length, and handing
+    // it one sized off the page header would trust a number out of the file.
+    // Letting it size its own and trimming after costs one allocation and
+    // cannot overrun.
+    const out = zstdDecompress(data);
+    return out.length > expect ? out.subarray(0, expect) : out;
+  }
+  const name = CODEC[codec] ?? String(codec);
+  const pretty = CODEC_HELP[name] ?? name;
+  throw new ParquetUnsupported(
+    `This Parquet file is compressed with ${pretty}, which Facet cannot read. ` +
+    "Uncompressed, Snappy, gzip and Zstandard files open fine — re-saving it " +
+    "with one of those will open it here.",
+  );
 }
 
 /** Every page of one column chunk, decoded into display strings. */
@@ -317,7 +362,11 @@ function pushValues(
     // RLE booleans, which is what a v2 page uses instead of a bit per value.
     values = Array.from(rleHybrid(data.subarray(4), present, 1), (v) => (v ? "true" : "false"));
   } else {
-    throw new Error(`${col.name}: encoding ${ENCODING[encoding] ?? encoding} is not implemented`);
+    throw new ParquetUnsupported(
+      `The column "${col.name}" is stored in a way Facet cannot read ` +
+      `(${ENCODING[encoding] ?? encoding} encoding). The rest of the file may ` +
+      "still open in another viewer.",
+    );
   }
 
   if (!defined) { out.push(...values); return; }

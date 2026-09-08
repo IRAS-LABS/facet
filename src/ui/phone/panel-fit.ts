@@ -127,13 +127,16 @@ function label(root: HTMLElement): void {
     const derived = btn.dataset["fctNameFromTitle"] !== undefined;
     const name = (derived ? btn.title : btn.getAttribute("aria-label") ?? btn.title).trim();
     if (name === "") continue;
+    // A panel that knows its own short word says so, and it beats anything
+    // guessed from a sentence written for a tooltip.
+    const short = (btn.dataset["fctShort"] ?? "").trim();
 
     // What the button already shows. A button holding an `svg` reports empty
     // text, which is exactly the case that most needs a word.
     const shown = (btn.textContent ?? "").trim();
     if (shown.length > GLYPH_MAX) continue;
 
-    const text = shorten(name);
+    const text = short !== "" ? short : shorten(name);
     if (text === "" || text.toLowerCase() === shown.toLowerCase()) continue;
 
     const tag = document.createElement("span");
@@ -151,13 +154,46 @@ function label(root: HTMLElement): void {
   }
 }
 
+/** Words that carry no meaning in a two-word button label. */
+const FILLER = new Set([
+  "a", "an", "the", "to", "of", "it", "in", "on", "at", "for", "into", "here",
+  "again", "all", "and", "or", "this", "that", "its", "with", "by", "from",
+]);
+
 /**
- * A button label is written for a tooltip — "Close  (Esc)", "Rotate left
- * (Ctrl+[)". The shortcut is dead weight on a phone and the parenthesis eats
- * the width the word needs.
+ * A button label is written for a tooltip — "Close  (Esc)", "Trim the start to
+ * here  (I)", "Drop the piece under the playhead  (Del)". The shortcut is dead
+ * weight on a phone and the parenthesis eats the width the word needs.
+ *
+ * Cutting the rest at a fixed character count is what produced "Trim the st…",
+ * "Trim the en…" and "Turn a quar…" — three labels that share every visible
+ * character and say nothing. A tooltip is a sentence, so it is read as one:
+ * the filler comes out and the first two words that carry meaning stay, whole.
+ * "Trim the start to here" is "Trim start", "Drop the piece under the
+ * playhead" is "Drop piece", and neither is ever cut mid-word.
+ *
+ * A panel that wants a specific word sets `data-fct-short` and skips all of
+ * this; see `label`.
  */
 function shorten(title: string): string {
   const head = title.split(/\s*[(–—]|\s{2,}/)[0] ?? title;
   const clean = head.replace(/[.:…]+$/, "").trim();
-  return clean.length > 12 ? `${clean.slice(0, 11)}…` : clean;
+  if (clean.length <= 12) return clean;
+
+  const words = clean.split(/\s+/);
+  const kept: string[] = [];
+  for (const w of words) {
+    // The first word always stays, filler or not: "All of it" has to start
+    // with something, and a label that begins mid-sentence reads as a typo.
+    if (kept.length > 0 && FILLER.has(w.toLowerCase())) continue;
+    kept.push(w);
+    if (kept.length === 2) break;
+  }
+
+  const two = kept.join(" ");
+  if (two.length <= 14) return two;
+  const one = kept[0] ?? clean;
+  // A single word longer than the cap is the only case left where there is
+  // nothing to do but cut, and at that point the ellipsis is honest.
+  return one.length > 14 ? `${one.slice(0, 13)}…` : one;
 }

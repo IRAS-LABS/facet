@@ -23,18 +23,22 @@ telemetry, and **nothing you open is ever uploaded** — no file, no picture, no
 audio, no text. Transcription, OCR and face detection are models that run
 inside the app, not services it calls.
 
-One model is not in the download, and it is the one place Facet reaches the
-internet on purpose. **Transcription** fetches its Whisper model from the
+Some models are not in the download, and that is the one place Facet reaches
+the internet on purpose. **Transcription** fetches a Whisper model from the
 Hugging Face hub the first time you pick a quality (80 MB, 150 MB or 500 MB),
-then keeps it and works with the radio off from then on. Everything else is
-already inside: face and plate detection, and **OCR in English**. OCR in one of
-the other nineteen languages fetches that language once (about 2 MB, from
-jsDelivr) and then caches it too.
+then keeps it and works with the radio off from then on. Turning on **who said
+what** fetches two more from the same host the first time you use it — one that
+finds where the speech is, one that tells the voices apart, about 25 MB the
+pair — and they are cached the same way. Everything else is already inside:
+face and plate detection, and **OCR in English**. OCR in one of the other
+nineteen languages fetches that language once (about 2 MB, from jsDelivr) and
+then caches it too.
 
 Those two hosts are the entire list — they are the only ones the app is even
-allowed to contact — and neither is touched unless you ask for a transcript or
-a language Facet did not ship with. If a first-run download is not acceptable
-to you, transcription is the one feature to leave alone.
+allowed to contact — and neither is touched unless you ask for a transcript,
+for speaker labels, or for a language Facet did not ship with. If a first-run
+download is not acceptable to you, transcription is the one feature to leave
+alone.
 
 It is one codebase: Windows desktop and an Android app with a phone-shaped
 interface, not a remote control for the desktop. Built with
@@ -46,7 +50,7 @@ TypeScript on top.
 | | | |
 | --- | --- | --- |
 | **Windows 10/11 (x64)** | [`Facet_0.1.5_x64-setup.exe`](https://github.com/IRAS-LABS/facet/releases/latest/download/Facet_0.1.5_x64-setup.exe) | 26 MB — run it, it installs like any other app |
-| **Android 7.0+ (arm64)** | [`facet-0.1.5-universal-release.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.5-universal-release.apk) | 51 MB — your phone will ask you to allow the install once |
+| **Android 7.0+ (arm64)** | [`facet-0.1.5-arm64.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.5-arm64.apk) | 51 MB — your phone will ask you to allow the install once |
 
 The Windows installer is not code-signed, so SmartScreen will say "Windows
 protected your PC" — **More info**, then **Run anyway**. On desktop, put
@@ -64,7 +68,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 
 There is no Play Store listing — sideload it.
 
-1. Download `facet-0.1.5-universal-release.apk` onto the phone.
+1. Download `facet-0.1.5-arm64.apk` onto the phone.
 2. Open it. Android asks permission to install from this source; grant it, and
    revoke it afterwards if you prefer.
 3. Launch Facet. It asks for storage on first run — see
@@ -80,7 +84,7 @@ The APK is signed with the project key. Check the *certificate*, rather than
 trusting the file or wherever you got it:
 
 ```
-apksigner verify --print-certs facet-0.1.5-universal-release.apk
+apksigner verify --print-certs facet-0.1.5-arm64.apk
 ```
 
 ```
@@ -96,8 +100,8 @@ project, whoever handed it to you.
 File hashes do change every release. For 0.1.5:
 
 ```
-d0d6f85d74876071df48e534bc0eb50a4f195fb1e6e67efc7eb644f511175a50  facet-0.1.5-universal-release.apk
-0572ee15149a4e4f8e2ef212f79bc3f9ef86ae2ff2847764751652e725fd6308  Facet_0.1.5_x64-setup.exe
+0655c5ba5845993989c77e8794b898718dc8c0f09ab842f63728ca267487d87b  facet-0.1.5-arm64.apk
+fbd969e565803d89a815b06e9cb47a294a836c02a54f74d27d1ff94d14e7c7c1  Facet_0.1.5_x64-setup.exe
 ```
 
 Both are published as
@@ -239,6 +243,11 @@ run against a real photograph, and Android home-screen widgets are not started.
 
 ### Capture
 
+*Desktop, with two of the three on Android as well: the camera sits in the
+Photos header, and a microphone-only voice memo in the Files header. **Looks**
+and screen recording are desktop-only — an Android WebView has no way to
+capture the screen at all.*
+
 - **Camera** — every camera the machine has in one picker, resolution picker,
   JPEG/PNG/WebP with a quality slider, self timer, grid overlays (thirds,
   golden, centre, square), mirror, and a clip recorder with a running clock.
@@ -261,6 +270,9 @@ run against a real photograph, and Android home-screen widgets are not started.
   EXIF, move, rename. A file fires only once its size is unchanged across two
   sweeps, so a still-copying 4 GB video is never handed to ffmpeg half-written.
   Two independent loop guards, and the move never deletes and never overwrites.
+  On Android the sweep runs only while Facet is open — there is no background
+  service, so a rule fires when you next open the app, not the moment the file
+  lands.
 
 ### Making it yours
 
@@ -274,7 +286,8 @@ run against a real photograph, and Android home-screen widgets are not started.
 - **Context menu builder** — your own actions.
 - **File associations** — what Facet opens with what, internally.
 - **Startup and session** — what opens on launch, restore last session.
-- **Import/export settings** as one portable file.
+- **Import/export settings** as one block of JSON you can copy out and
+  paste back — a text box, not a file dialog.
 - **Performance controls** — cache sizes, preview budgets, decode lanes.
 - **Persistent undo** that survives a restart, and **crash recovery** that
   reopens where it died with unsaved edits offered back, never silently applied.
@@ -289,7 +302,30 @@ interface — it is not a remote control for the desktop.
 - **Albums, favourites, search and a files tab.**
 - **Photo and video editing on the phone**, including the blur and redaction
   tools, automatic face/plate/screen blur, metadata viewing and removal.
+- **Camera** in the Photos header — device picker, self timer, grid overlays
+  and mirror, saving into `DCIM/Facet`.
+- **Voice memo** in the Files header — countdown, level meter, pause and
+  resume, written to disk as it records, into `Music/Facet`.
 - **Trash sheet**, audio dock, and the OS share sheet.
+
+**What the Android app does not have.** The phone interface is a different
+interface, not a smaller copy of the desktop one, and these are desktop-only:
+
+- The **command palette**, and the **rebindable keyboard map** — both want a
+  keyboard.
+- **Looks** — the eight camera presets and their sliders. The camera itself is
+  there; the look editor is not.
+- **Screen recording.** An Android WebView cannot capture the screen. The
+  microphone half is there, as a voice memo.
+- Most of **Settings**: 11 themes (the phone has dark, light and system),
+  column and card configuration, the sidebar and places editor, the context
+  menu builder, file associations, startup and session, import/export, and the
+  performance controls.
+- **Layout presets**, and **Space to quick-look**.
+- **Dragging a file out to another app**, and the Windows clipboard file
+  formats that go with it.
+- The **Recycle Bin** — the phone has its own trash sheet instead.
+- **Desktop widgets.**
 
 ## File formats
 
@@ -349,7 +385,10 @@ instead of showing an empty scene.
 | **Classified as data, handed to the OS** | `xls` `ods` `db` `sqlite` `duckdb` |
 
 Parquet is read one row group at a time off the footer, so a multi-gigabyte
-file opens as fast as a small one.
+file opens as fast as a small one. Uncompressed, Snappy, gzip and Zstandard
+files open; LZO, Brotli and LZ4 do not, and neither do repeated columns — the
+list and map types. Facet says which of those it hit rather than showing you
+numbers it had to guess at.
 
 ### Documents
 
@@ -421,12 +460,19 @@ should be fine; these are the ones that are known to work.
 ```powershell
 npm install
 py scripts/fetch-models.py     # ~12 MB of ONNX detectors, sha256-pinned
-npx tauri build
+.\scripts\build-desktop.ps1
 ```
 
 The installer lands in
 `src-tauri/target/release/bundle/nsis/Facet_<version>_x64-setup.exe`, and the
 bare executable beside it in `src-tauri/target/release/facet.exe`.
+
+`npx tauri build` on its own produces the same app, but the binary it leaves
+behind has your account name and the layout of your disk written through it
+(see [Before you hand a binary to anyone](#before-you-hand-a-binary-to-anyone)).
+The script sets the flags that prevent that, and then checks the finished
+binary and exits non-zero if it finds a path anyway — so a leaking build fails
+rather than shipping. Use it for anything anyone else will run.
 
 For development instead: `npx tauri dev` runs the app against a live frontend,
 and `npm run dev` serves the frontend alone on `http://127.0.0.1:8183`.
@@ -509,17 +555,21 @@ as an absolute path on the machine that built it. `strip` does not remove them;
 they are string data, not symbols. So a release build made with no precautions
 tells whoever runs `strings` on it your account name and how your disk is laid
 out. (Cargo's `trim-paths` profile key is meant for this and is not stable as of
-1.96, so the fix goes through `RUSTFLAGS`.) `scripts/build-apk.ps1` already does
-this. For a desktop release, do the same first:
+1.96, so the fix goes through `RUSTFLAGS`.) This is not a small leak: a plain
+`npx tauri build` of this crate put the account name in `facet.exe` 164 times,
+and a plain `npx tauri android build` put it in `libfacet_lib.so` 250 times.
 
-```powershell
-$env:RUSTFLAGS = "--remap-path-prefix=$env:USERPROFILE\.cargo=/cargo " +
-                 "--remap-path-prefix=$PWD=/facet"
-npx tauri build
-```
+Both build scripts handle it — `scripts/build-apk.ps1` for Android,
+`scripts/build-desktop.ps1` for Windows. The desktop one also **verifies** the
+result: it reads the finished binary back, looks for your username, your
+`CARGO_HOME` and the project path in both UTF-8 and UTF-16, and exits non-zero
+if it finds any of them. Use the scripts and this cannot be forgotten; build
+by hand and it is on you to check.
 
-Check the result before publishing it -- `strings` on the binary, grep for your
-username, expect nothing.
+Do check by hand if you built by hand — `strings` on the binary, grep for your
+username, expect nothing. Note that an NSIS installer will look clean either
+way, because the executable inside it is compressed; check the executable, not
+the installer.
 
 FFmpeg has the same problem for a different reason: it bakes its entire
 `./configure` line into the library and prints it on `-version`, build paths and

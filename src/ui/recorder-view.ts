@@ -201,9 +201,15 @@ export class RecorderView {
 
     // ── The three switches ────────────────────────────────────────────────
     this.setup.className = "rec-setup";
+    // The two rows are kept because a voice memo hides them. Leaving a dead
+    // "The screen" checkbox on a phone is worse than not offering it: Android's
+    // WebView has no `getDisplayMedia` at all, so ticking it can only ever
+    // produce an error message about a thing the device cannot do.
+    this.screenRow = this.check(this.screenBox, "The screen", "A screen, a window or a tab — you choose which when it starts");
+    this.systemRow = this.check(this.systemBox, "What the machine is playing", "The other side of a call, or the video you are narrating");
     this.setup.append(
-      this.check(this.screenBox, "The screen", "A screen, a window or a tab — you choose which when it starts"),
-      this.check(this.systemBox, "What the machine is playing", "The other side of a call, or the video you are narrating"),
+      this.screenRow,
+      this.systemRow,
       this.check(this.micBox, "The microphone", "Your voice"),
     );
     for (const box of [this.screenBox, this.systemBox, this.micBox]) {
@@ -282,6 +288,10 @@ export class RecorderView {
     this.wireKeys();
   }
 
+  /** Kept so `open` can hide them for a microphone-only take. */
+  private screenRow!: HTMLElement;
+  private systemRow!: HTMLElement;
+
   get isOpen(): boolean {
     return !this.root.hidden;
   }
@@ -295,19 +305,34 @@ export class RecorderView {
     return this.outPath;
   }
 
-  async open(): Promise<void> {
+  /**
+   * Open the recorder, optionally with some of the sources decided for you.
+   *
+   * A voice memo is this panel with two of its three switches turned off and
+   * put away -- same countdown, same level meter, same incremental write to
+   * disk, same file at the end. Writing a second recorder for the phone would
+   * have meant a second thing to keep correct about how a crash is survived,
+   * and the answer to "can it record my voice" would still have been no until
+   * that second thing was finished.
+   *
+   * The forced switches are hidden rather than merely unticked, because a
+   * switch you can turn on that then fails is a worse answer than no switch.
+   */
+  async open(force?: Partial<Sources>): Promise<void> {
     if (this.isOpen) return;
-    this.prefs = { ...FALLBACK, ...this.host.prefs() };
+    this.prefs = { ...FALLBACK, ...this.host.prefs(), ...force };
     this.screenBox.checked = this.prefs.screen;
     this.systemBox.checked = this.prefs.system;
     this.micBox.checked = this.prefs.mic;
+    this.screenRow.hidden = force?.screen === false;
+    this.systemRow.hidden = force?.system === false;
     this.qualitySel.value = this.prefs.quality;
     this.waitSel.value = String(this.prefs.countdown);
     this.root.hidden = false;
     this.card.classList.remove("rec-small");
     this.setup.hidden = false;
     this.live.hidden = true;
-    this.say("Pick what to record");
+    this.say(this.screenRow.hidden ? "Ready when you are" : "Pick what to record");
     this.readSwitches();
     await this.listMics();
   }

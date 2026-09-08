@@ -299,6 +299,25 @@
   margin: 0 var(--fct-sp-1);
 }
 
+/*
+ * The word in front of a run of chips. Deliberately quiet -- it is a label on
+ * the run, not a control in it, and it must never be mistaken for a chip you
+ * can press. `user-select: none` because a caption sitting between two chips
+ * is exactly what a thumb catches when it means to scroll.
+ */
+.phe-cap {
+  flex: 0 0 auto;
+  align-self: center;
+  font: 600 var(--fct-fs-xs) var(--fct-font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+  padding: 0 var(--fct-sp-1) 0 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .phe-question {
   flex: 0 0 auto;
   font: 500 var(--fct-fs-sm) var(--fct-font-ui);

@@ -258,14 +258,14 @@ export class VideoEditor {
 
     // ── Controls ────────────────────────────────────────────────────────────
     const cuts = this.group("Cut", [
-      this.btn("▶", "Play / pause  (space)", () => this.toggle()),
-      this.btn("[", "Trim the start to here  (I)", () => this.mark("in")),
-      this.btn("]", "Trim the end to here  (O)", () => this.mark("out")),
-      this.btn("✂", "Split here  (S)", () => this.split()),
-      this.btn("⌫", "Drop the piece under the playhead  (Del)", () => this.drop()),
-      this.btn("⟲", "Undo  (ctrl+Z)", () => this.undo()),
-      this.btn("⟳", "Redo  (ctrl+shift+Z)", () => this.redo()),
-      this.btn("⤢", "Keep all of it again", () => this.resetSpans()),
+      this.btn("▶", "Play / pause  (space)", () => this.toggle(), "Play"),
+      this.btn("[", "Trim the start to here  (I)", () => this.mark("in"), "Start"),
+      this.btn("]", "Trim the end to here  (O)", () => this.mark("out"), "End"),
+      this.btn("✂", "Split here  (S)", () => this.split(), "Split"),
+      this.btn("⌫", "Drop the piece under the playhead  (Del)", () => this.drop(), "Drop"),
+      this.btn("⟲", "Undo  (ctrl+Z)", () => this.undo(), "Undo"),
+      this.btn("⟳", "Redo  (ctrl+shift+Z)", () => this.redo(), "Redo"),
+      this.btn("⤢", "Keep all of it again", () => this.resetSpans(), "Reset"),
     ]);
 
     this.speedOut.className = "vedit-speed";
@@ -273,16 +273,17 @@ export class VideoEditor {
       "\u224b",
       "Smooth slow motion",
       () => this.toggleSmooth(),
+      "Smooth",
     );
     const geom = this.group("Frame", [
-      this.btn("⟳90", "Turn a quarter clockwise  (R)", () => this.turn(90)),
-      this.btn("⟲90", "Turn a quarter the other way", () => this.turn(-90)),
-      this.btn("↔", "Mirror left to right", () => { this.flipH = !this.flipH; this.paint(); }),
-      this.btn("↕", "Flip top to bottom", () => { this.flipV = !this.flipV; this.paint(); }),
-      this.btn("⬚", "Crop — drag a rectangle on the video  (C)", () => this.toggleCrop()),
-      this.btn("−", "Slower", () => this.stepSpeed(-1)),
+      this.btn("⟳90", "Turn a quarter clockwise  (R)", () => this.turn(90), "Right"),
+      this.btn("⟲90", "Turn a quarter the other way", () => this.turn(-90), "Left"),
+      this.btn("↔", "Mirror left to right", () => { this.flipH = !this.flipH; this.paint(); }, "Mirror"),
+      this.btn("↕", "Flip top to bottom", () => { this.flipV = !this.flipV; this.paint(); }, "Flip"),
+      this.btn("⬚", "Crop — drag a rectangle on the video  (C)", () => this.toggleCrop(), "Crop"),
+      this.btn("−", "Slower", () => this.stepSpeed(-1), "Slower"),
       this.speedOut,
-      this.btn("+", "Faster", () => this.stepSpeed(1)),
+      this.btn("+", "Faster", () => this.stepSpeed(1), "Faster"),
       this.smoothBtn,
     ]);
 
@@ -295,7 +296,7 @@ export class VideoEditor {
       "Look through the video for faces and blur each one into the exported copy",
       () => void this.scanFaces(),
     );
-    this.facesClear = this.btn("✕", "Forget the faces that were found", () => this.clearFaces());
+    this.facesClear = this.btn("✕", "Forget the faces that were found", () => this.clearFaces(), "Clear");
     this.facesClear.hidden = true;
     this.autoBtn = this.btn(
       "Auto-blur",
@@ -1034,12 +1035,23 @@ export class VideoEditor {
 
   // ── Chrome ────────────────────────────────────────────────────────────────
 
-  private btn(label: string, title: string, on: () => void): HTMLButtonElement {
+  /**
+   * A control in one of the three groups.
+   *
+   * `short` is the word this button wears on a phone, where `panel-fit` puts
+   * a label under every glyph. Without one it has to guess from the title,
+   * and a title is a sentence: "Turn a quarter clockwise" and "Turn a quarter
+   * the other way" both guess to "Turn quarter", which tells a thumb nothing.
+   * One word, no punctuation, and different from every other short in the
+   * same group.
+   */
+  private btn(label: string, title: string, on: () => void, short?: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.className = "vedit-btn";
     b.type = "button";
     b.textContent = label;
     b.title = title;
+    if (short !== undefined) b.dataset["fctShort"] = short;
     b.addEventListener("click", on);
     return b;
   }

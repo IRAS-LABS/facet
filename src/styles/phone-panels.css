@@ -202,6 +202,56 @@ body.fct-phone .fct-phone-panel button.fct-labelled {
   min-height: 44px;
 }
 
+/*
+ * A labelled button never shrinks and never spills.
+ *
+ * Both halves matter, and neither was there. The rows these sit in are
+ * `display: flex` with the default `flex-shrink: 1`, so eight buttons that do
+ * not fit 384 px were each squeezed to about half their width -- while the
+ * `inline-grid` inside kept its content width. The result is the one in the
+ * bug report: every label printed across the button to its right. `flex: 0 0
+ * auto` stops the squeeze, `overflow: hidden` makes the spill impossible even
+ * if some other row finds a new way to squeeze one.
+ */
+body.fct-phone .fct-phone-panel button.fct-labelled {
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+/*
+ * Rows of controls wrap.
+ *
+ * Panel toolbars are flex rows written for a window at least 900 px wide, and
+ * on a phone they simply ran off the right-hand edge -- the video editor's Cut
+ * group is eight buttons, and "Keep all of it again" was a third of a button
+ * hanging past the screen with no way to scroll to it. Wrapping is the whole
+ * fix: nothing is off-screen, and a group that needs two lines takes two.
+ */
+body.fct-phone .fct-phone-panel .vedit-controls,
+body.fct-phone .fct-phone-panel .vedit-group,
+body.fct-phone .fct-phone-panel .aedit-controls,
+body.fct-phone .fct-phone-panel .aedit-group,
+body.fct-phone .fct-phone-panel [class$="-group"],
+body.fct-phone .fct-phone-panel [class$="-controls"],
+body.fct-phone .fct-phone-panel [class$="-bar"],
+body.fct-phone .fct-phone-panel [class$="-actions"] {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/*
+ * The group's own word ("Cut", "Frame", "Output") takes a line to itself.
+ * Left inline it is the first item of a wrapping row, so the row it names
+ * starts beside it and the second line starts under it -- a ragged left edge
+ * that reads as broken. Full-width, it becomes a heading, which is what it
+ * always was.
+ */
+body.fct-phone .fct-phone-panel .vedit-group-label,
+body.fct-phone .fct-phone-panel [class$="-group-label"] {
+  flex: 1 0 100%;
+  margin: 0 0 var(--fct-sp-1);
+}
+
 body.fct-phone .fct-phone-panel .fct-blabel {
   font-size: calc(10px * var(--fct-ui-scale));
   /* The label never widens the button past the cap above; it ellipses instead,

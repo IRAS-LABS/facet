@@ -1836,6 +1836,61 @@ export class PhoneViewer {
     }
   }
 
+  /**
+   * How far the picture may be pushed before it leaves the stage behind.
+   *
+   * Zoom had no bounds at all. A pinch translated by however far the midpoint
+   * had travelled and a one-finger drag added its whole delta, so past about
+   * 3x the picture wandered off to one side and stayed there -- and because
+   * nothing put it back until `scale` fell to 1 (where the pinch branch zeroes
+   * the offset outright), letting go and zooming out looked like the picture
+   * snapping home from nowhere.
+   *
+   * The limit is the overhang: half of however much wider the zoomed picture
+   * is than the stage. On an axis with no overhang -- a tall photograph on a
+   * tall screen, at any scale where it still fits across -- the limit is zero
+   * and that axis stays centred, which is the rule every gallery uses.
+   *
+   * Measured off the drawn picture rather than off its box, because the box is
+   * the whole stage and `object-fit: contain` letterboxes inside it; panning
+   * to the edge of the box would pan into the letterbox.
+   */
+  private panBounds(): { mx: number; my: number } {
+    const stage = this.stage.getBoundingClientRect();
+    const node = !this.canvas.hidden
+      ? this.canvas
+      : !this.video.hidden ? this.video : this.img;
+
+    const bw = node.offsetWidth || stage.width;
+    const bh = node.offsetHeight || stage.height;
+
+    let iw = 0;
+    let ih = 0;
+    if (node === this.img) { iw = this.img.naturalWidth; ih = this.img.naturalHeight; }
+    else if (node === this.video) { iw = this.video.videoWidth; ih = this.video.videoHeight; }
+    else { iw = this.canvas.width; ih = this.canvas.height; }
+
+    let cw = bw;
+    let ch = bh;
+    if (iw > 0 && ih > 0) {
+      const k = Math.min(bw / iw, bh / ih);
+      cw = iw * k;
+      ch = ih * k;
+    }
+
+    return {
+      mx: Math.max(0, (cw * this.scale - stage.width) / 2),
+      my: Math.max(0, (ch * this.scale - stage.height) / 2),
+    };
+  }
+
+  /** Pull the offset back inside `panBounds`. Cheap enough to run per frame. */
+  private clampPan(): void {
+    const b = this.panBounds();
+    this.tx = Math.max(-b.mx, Math.min(b.mx, this.tx));
+    this.ty = Math.max(-b.my, Math.min(b.my, this.ty));
+  }
+
   /** Screen point → normalised image coordinates, through the canvas box. */
   private toImage(clientX: number, clientY: number): { x: number; y: number } {
     const box = this.canvas.getBoundingClientRect();
@@ -1907,12 +1962,28 @@ export class PhoneViewer {
           this.tx = 0;
           this.ty = 0;
         } else {
-          // Follow the midpoint. Without this the picture zooms about its own
-          // centre and the detail you pinched towards slides off the screen,
-          // which at 24x means it is gone.
+          /*
+           * Hold the pixel you pinched under the midpoint of your fingers.
+           *
+           * Following the midpoint's travel alone is not the same thing: the
+           * scale grows about the picture's own centre, so a point away from
+           * that centre slides outward by the growth as well, and the offset
+           * that would cancel it was never applied. The error compounds with
+           * every frame of the pinch, which is why the drift showed up as
+           * "zoom in a bit more and it walks off to the right".
+           *
+           * With the stage centre O, a point p on the picture sits at
+           * O + t + s·p. Solving p out of where it was when the pinch began
+           * and putting it back in at the current scale leaves the line below.
+           */
           const c = centroid(ev.touches);
-          this.tx = this.pinch.tx + (c.x - this.pinch.cx);
-          this.ty = this.pinch.ty + (c.y - this.pinch.cy);
+          const stage = this.stage.getBoundingClientRect();
+          const ox = stage.left + stage.width / 2;
+          const oy = stage.top + stage.height / 2;
+          const k = this.scale / this.pinch.scale;
+          this.tx = c.x - ox - k * (this.pinch.cx - ox - this.pinch.tx);
+          this.ty = c.y - oy - k * (this.pinch.cy - oy - this.pinch.ty);
+          this.clampPan();
         }
         this.scheduleTransform();
         return;
@@ -1936,6 +2007,9 @@ export class PhoneViewer {
       if (this.scale > 1) {
         this.tx = d.sx + dx;
         this.ty = d.sy + dy;
+        // Bounded, so a pan stops at the edge of the picture instead of
+        // dragging it off the stage and leaving you looking at the ground.
+        this.clampPan();
         this.scheduleTransform();
         return;
       }
@@ -1988,6 +2062,17 @@ export class PhoneViewer {
     this.stage.addEventListener("touchend", (ev) => {
       if (this.pinch && ev.touches.length < 2) {
         this.pinch = null;
+        // A pinch that ends past the edge eases back rather than sticking
+        // there: the bounds move as the scale does, so the last frame of a
+        // zoom-out can legitimately leave the offset outside them.
+        const bx = this.tx;
+        const by = this.ty;
+        this.clampPan();
+        if (this.tx !== bx || this.ty !== by) {
+          this.glide(true);
+          this.applyTransform();
+          window.setTimeout(() => this.glide(false), 240);
+        }
         this.syncSource();
         return;
       }
