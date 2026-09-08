@@ -9,21 +9,56 @@
  * gallery on the phone can do. This puts it back, scoped to the surface that
  * wants it, without handing the gesture back to the browser.
  *
- * The mechanics: the content sits in a layer whose `transform: scale(k)` grows
- * it from its top-left corner, and the scroller it sits in does the panning.
- * A transformed box contributes to its scroller's scrollable overflow, so with
- * `transform-origin: 0 0` there is nothing to pan to above or left of the
- * origin — every pixel the zoom creates is reachable by ordinary scrolling,
- * which means momentum, overscroll and the scrollbars all keep working and
- * none of it has to be reimplemented here.
+ * There are two ways to make a document bigger and this file has both, because
+ * the surfaces in this app genuinely need different ones:
+ *
+ *  - **`attachZoom` scales a layer.** The content sits in a layer whose
+ *    `transform: scale(k)` grows it from its top-left corner, and the scroller
+ *    it sits in does the panning. A transformed box contributes to its
+ *    scroller's scrollable overflow, so with `transform-origin: 0 0` there is
+ *    nothing to pan to above or left of the origin — every pixel the zoom
+ *    creates is reachable by ordinary scrolling, which means momentum,
+ *    overscroll and the scrollbars all keep working and none of it has to be
+ *    reimplemented here. This is right for a PDF page, a picture, a rendered
+ *    web page: things whose layout must not change as they grow.
+ *
+ *  - **`attachTextZoom` scales the type.** The hex view and the spreadsheet
+ *    are virtualised: they draw the forty rows you can see and lie about the
+ *    rest with a spacer, and they work out which forty from a measured row
+ *    height. Scaling that with a transform desynchronises the arithmetic from
+ *    the pixels -- the spacer, the sticky header and the row window all still
+ *    believe in the old height, so the header slides off the columns and
+ *    scrolling lands on the wrong row. Growing the *font* instead keeps every
+ *    one of those honest, because the row height is measured rather than
+ *    assumed. It is also what you actually want from a spreadsheet on a
+ *    phone: smaller type to get more columns on screen, which a transform
+ *    that only goes up cannot give you.
+ *
+ * Both are driven by the same recogniser, so a pinch means the same thing
+ * everywhere and a fix to the gesture is a fix to all of it.
  */
 
 /** Past 8× a photo is a wall of pixels; below 1× the card has empty margins. */
 const MIN = 1;
 const MAX = 8;
 
+/**
+ * Text zooms out as well as in.
+ *
+ * A picture below 1× is a small picture in a large empty card, which is why
+ * `MIN` is 1. A spreadsheet below 1× is four more columns, which on a 6.7-inch
+ * phone is the difference between reading the sheet and scrolling around
+ * hunting for the column you wanted. Not below half: past that the glyphs stop
+ * being glyphs.
+ */
+const TEXT_MIN = 0.5;
+const TEXT_MAX = 4;
+
 /** What a double-tap goes to, and what a second one comes back from. */
 const TAP_SCALE = 2.5;
+
+/** ...and for text, where 2.5× of a monospace grid is already very large. */
+const TEXT_TAP_SCALE = 1.75;
 
 /** Two taps this close together, in ms and in CSS pixels, are one gesture. */
 const TAP_MS = 300;
@@ -63,7 +98,32 @@ export interface Zoom {
   readonly scale: number;
 }
 
-export function attachZoom(scroller: HTMLElement, layer: HTMLElement, opts: ZoomOptions = {}): Zoom {
+/** What one recogniser needs to know that is not the gesture itself. */
+interface ZoomKind {
+  min: number;
+  max: number;
+  /** Where a double-tap goes. */
+  tap: number;
+  /**
+   * Put the content at `next`, keeping whatever is under (`ax`, `ay`) — a
+   * point in client coordinates — where it is. Anchoring is the whole
+   * difference between a zoom that follows your fingers and one that jumps to
+   * the top-left.
+   */
+  apply(next: number, ax: number, ay: number, was: number): void;
+  /** Undo everything `apply` did. */
+  clear(): void;
+}
+
+/**
+ * The gesture, once.
+ *
+ * Recognising a pinch is fiddly in ways that have nothing to do with what is
+ * being pinched -- the synthetic click after the last finger, the double tap a
+ * WebView will not report, the trackpad arriving as a ctrl-wheel -- so it is
+ * written here and the two zooms above only supply the arithmetic.
+ */
+function recognize(scroller: HTMLElement, kind: ZoomKind, opts: ZoomOptions): Zoom {
   const live = new Map<number, { x: number; y: number }>();
   let k = 1;
   let pinching = false;
@@ -90,27 +150,14 @@ export function attachZoom(scroller: HTMLElement, layer: HTMLElement, opts: Zoom
     }, SETTLE_MS);
   };
 
-  const clamp = (v: number): number => (v < MIN ? MIN : v > MAX ? MAX : v);
+  const clamp = (v: number): number => (v < kind.min ? kind.min : v > kind.max ? kind.max : v);
 
-  /**
-   * Zoom to `next`, keeping the content under (`ax`, `ay`) — a point in client
-   * coordinates — where it is. Anchoring is the whole difference between a
-   * zoom that follows your fingers and one that jumps to the top-left.
-   */
   const to = (next: number, ax: number, ay: number): void => {
     const want = clamp(next);
     if (want === k) return;
-    const box = scroller.getBoundingClientRect();
-    const lx = ax - box.left;
-    const ly = ay - box.top;
-    const cx = (scroller.scrollLeft + lx) / k;
-    const cy = (scroller.scrollTop + ly) / k;
+    const was = k;
     k = want;
-    layer.style.transform = k === 1 ? "" : `scale(${k})`;
-    // Read back rather than trust the arithmetic: at 1× the scroll range has
-    // just collapsed, and the browser clamps for us.
-    scroller.scrollLeft = cx * k - lx;
-    scroller.scrollTop = cy * k - ly;
+    kind.apply(k, ax, ay, was);
   };
 
   const centre = (): { x: number; y: number; d: number } => {
@@ -181,7 +228,7 @@ export function attachZoom(scroller: HTMLElement, layer: HTMLElement, opts: Zoom
     if (now - lastTap < TAP_MS && Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) < TAP_SLOP) {
       lastTap = 0;
       window.clearTimeout(tapTimer);
-      to(k > 1 ? 1 : TAP_SCALE, e.clientX, e.clientY);
+      to(k > 1 ? 1 : kind.tap, e.clientX, e.clientY);
       quietUntil = now + CLICK_GRACE;
       settle();
       return;
@@ -240,7 +287,7 @@ export function attachZoom(scroller: HTMLElement, layer: HTMLElement, opts: Zoom
       quietUntil = 0;
       k = 1;
       settledAt = 1;
-      layer.style.transform = "";
+      kind.clear();
       scroller.style.touchAction = "";
       scroller.scrollTo(0, 0);
     },
@@ -248,4 +295,88 @@ export function attachZoom(scroller: HTMLElement, layer: HTMLElement, opts: Zoom
       return k;
     },
   };
+}
+
+export function attachZoom(scroller: HTMLElement, layer: HTMLElement, opts: ZoomOptions = {}): Zoom {
+  return recognize(scroller, {
+    min: MIN,
+    max: MAX,
+    tap: TAP_SCALE,
+    apply(k, ax, ay, was): void {
+      const box = scroller.getBoundingClientRect();
+      const lx = ax - box.left;
+      const ly = ay - box.top;
+      const cx = (scroller.scrollLeft + lx) / was;
+      const cy = (scroller.scrollTop + ly) / was;
+      layer.style.transform = k === 1 ? "" : `scale(${k})`;
+      // Read back rather than trust the arithmetic: at 1× the scroll range has
+      // just collapsed, and the browser clamps for us.
+      scroller.scrollLeft = cx * k - lx;
+      scroller.scrollTop = cy * k - ly;
+    },
+    clear(): void {
+      layer.style.transform = "";
+    },
+  }, opts);
+}
+
+/** What a font zoom needs from the view it is zooming. */
+export interface TextZoomOptions extends ZoomOptions {
+  /**
+   * Re-measure the row height and redraw at the new size.
+   *
+   * The whole reason this exists rather than a transform: a virtualised view
+   * decides which rows to build from a row height it *measured*, so the size
+   * has to change before the redraw and the redraw has to happen before the
+   * scroll position means anything. Only the view can do that, so it does.
+   *
+   * Called after the font scale is on the element and layout is therefore
+   * already stale -- so the implementation may read boxes back immediately.
+   */
+  remeasure(scale: number): void;
+}
+
+/**
+ * Pinch to change the type size on a virtualised text view.
+ *
+ * `root` gets `--zoom`, which its stylesheet multiplies into the font size of
+ * the rows; nothing here knows what that comes out as in pixels, which is the
+ * point -- the view measures the result rather than being told.
+ *
+ * Anchoring is deliberately coarser than the transform zoom's: the row under
+ * the middle of the screen stays put, and the horizontal position is left
+ * alone. Following two fingers exactly through a reflow means solving for a
+ * scroll offset in a layout that does not exist yet, and the honest version of
+ * that is one round trip per frame. A spreadsheet holding its line is what
+ * people actually notice.
+ */
+export function attachTextZoom(
+  scroller: HTMLElement,
+  root: HTMLElement,
+  opts: TextZoomOptions,
+): Zoom {
+  const size = (k: number): void => {
+    // Keep the middle row where it is. Measured as a fraction of the scroll
+    // range rather than in pixels, because the pixels are about to change.
+    const range = scroller.scrollHeight - scroller.clientHeight;
+    const at = range > 0 ? (scroller.scrollTop + scroller.clientHeight / 2) / scroller.scrollHeight : 0;
+    if (k === 1) root.style.removeProperty("--zoom");
+    else root.style.setProperty("--zoom", String(k));
+    opts.remeasure(k);
+    if (at > 0) {
+      const back = at * scroller.scrollHeight - scroller.clientHeight / 2;
+      scroller.scrollTop = Math.max(0, back);
+    }
+  };
+
+  return recognize(scroller, {
+    min: TEXT_MIN,
+    max: TEXT_MAX,
+    tap: TEXT_TAP_SCALE,
+    apply(k): void { size(k); },
+    clear(): void {
+      root.style.removeProperty("--zoom");
+      opts.remeasure(1);
+    },
+  }, opts);
 }

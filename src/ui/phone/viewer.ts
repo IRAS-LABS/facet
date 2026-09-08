@@ -1668,6 +1668,7 @@ export class PhoneViewer {
   private glide(on: boolean): void {
     const t = on ? `transform ${PAGE_MS}ms cubic-bezier(.2,.7,.3,1)` : "";
     this.img.style.transition = t;
+    this.video.style.transition = t;
     this.canvas.style.transition = t;
     this.prevPane.style.transition = t;
     this.nextPane.style.transition = t;
@@ -1690,6 +1691,14 @@ export class PhoneViewer {
       this.el.style.setProperty("--phv-dismiss", this.dismiss.toFixed(3));
     }
     this.img.style.transform = t;
+    // The video as well. Every gesture on this screen is wired to the stage,
+    // so a pinch over a playing video always *ran* -- `this.scale` went up,
+    // `syncSource` was consulted, the whole machine turned -- and then the one
+    // line that puts the number on screen only ever wrote to the still image.
+    // The result was a video you could not zoom, next to a photograph you
+    // could, with no reason on screen for the difference. Anything on the
+    // stage is a picture as far as a finger is concerned.
+    this.video.style.transform = t;
     // The canvas as well, or zoom silently does nothing the moment you start
     // editing -- which is exactly when it matters, because the editor shows the
     // canvas and hides the img. `toImage` reads `getBoundingClientRect`, which

@@ -27,6 +27,7 @@ import {
 import { openParquet, type ParquetFile } from "@core/table/parquet";
 import { openWorkbook, type Sheet, type Workbook } from "@core/table/xlsx";
 import { formatSize, type FileEntry } from "@core/explorer/types";
+import { attachTextZoom } from "@ui/zoom";
 import { PREF } from "@core/settings/registry";
 import { settings } from "@core/settings/store";
 
@@ -165,6 +166,27 @@ export class TableView {
     this.scroll.addEventListener("scroll", () => {
       this.head.style.transform = `translateX(${-this.scroll.scrollLeft}px)`;
       this.paint();
+    });
+
+    // Pinch to change the type size. On a phone the useful direction is *out*
+    // -- four more columns on screen -- which is why this one goes below 1x
+    // and the picture zoom does not.
+    //
+    // The font rather than a transform, for two reasons that both matter here.
+    // The grid is virtualised off a measured `rowH`, and the header is a
+    // separate element sitting over the body: scale the row layer and the
+    // spacer, the row window and the column titles all keep believing the old
+    // height, so the header ends up over the wrong data. And the column widths
+    // are handed out in `ch`, so a font change resizes the columns correctly
+    // for free -- which is the whole reason `--tbl-fs` is one token shared by
+    // the header and the body.
+    attachTextZoom(this.scroll, this.root, {
+      remeasure: () => {
+        this.measureRow();
+        this.spacer.style.height = `${this.spacerHeight(this.shown())}px`;
+        this.renderHead();
+        this.paint();
+      },
     });
 
     const grid = document.createElement("div");

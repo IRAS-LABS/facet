@@ -27,7 +27,7 @@
 
 import "../styles/base.css";
 
-import { attachZoom, type Zoom } from "@ui/zoom";
+import { attachTextZoom, attachZoom, type Zoom } from "@ui/zoom";
 
 let pass = 0;
 let fail = 0;
@@ -298,6 +298,76 @@ async function main(): Promise<void> {
     wheel(200, true);
     ok("ctrl-wheel down zooms back out", near(z.scale, 1, 0.05), String(z.scale));
 
+    kill();
+  }
+
+
+  // ── Text zoom ──────────────────────────────────────────────────────────
+  //
+  // The hex view and the spreadsheet are virtualised: they build the forty
+  // rows you can see and lie about the rest with a spacer, sized from a row
+  // height they *measured*. A transform leaves that arithmetic believing the
+  // old height, so the sticky header slides off its columns and a scroll lands
+  // on the wrong row -- which is why these two zoom their font instead and why
+  // the two paths cannot share an implementation below the gesture.
+  //
+  // What is pinned here is the part that is genuinely different: it goes below
+  // 1x (a spreadsheet zoomed out is more columns, which is the direction that
+  // matters on a phone), and it tells the view to measure again every time,
+  // because a size change nothing re-measures is exactly the desync above.
+  {
+    const { scroller, layer, kill } = rig();
+    const root = document.createElement("div");
+    document.body.append(root);
+    let measured = 0;
+    let lastAt = 0;
+    const z = attachTextZoom(scroller, root, {
+      remeasure: (k) => { measured++; lastAt = k; },
+    });
+
+    ok("text zoom starts at 1x", z.scale === 1, String(z.scale));
+    ok("and 1x writes no custom property", root.style.getPropertyValue("--zoom") === "",
+      root.style.getPropertyValue("--zoom"));
+
+    pinch(scroller, 200, 150, 100, 200);
+    ok("a pinch out grows the type", near(z.scale, 2, 0.05), String(z.scale));
+    ok("and the size reaches the stylesheet",
+      near(Number(root.style.getPropertyValue("--zoom")), 2, 0.05),
+      root.style.getPropertyValue("--zoom"));
+    ok("and the view was told to measure again", measured > 0 && near(lastAt, z.scale, 0.001),
+      `${measured} calls, last at ${lastAt}`);
+
+    // The direction the picture zoom refuses and this one exists for.
+    const before = measured;
+    pinch(scroller, 200, 150, 400, 100);
+    ok("text zooms out below 1x, unlike a picture", z.scale < 1, String(z.scale));
+    ok("...and stops at half, where glyphs stop being glyphs", z.scale === 0.5, String(z.scale));
+    ok("...having re-measured on the way", measured > before, String(measured - before));
+
+    pinch(scroller, 200, 150, 20, 900);
+    ok("and stops at 4x going the other way", z.scale === 4, String(z.scale));
+
+    // Double tap is a smaller step than a picture's: 2.5x of a monospace grid
+    // is already very large.
+    z.reset();
+    await sleep(TAP_MS + 60);
+    tap(scroller, 200, 150);
+    tap(scroller, 200, 150);
+    ok("a double tap steps the type up, gently", near(z.scale, 1.75, 0.01), String(z.scale));
+    await sleep(TAP_MS + 60);
+    tap(scroller, 200, 150);
+    tap(scroller, 200, 150);
+    ok("...and a second one comes back to 1x", z.scale === 1, String(z.scale));
+
+    const cleared = measured;
+    z.reset();
+    ok("reset drops the property entirely", root.style.getPropertyValue("--zoom") === "",
+      root.style.getPropertyValue("--zoom"));
+    ok("...and tells the view, so it is not left drawing at the old size",
+      measured > cleared && lastAt === 1, `${measured - cleared} calls at ${lastAt}`);
+
+    root.remove();
+    void layer;
     kill();
   }
 
