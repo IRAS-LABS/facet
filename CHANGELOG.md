@@ -8,6 +8,8 @@ something is fixed.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-09-07
+
 ### Added
 
 - **Zoom, in Quick Look.** Pinch, double-tap, or hold ctrl and scroll. It goes
@@ -28,6 +30,18 @@ something is fixed.
   called out as the warning they are.
 - English OCR data now ships inside the app (2 MB), so reading text off a scan
   needs no network at all. The other nineteen languages still fetch once.
+- **Push a sheet down to close it.** The Details sheet on the phone had one way
+  out and it was a Close button in the top right corner of a bottom sheet --
+  the furthest point on the screen from the thumb of the hand holding the
+  phone. Drag it down instead, from the handle, the title row, or the top of
+  the list. Rename closes the same way. The buttons have not gone anywhere.
+- **Open with FACET.** FACET now appears in Android's Open-with and share
+  sheets, which matters most for the formats nothing else on a phone will
+  open: a `.dng`, a `.jxl`, a `.srt`, a file with no extension at all. One
+  photo opens its whole folder so you can keep swiping; a selection of twelve
+  opens as those twelve, in the order they were sent. A file with no path on
+  this device -- a mail attachment, a Drive file -- is copied into the app's
+  own cache and opened from there.
 
 ### Fixed
 
@@ -65,6 +79,16 @@ something is fixed.
   endpoint" was not the whole truth while the frame it draws in had two.
 - The crash-recovery banner on the phone was as tall as a dialog for one line
   of text.
+- A thumbnail the decoder refused painted a plain black square, which is
+  indistinguishable from a photograph of a dark room. Nothing decodable was
+  affected; the tile now falls back to the file's own icon and says what it
+  is.
+- A picture the background thumbnail worker could not decode came back
+  indistinguishable from one it never answered about, so a failure four
+  seconds in was logged as a ten-second timeout and the tile was blanked
+  instead of being handed to the main thread, which could often decode it.
+  The worker's reason now crosses the message boundary, and a worker that
+  declines one image no longer costs that image its preview.
 
 ### Changed
 
@@ -152,6 +176,7 @@ and 3D model preview.
 - Video work on the desktop needs `ffmpeg` and `ffprobe` on `PATH`. The APK
   bundles FFmpeg and needs nothing.
 
-[Unreleased]: https://github.com/IRAS-LABS/facet/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/IRAS-LABS/facet/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/IRAS-LABS/facet/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/IRAS-LABS/facet/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/IRAS-LABS/facet/releases/tag/v0.1.0

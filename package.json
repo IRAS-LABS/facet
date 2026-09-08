@@ -1,6 +1,6 @@
 {
   "name": "facet",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "license": "MIT",
   "description": "All-in-one file explorer and media studio. Desktop and Android, fully on-device.",
