@@ -551,6 +551,49 @@ async function main(): Promise<void> {
     );
   }
 
+  // ── A long name scrolls instead of losing its tail ──────────────────────
+  //
+  // The bar ellipsised anything that did not fit, and a filename's tail is the
+  // half that tells them apart -- the date, the version, the extension. Now the
+  // strip scrolls, but only when it has to: a fade and a draggable label over a
+  // name that already fits is furniture.
+  {
+    const fs = { shareFiles: async () => {} };
+    const host = { fs, home: "/", native: false, openPanel() {}, runTool: () => true } as unknown as PhoneHost;
+    const thumbs = { get: async () => null, retain() {}, release() {} } as unknown as Thumbs;
+    const viewer = new PhoneViewer(host, {} as unknown as MediaStore, thumbs);
+    const inner = viewer as unknown as { nameEl: HTMLElement; fitName(): void };
+
+    // Measuring needs a real box, so the viewer goes on the page at a phone's
+    // width and comes off again at the end.
+    viewer.el.hidden = false;
+    viewer.el.style.cssText = "position:fixed;left:0;top:0;width:360px;height:640px";
+    document.body.appendChild(viewer.el);
+
+    inner.nameEl.textContent = "short.jpg";
+    inner.fitName();
+    ok("a name that fits is a plain label", !inner.nameEl.classList.contains("is-long"));
+
+    inner.nameEl.textContent =
+      "a-really-absurdly-long-file-name-that-goes-on-and-on-and-should-scroll-" +
+      "at-the-top-instead-of-eating-the-entire-header-bar-2026-09-07-final-v3.png";
+    inner.fitName();
+    ok("a name too wide for the bar can be dragged", inner.nameEl.classList.contains("is-long"));
+    ok("...and there is something to drag to",
+       inner.nameEl.scrollWidth > inner.nameEl.clientWidth,
+       `${inner.nameEl.scrollWidth} vs ${inner.nameEl.clientWidth}`);
+
+    // Swiping to the next picture must not leave the old name half-scrolled.
+    inner.nameEl.scrollLeft = 200;
+    inner.nameEl.textContent = "next.jpg";
+    inner.fitName();
+    ok("the next file starts at the beginning of its name", inner.nameEl.scrollLeft === 0,
+       String(inner.nameEl.scrollLeft));
+    ok("...and drops the fade with it", !inner.nameEl.classList.contains("is-long"));
+
+    viewer.el.remove();
+  }
+
   // ── Zoom reaches every surface on the stage ─────────────────────────────
   //
   // The stage holds three surfaces -- the still, the video and the edit canvas
