@@ -1,0 +1,423 @@
+/* Pop-out windows (src/pip/pip-app.ts).
+ *
+ * The window is transparent and borderless, so everything visible is drawn
+ * here: a rounded pane that is the picture, and chrome that floats over it as
+ * frosted glass and is gone the moment the pointer rests. Fading the window is
+ * the pane's own opacity — the desktop shows through where it fades.
+ */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+#pip {
+  position: fixed;
+  inset: 0;
+  /* Above an adopted surface (z 40-46), so the pill and the resize edges stay
+     reachable; letting clicks through everywhere else. */
+  z-index: 100;
+  pointer-events: none;
+}
+
+.pip {
+  --pip-radius: 12px;
+  --pip-glass: color-mix(in srgb, var(--fct-surface-overlay-raw, #222739) 62%, transparent);
+  --pip-edge: color-mix(in srgb, var(--fct-text-raw, #e8ecf5) 14%, transparent);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--pip-radius);
+  background: var(--fct-canvas-bg, #080a0e);
+  color: var(--fct-text);
+  font: var(--fct-fs-sm) / 1.3 var(--fct-font-ui);
+  opacity: var(--pip-opacity, 1);
+  outline: none;
+  pointer-events: auto;
+  isolation: isolate;
+  transition: opacity 0.18s ease;
+  user-select: none;
+}
+
+/* A hairline and, while the window has focus, a breath of accent around it:
+   the only way to tell which of twelve borderless windows the keys go to. */
+.pip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--pip-edge);
+  transition: box-shadow 0.2s ease;
+}
+.pip:focus-within::after,
+.pip:focus::after {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--fct-accent) 70%, transparent),
+    inset 0 0 18px -6px color-mix(in srgb, var(--fct-accent) 55%, transparent);
+}
+
+.pip-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+}
+.pip-stage:active {
+  cursor: grabbing;
+}
+
+.pip-img,
+.pip-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+.pip-video {
+  pointer-events: auto;
+}
+.pip[data-fill="true"] .pip-video {
+  object-fit: cover;
+}
+
+.pip-note {
+  padding: 16px;
+  color: var(--fct-text-dim);
+  text-align: center;
+}
+
+/* ── Chrome ─────────────────────────────────────────────────────────────── */
+
+.pip-bar,
+.pip-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.pip-bar {
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 6px 18px 4px;
+  background: linear-gradient(to bottom, rgb(0 0 0 / 62%), rgb(0 0 0 / 28%) 60%, transparent);
+  cursor: grab;
+}
+
+.pip-controls {
+  bottom: 0;
+  padding: 18px 8px 6px;
+  background: linear-gradient(to top, rgb(0 0 0 / 70%), rgb(0 0 0 / 30%) 60%, transparent);
+}
+
+.pip[data-idle="true"] .pip-bar {
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+.pip[data-idle="true"] .pip-controls {
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+}
+/* Sound has nothing to look at, so its transport never hides. */
+.pip[data-route="audio"] .pip-controls {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.pip:not([data-playing="true"])[data-route="video"] .pip-controls {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.pip-grip {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 26px;
+  color: rgb(255 255 255 / 55%);
+}
+
+.pip-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 6px 0 2px;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
+}
+
+.pip-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(255 255 255 / 86%);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+.pip-btn:hover {
+  background: rgb(255 255 255 / 16%);
+  color: #fff;
+}
+.pip-btn:active {
+  transform: scale(0.92);
+}
+.pip-btn:focus-visible {
+  outline: 2px solid var(--fct-accent);
+  outline-offset: -2px;
+}
+.pip-btn[aria-pressed="true"] {
+  color: var(--fct-accent-hover, #9478ff);
+  background: color-mix(in srgb, var(--fct-accent) 22%, transparent);
+}
+.pip-close:hover {
+  background: color-mix(in srgb, var(--fct-danger) 78%, transparent);
+  color: #fff;
+}
+.pip-play {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 14%);
+  backdrop-filter: blur(10px);
+}
+
+/* Narrow pop-outs keep only what matters. */
+@media (max-width: 300px) {
+  .pip-ext,
+  .pip-reveal,
+  .pip-fade,
+  .pip-loop,
+  .pip-time {
+    display: none;
+  }
+}
+@media (max-height: 130px) {
+  .pip-loop,
+  .pip-fillbtn {
+    display: none;
+  }
+}
+
+.pip-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pip-time {
+  flex: 1;
+  padding: 0 6px;
+  color: rgb(255 255 255 / 82%);
+  font: 500 var(--fct-fs-xs) / 1 var(--fct-font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pip-seek {
+  position: relative;
+  height: 14px;
+  margin: 0 4px 2px;
+  cursor: pointer;
+  touch-action: none;
+}
+.pip-seek::before,
+.pip-seek > i {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 3px;
+  border-radius: 3px;
+  transform: translateY(-50%);
+  transition: height 0.12s ease;
+}
+.pip-seek::before {
+  right: 0;
+  background: rgb(255 255 255 / 22%);
+}
+.pip-seek > .pip-buf {
+  background: rgb(255 255 255 / 30%);
+}
+.pip-seek > i:last-child {
+  background: linear-gradient(90deg, var(--fct-accent), var(--fct-info, #22d3ee));
+  box-shadow: 0 0 10px -2px var(--fct-accent);
+}
+.pip-seek:hover::before,
+.pip-seek:hover > i {
+  height: 5px;
+}
+
+/* ── Sound ──────────────────────────────────────────────────────────────── */
+
+.pip-audio {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 10px 16px 44px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--fct-accent) 30%, transparent), transparent 60%),
+    radial-gradient(120% 140% at 100% 100%, color-mix(in srgb, var(--fct-info, #22d3ee) 18%, transparent), transparent 60%),
+    var(--fct-surface-raised, #1a1e29);
+}
+.pip-audio-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pip-audio-glyph {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+}
+.pip-audio-glyph > i {
+  width: 4px;
+  height: 30%;
+  border-radius: 2px;
+  background: var(--fct-accent);
+}
+.pip[data-playing="true"] .pip-audio-glyph > i {
+  animation: pip-eq 0.9s ease-in-out infinite alternate;
+}
+.pip-audio-glyph > i:nth-child(2) { animation-delay: -0.3s; }
+.pip-audio-glyph > i:nth-child(3) { animation-delay: -0.6s; }
+.pip-audio-glyph > i:nth-child(4) { animation-delay: -0.15s; }
+.pip-audio-glyph > i:nth-child(5) { animation-delay: -0.45s; }
+@keyframes pip-eq {
+  from { height: 20%; }
+  to { height: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pip[data-playing="true"] .pip-audio-glyph > i { animation: none; height: 70%; }
+}
+
+/* ── Resize edges ───────────────────────────────────────────────────────── */
+
+.pip-edge {
+  position: absolute;
+  z-index: 40;
+}
+.pip-edge-north, .pip-edge-south { left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+.pip-edge-east, .pip-edge-west { top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+.pip-edge-north { top: 0; }
+.pip-edge-south { bottom: 0; }
+.pip-edge-east { right: 0; }
+.pip-edge-west { left: 0; }
+.pip-edge-northeast, .pip-edge-northwest, .pip-edge-southeast, .pip-edge-southwest {
+  width: 12px;
+  height: 12px;
+}
+.pip-edge-northwest { top: 0; left: 0; cursor: nwse-resize; }
+.pip-edge-southeast { bottom: 0; right: 0; cursor: nwse-resize; }
+.pip-edge-northeast { top: 0; right: 0; cursor: nesw-resize; }
+.pip-edge-southwest { bottom: 0; left: 0; cursor: nesw-resize; }
+
+/* ── The explorer's surfaces, adopted ───────────────────────────────────── */
+
+/* They are built as overlays over a whole explorer. In a pop-out there is
+   nothing under them to dim, and the window is the card. */
+body > .pip-adopted {
+  border-radius: 12px;
+  overflow: hidden;
+  opacity: var(--pip-opacity, 1);
+}
+body > .ql.pip-adopted {
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+  place-items: stretch;
+}
+body > .ql.pip-adopted .ql-card {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  /* A pop-out is a small window whose whole job is the file, and the card's
+     desktop air -- 16px of padding, 10px between every row -- is most of a
+     narrow one. The window itself is the frame now, so the card does not need
+     to draw a second one either. */
+  gap: 6px;
+  padding: 6px 8px 8px;
+  background: transparent;
+  box-shadow: none;
+}
+body > .ql.pip-adopted .ql-body { border-radius: 8px; }
+/* Same reasoning one level down: the gutter around a page is the window's. */
+body > .ql.pip-adopted .ql-pdf { gap: 6px; padding: 4px; }
+
+/* For adopted surfaces the pop-out's own bar would sit on top of theirs, so it
+   becomes a slim pill at the top centre instead. */
+.pip[data-route="scene"],
+.pip[data-route="table"],
+.pip[data-route="doc"] {
+  z-index: 60;
+  background: transparent;
+  pointer-events: none;
+}
+.pip[data-route="scene"]::after,
+.pip[data-route="table"]::after,
+.pip[data-route="doc"]::after {
+  display: none;
+}
+.pip[data-route="scene"] .pip-edge,
+.pip[data-route="table"] .pip-edge,
+.pip[data-route="doc"] .pip-edge {
+  pointer-events: auto;
+}
+.pip[data-route="scene"] .pip-bar,
+.pip[data-route="table"] .pip-bar,
+.pip[data-route="doc"] .pip-bar {
+  left: 50%;
+  right: auto;
+  top: 4px;
+  padding: 2px 4px;
+  transform: translateX(-50%);
+  border: 1px solid var(--pip-edge);
+  border-radius: 999px;
+  background: var(--pip-glass);
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: 0 6px 20px -8px rgb(0 0 0 / 60%);
+  pointer-events: auto;
+}
+.pip[data-route="scene"] .pip-title,
+.pip[data-route="table"] .pip-title,
+.pip[data-route="doc"] .pip-title {
+  display: none;
+}
+.pip[data-route="scene"][data-idle="true"] .pip-bar,
+.pip[data-route="table"][data-idle="true"] .pip-bar,
+.pip[data-route="doc"][data-idle="true"] .pip-bar {
+  transform: translate(-50%, -8px);
+}
+.pip[data-route="scene"] .pip-stage,
+.pip[data-route="table"] .pip-stage,
+.pip[data-route="doc"] .pip-stage {
+  display: none;
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-pip",
+  "description": "Pop-out windows. They are borderless, so the page moves and resizes its own window, pins it on top or not, and closes it. Nothing here creates a window: only Rust opens pop-outs, so a file shown in one cannot open more.",
+  "platforms": ["windows", "macOS", "linux"],
+  "windows": [
+    "pip-*"
+  ],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "core:window:allow-minimize"
+  ]
+}
