@@ -54,6 +54,15 @@ BODY_SMALL = (104, 110, 128)
 
 CORNER = 112 / REF            # rounded-rect radius as a fraction of the side
 
+# Diameter of the circle every adaptive-icon mask is guaranteed to show, as a
+# fraction of the 108dp canvas. Android reserves the outer 18dp on each side,
+# leaving a 72dp viewport that the masks are inscribed in -- but a teardrop or
+# a plain circle eats into that, so Google's published safe figure is 66, not
+# 72. Measured on a phone at 72 the letter cleared the squircle by five pixels
+# out of seventy-three, which is a fit that holds on one launcher and not on
+# the next. 66 costs eight percent of the mark's height and is simply correct.
+SAFE_CIRCLE = 66 / 108
+
 # Fraction of the plate the mark spans, and the tighter figure used when the
 # plate is a circle -- a letterform inscribed in a circle needs the corners.
 FILL_SQUARE = 0.66
@@ -109,16 +118,22 @@ def render(size, mode):
     if mode == "plate":
         return _finish(img, size, ss, mode)
 
-    # How much of the plate the mark may occupy. Android's adaptive icons crop
-    # to an unknown shape, so the mark stays inside the 66/108 safe zone there.
+    # How much of the plate the mark may occupy.
+    #
+    # Adaptive icons are the awkward case: the launcher crops the 108dp canvas
+    # to a shape the app does not get to know -- circle, squircle, teardrop --
+    # and only a centred circle survives all of them. Sizing the mark by its
+    # longer SIDE is what a square plate wants and is wrong here, because the
+    # corners of the mark's box then sit outside that circle: the first build
+    # with this icon lost the bottom of the F's stem and the top of its angled
+    # cut to a squircle mask. So on Android the mark is sized by its DIAGONAL,
+    # which is the only measure that puts every corner on the safe circle.
     if mode in ("adaptive", "mono"):
-        span = S * 66 / 108
-    elif mode == "round":
-        span = S * FILL_ROUND
+        diag = (MARK_W ** 2 + MARK_H ** 2) ** 0.5
+        scale = (S * SAFE_CIRCLE) / diag
     else:
-        span = S * FILL_SQUARE
-
-    scale = span / max(MARK_W, MARK_H)
+        span = S * (FILL_ROUND if mode == "round" else FILL_SQUARE)
+        scale = span / max(MARK_W, MARK_H)
 
     def px(p):
         return ((p[0] - MARK_CX) * scale + S / 2,
@@ -144,7 +159,7 @@ def render(size, mode):
     # Skipped on small icons, where it is one indistinct bright dot.
     if size >= 64:
         top = [px(BEVEL_STEM[0]), px(BEVEL_STEM[1])]
-        d.line([top[0], (top[1][0], top[1][1] + span * 0.06)],
+        d.line([top[0], (top[1][0], top[1][1] + MARK_H * scale * 0.06)],
                fill=RED_HOT + (255,), width=max(1, int(scale * 6)))
 
     return _finish(img, size, ss, mode)

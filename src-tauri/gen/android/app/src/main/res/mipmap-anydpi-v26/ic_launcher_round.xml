@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive launcher icon (Android 8+). Background, foreground and
+     monochrome layers are rendered by brand/make-icons.py from the same
+     geometry as brand/facet-icon.svg, so the phone's launcher shows the same
+     dark F as the desktop app. The <monochrome> layer is what Android 13+
+     tints for themed icons; without it the launcher falls back to the flat
+     mipmap and the icon stops matching the rest of the home screen. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+</adaptive-icon>
