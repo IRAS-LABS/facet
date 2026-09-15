@@ -16,6 +16,7 @@
 
 import { regionAt, renderBlur, type BlurRegion } from "@core/edit/blur";
 import { DEFAULTS, detectFaces, toGray, type Box, type DetectOptions, type Gray } from "./detect";
+import { WIN } from "./face-model";
 import { facesToRegions, overlap, type FaceRegionOptions } from "./faces";
 
 /**
@@ -187,21 +188,34 @@ export const PHOTO_DETECT: Partial<DetectOptions> = {
 };
 
 /**
- * The width video frames are pulled and detected at.
+ * The width video frames are pulled and detected at *by the cascade*.
  *
- * A minute of video is a hundred-odd detections, so the per-frame cost matters
- * in a way it does not for one photo. 640 px is enough to find a face that is
- * a twentieth of the frame wide, and the boxes are scaled back to source pixels
- * by the caller, so nothing downstream knows this happened.
+ * This was 640 px, chosen for the per-frame cost, with a comment claiming it
+ * could find a face a twentieth of the frame wide. That was arithmetic that had
+ * never been done. The cascade window is {@link WIN} = 45 px and
+ * {@link detectFaces} floors the search at it, so at 640 px nothing narrower
+ * than a fourteenth of the frame exists as far as the detector is concerned —
+ * and on a 1280-wide clip that is a 90 px face. Measured on a real decoded
+ * clip whose faces are 56 px, the cascade found them in 0 of 8 frames at 640,
+ * 800 and 960, and in 8 of 8 at 1024.
+ *
+ * So 1024 it is: the same working size the photo path uses, which makes the
+ * video path exactly as sensitive as the photo path on the same pixels instead
+ * of 1.6x less. It costs about 500 ms a frame against 230, which would matter
+ * if this were the normal path. It is not — see `findFaces` in the video
+ * editor, which uses the neural model and reaches for this only when the model
+ * is not on the machine.
  */
-export const VIDEO_WIDTH = 640;
+export const VIDEO_WIDTH = 1024;
 
 /** Detector settings for one sampled video frame. */
 export const VIDEO_DETECT: Partial<DetectOptions> = {
   ...DEFAULTS,
-  // Proportionally the same floor as PHOTO_DETECT, at a sixteenth the pixels.
-  minSize: 20,
-  // Already downscaled by the frame extractor; no point paying for it twice.
+  // Not 20, and not 24 either. Anything under WIN is a number the detector
+  // silently raises, and config that lies is worse than config that is blunt:
+  // the old 20 read as "finds tiny faces" and meant nothing at all.
+  minSize: WIN,
+  // The frame arrives at VIDEO_WIDTH already; no point paying to shrink twice.
   workingSize: VIDEO_WIDTH,
 };
 

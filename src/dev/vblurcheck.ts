@@ -26,8 +26,10 @@ import {
 } from "@core/edit/blur";
 import { follow, Tracker, type Gray, type TimedFrame } from "@core/vision/tracker";
 import { layerSpans, layersFromTracks } from "@core/vision/video";
+import { AUTO_CATEGORIES } from "@core/vision/autoblur-config";
 import type { Track } from "@core/vision/faces";
 import { VideoEditor, type Job, type Media } from "@ui/vedit";
+import { primeVideo } from "@ui/media";
 
 themes.init();
 
@@ -416,6 +418,34 @@ async function uiChecks(): Promise<void> {
     setTimeout(res, 4000);
   });
   ok("a real video loaded", video().videoWidth === 320 && video().videoHeight === 180, `${video().videoWidth}x${video().videoHeight}`);
+  // Opening plays the clip muted for a frame (primeVideo, for Android's
+  // placeholder). A person cannot draw inside that ~100 ms; the harness can.
+  ok("the clip is primed shortly after it opens",
+    await until(() => video().dataset["fctPrimed"] !== undefined, 3000));
+
+  // And if someone does act inside the prime, the playhead stays theirs.
+  {
+    const v = document.createElement("video");
+    v.src = "/devfixtures/vblurcheck.mp4";
+    const priming = primeVideo(v);
+    // Wait for playback to have genuinely started before acting, and say so
+    // out loud if it does not. The seek below only means anything once the
+    // prime has attached its listeners, which is after `play()` resolves; if
+    // it has not, the prime legitimately restores the playhead and the next
+    // assertion fails with a bare "saw 0" that says nothing about why. Eight
+    // seconds rather than three because this runs inside allcheck with forty
+    // other harnesses competing for the decoder.
+    const playing = await until(() => !v.paused, 8000);
+    ok("the prime starts the clip playing", playing, `readyState ${v.readyState}, paused ${v.paused}`);
+    v.pause();
+    v.currentTime = 2;
+    await priming;
+    await sleep(100);
+    ok("a seek made during the prime is not undone by it", near(v.currentTime, 2, 0.05), String(v.currentTime));
+    ok("and the prime leaves the clip paused", v.paused);
+    v.removeAttribute("src");
+    v.load();
+  }
   ok("opening in blur mode shows the workspace", !vb().hidden && getComputedStyle(vb()).display !== "none");
   ok("with the video borrowed into its stage", video().parentElement === stage());
   await seek(0);
@@ -440,7 +470,13 @@ async function uiChecks(): Promise<void> {
 
   // ── Live preview ──
   press("How it is hidden");
-  const black = Array.from(vb().querySelectorAll<HTMLButtonElement>(".vb-chip")).find((c) => c.textContent?.includes("Black bar"));
+  // "Redact", not the old "Black bar". The chip was renamed when the cover
+  // stopped being a cosmetic fill and became the one style that cannot be
+  // undone -- and the rename is worth asserting rather than papering over,
+  // because a picker that silently loses its only irreversible option is
+  // exactly the regression this harness should catch.
+  const black = Array.from(vb().querySelectorAll<HTMLButtonElement>(".vb-chip")).find((c) => c.textContent?.includes("Redact"));
+  ok("the irreversible style is offered in the video editor", !!black);
   black?.click();
   await sleep(60);
   const canvas = vb().querySelector<HTMLCanvasElement>(".vb-canvas")!;
@@ -449,11 +485,11 @@ async function uiChecks(): Promise<void> {
     `canvas ${canvas.width}x${canvas.height} pixel ${Array.from(px).join(",")}`);
   const outside = canvas.getContext("2d")!.getImageData(Math.round(250 * canvas.width / 320), Math.round(150 * canvas.height / 180), 1, 1).data;
   ok("and the untouched part of the frame is the frame", outside[3]! > 200 && outside[0]! > 100 && outside[0]! < 160, Array.from(outside).join(","));
-  ok("the style chip took", l1.region.kind === "solid");
+  ok("the style chip took", l1.region.kind === "redact", l1.region.kind);
   press("Undo");
   ok("undo puts the style back", l1.region.kind === "gaussian" || layers()[0]!.region.kind === "gaussian");
   press("Redo");
-  ok("redo puts it forward again", layers()[0]!.region.kind === "solid");
+  ok("redo puts it forward again", layers()[0]!.region.kind === "redact", layers()[0]!.region.kind);
 
   // ── Follow ──
   Array.from(vb().querySelectorAll<HTMLButtonElement>(".vb-chip")).find((c) => c.title.startsWith("Back to the layer"))?.click();
@@ -524,7 +560,11 @@ async function uiChecks(): Promise<void> {
   ok("the export carries a span per window of the moving box", spans.length >= 6 && spans.length <= 14, String(spans.length));
   ok("in source pixels inside the frame",
     spans.every((b) => Number.isInteger(b.x) && b.x >= 0 && b.y >= 0 && b.x + b.w <= 320 && b.y + b.h <= 180));
-  ok("with the chosen style", spans.every((b) => b.kind === "solid"));
+  // "redact", because that is what the chip picked above is now called and
+  // what it now does. The old "solid" was a cosmetic fill; it is gone from
+  // the video picker, and the style that survives an editor is the only one
+  // worth exporting unattended.
+  ok("with the chosen style", spans.every((b) => b.kind === "redact"), [...new Set(spans.map((b) => b.kind))].join(","));
   const sq2 = { x: SQ.x(2), y: SQ.y(2) };
   ok("and the square at 2 s is inside the span covering 2 s",
     spans.some((b) => b.from <= 2 && b.to >= 2 && b.x <= sq2.x && b.y <= sq2.y && b.x + b.w >= sq2.x + 40 && b.y + b.h >= sq2.y + 40),
@@ -560,7 +600,16 @@ async function uiChecks(): Promise<void> {
   await sleep(20);
   ok("an oval is a layer too", layers().length === 2 && layers()[1]!.region.shape === "ellipse");
   job = await exportNow();
-  const oval = (job.blur ?? []).find((b) => b.kind !== "solid");
+  // Picked out by where it sits, not by its style. It used to be the only span
+  // whose kind was not "solid", and every style in this workspace is "redact"
+  // now. Position is the honest discriminator: the rectangle is a moving box
+  // that wanders across the frame, so a fixed x threshold catches it too --
+  // hence matching the oval layer's own corner. What is then asserted is
+  // something position does not tell you: when the span starts and how wide
+  // it is.
+  const ol = layers()[1]!;
+  const oval = (job.blur ?? []).find((b) =>
+    near(b.x, ol.region.rect.x * 320, 6) && near(b.y, ol.region.rect.y * 180, 6));
   ok("exported as its bounding box, from the moment it was drawn", !!oval && oval.from >= 0.9 && oval.from <= 1.1 && oval.w >= 60, JSON.stringify(oval));
 
   Array.from(vb().querySelectorAll<HTMLButtonElement>(".vb-chip")).find((c) => c.title === "Done with this layer")?.click();
@@ -626,7 +675,10 @@ async function uiChecks(): Promise<void> {
   ok("the tick updates the chips in place (no rebuild)", tool("ai.auto.go") === goChip && tool("ai.pick.plates") === platesChip && platesChip?.getAttribute("aria-pressed") === "true");
   ok("the pick is remembered", localStorage.getItem("fct.autoblur.pick.v1") === JSON.stringify(["plates"]), localStorage.getItem("fct.autoblur.pick.v1") ?? "null");
   tool("ai.auto.all")?.click();
-  ok("Everything ticks them all", (goChip?.textContent ?? "").includes("7"), goChip?.textContent ?? "");
+  // The count is read off the category list rather than written out, so
+  // adding a ninth category does not silently leave this asserting eight.
+  ok("Everything ticks them all", (goChip?.textContent ?? "").includes(String(AUTO_CATEGORIES.length)),
+    `${goChip?.textContent ?? ""} of ${AUTO_CATEGORIES.length}`);
   tool("ai.auto.all")?.click();
   ok("Everything again clears them all", goChip?.disabled === true);
   localStorage.removeItem("fct.autoblur.pick.v1");

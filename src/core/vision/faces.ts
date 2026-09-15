@@ -40,12 +40,30 @@ export interface FaceRegionOptions {
   feather: number;
 }
 
+/**
+ * What a detected face gets covered with, unless the caller says otherwise.
+ *
+ * `redact`, not a blur, and the feather it would take is 0 — which costs the
+ * nice result the `feather` comment above argues for, and is still right.
+ *
+ * These defaults are reached from two places that nobody is watching. The
+ * desktop's watch-folder rule takes them exactly as they are and offers no
+ * style at all, so whatever is written here is what every file dropped in that
+ * folder gets, for as long as the rule exists. Video face tracking takes them
+ * too, and a blurred face in video is the weakest cover in the whole app: a
+ * blur is a linear filter, so one frame is already reversible in principle,
+ * and a two-second shot hands an attacker sixty noisy copies of the same face
+ * to average together.
+ *
+ * A caller with a person in front of it and a preview to look at can still
+ * pass `kind` and get something softer. Nothing that runs unattended can.
+ */
 export const FACE_DEFAULTS: FaceRegionOptions = {
   pad: 0.35,
   chin: 0.15,
-  kind: "gaussian",
+  kind: "redact",
   amount: 0.05,
-  feather: 0.02,
+  feather: 0,
 };
 
 /**

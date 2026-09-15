@@ -222,9 +222,12 @@ const order = (page: OcrPage): string => readingOrder(page).map(firstWordOf).joi
 
   ok("a mechanical break is rejoined", join(["self-"], ["employed"]) === "selfemployed");
   ok("…including mid-sentence", join(["a", "well-"], ["known", "case"]) === "a wellknown case");
-  ok("a capital after the hyphen is a real compound", join(["Anglo-"], ["Saxon"]) === "Anglo- Saxon");
+  ok("a capital after the hyphen keeps the hyphen, not the gap",
+    join(["Anglo-"], ["Saxon"]) === "Anglo-Saxon");
   ok("a dash on its own is not a hyphenated word", join(["and", "-"], ["then"]) === "and - then");
-  ok("a digit before the hyphen is left alone", join(["1998-"], ["ish"]) === "1998- ish");
+  ok("a digit before the hyphen keeps it too", join(["1998-"], ["ish"]) === "1998-ish");
+  ok("a hyphen left standing in the next line means a broken compound",
+    join(["English-"], ["to-German"]) === "English-to-German");
   ok("ordinary lines join with a space", join(["the", "cat"], ["sat", "down"]) === "the cat sat down");
   ok("dehyphenation can be turned off",
     joinLines([L(0, 0, ["self-"]), L(30, 0, ["employed"])], false) === "self- employed");

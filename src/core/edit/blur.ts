@@ -29,12 +29,35 @@ export type BlurKind =
   | "mosaic"
   /** Directional smear. `angle` drives it. */
   | "motion"
-  /** Zoom/spin smear radiating from the region centre. */
+  /** Spin smear around the region centre. */
   | "radial"
   /** Blur plus fine noise — frosted glass rather than out-of-focus. */
   | "frosted"
-  /** No blur at all: a flat fill. The redaction bar. */
-  | "solid";
+  /** No blur at all: a flat fill. Cosmetic — see `redact` for the safe one. */
+  | "solid"
+  /**
+   * Redaction proper: an opaque fill that cannot be undone by anyone, ever.
+   *
+   * Every other kind on this list is cosmetic, and three of them are actively
+   * dangerous if you mistake them for this one:
+   *
+   * - a gaussian or box blur is a linear convolution, so it can be
+   *   deconvolved; and for *text* it is worse than that, because an attacker
+   *   can render candidate strings, blur them the same way, and match;
+   * - `pixelate` and `mosaic` are recoverable outright when the font is
+   *   guessable, which for a screenshot, a terminal or a card number it
+   *   always is;
+   * - and any of them at opacity below 1 is one division away from the
+   *   original, since `out = orig × (1 − a)`.
+   *
+   * So this kind does not merely default to safe values, it *refuses* the
+   * unsafe ones: `renderBlur` forces feather to 0, opacity to 1 and the tint
+   * off before it draws, whatever the region or a restored session asks for,
+   * and the mask edge is stroked to full alpha so not even the one-pixel
+   * antialiased border lets the original through. There is no slider that can
+   * weaken it and no saved file that can arrive weakened.
+   */
+  | "redact";
 
 export type ShapeKind =
   /** Corner-handled box. `corners` rounds it. */
@@ -168,6 +191,41 @@ function ctx2d(c: HTMLCanvasElement): CanvasRenderingContext2D {
   return g;
 }
 
+/**
+ * A colour with any transparency taken off it.
+ *
+ * `#rgba` and `#rrggbbaa` are valid CSS and would paint a see-through
+ * redaction bar, so the alpha digits are simply dropped. Anything this does
+ * not recognise — a named colour, `rgb()`, `color-mix()` — is returned as it
+ * came, because those cannot carry alpha in the forms the pickers produce,
+ * and refusing to draw would be a worse failure than drawing.
+ */
+export function opaque(color: string): string {
+  const hex = color.trim();
+  if (/^#[0-9a-f]{4}$/i.test(hex)) return hex.slice(0, 4);
+  if (/^#[0-9a-f]{8}$/i.test(hex)) return hex.slice(0, 7);
+  if (/^rgba?\(/i.test(hex)) {
+    const n = hex.replace(/^rgba?\(|\)$/gi, "").split(/[\s,/]+/).filter(Boolean);
+    if (n.length >= 3) return `rgb(${n[0]}, ${n[1]}, ${n[2]})`;
+  }
+  return hex;
+}
+
+/**
+ * A redaction region with every dial that could weaken it pinned shut.
+ *
+ * Enforced here, at the one place that draws, rather than at the places that
+ * *make* regions: a region can arrive from a saved session, an undo step, a
+ * batch job, a config file a user edited by hand, or a future caller nobody
+ * has written yet. Checking at the source means checking in six places and
+ * hoping for the seventh. `renderBlur` is the only way pixels ever change, so
+ * it is the only place the guarantee has to hold.
+ */
+function harden(r: BlurRegion): BlurRegion {
+  if (r.kind !== "redact") return r;
+  return { ...r, feather: 0, opacity: 1, colorAmount: 0, color: opaque(r.color), invert: r.invert };
+}
+
 function clear(c: HTMLCanvasElement): CanvasRenderingContext2D {
   const g = ctx2d(c);
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -202,8 +260,17 @@ function drawEffect(
       dst.fillRect(0, 0, w, h);
       return;
 
-    case "pixelate":
-    case "mosaic": {
+    case "redact":
+      // `globalAlpha` is reset and the colour is forced opaque rather than
+      // trusted: `r.color` is free-text that reaches here from a restored
+      // session, and "#00000080" would paint a bar you can read straight
+      // through. A redaction that is 50% transparent is not a redaction.
+      dst.globalAlpha = 1;
+      dst.fillStyle = opaque(r.color);
+      dst.fillRect(0, 0, w, h);
+      return;
+
+    case "pixelate": {
       // Downscale then upscale with smoothing off. `max(1, …)` matters: a
       // zero-width intermediate throws in Chromium rather than no-oping.
       // The cell is capped so the region always spans at least six of them.
@@ -217,42 +284,116 @@ function drawEffect(
       tmp.width = sw;
       tmp.height = sh;
       const tg = ctx2d(tmp);
-      tg.imageSmoothingEnabled = r.kind === "mosaic";
+      // Smoothed going down so each cell is the average of what it covers.
+      // Unsmoothed, a cell took one pixel: text on white came out as a white
+      // box with a few stray black squares, and shimmered as a slider moved.
+      tg.imageSmoothingEnabled = true;
+      tg.imageSmoothingQuality = "high";
       tg.drawImage(src, 0, 0, sw, sh);
-      dst.imageSmoothingEnabled = r.kind === "mosaic";
+      dst.imageSmoothingEnabled = false;
       dst.drawImage(tmp, 0, 0, w, h);
       dst.imageSmoothingEnabled = true;
       return;
     }
 
+    case "mosaic": {
+      // Flat diamond tiles on two interleaved lattices. A smoothed upscale
+      // (what this used to be) is just a blur with a softer name, and hides
+      // less than one. Tile colours come from a grid at half the lattice
+      // step, so every diamond centre lands on its own sample.
+      let step = Math.max(4, Math.min(px, regionSpan(w, h, r) / 6));
+      // Keep the tile count bounded on big photos; a few hundred thousand
+      // path fills is where a phone starts to hitch.
+      const most = 240_000;
+      if ((2 * w * h) / (step * step) > most) step = Math.sqrt((2 * w * h) / most);
+      const half = step / 2;
+      const sw = Math.max(1, Math.ceil(w / half) + 1);
+      const sh = Math.max(1, Math.ceil(h / half) + 1);
+      const tmp = document.createElement("canvas");
+      tmp.width = sw;
+      tmp.height = sh;
+      const tg = ctx2d(tmp);
+      tg.imageSmoothingEnabled = true;
+      tg.drawImage(src, 0, 0, sw * half, sh * half, 0, 0, sw, sh);
+      const data = tg.getImageData(0, 0, sw, sh).data;
+      // Grout is the picture's own average, a shade darker. Black lines read
+      // as a crude wireframe over a light photo; this reads as tiles.
+      let sr = 0, sg = 0, sb = 0;
+      for (let i = 0; i < data.length; i += 4) { sr += data[i] ?? 0; sg += data[i + 1] ?? 0; sb += data[i + 2] ?? 0; }
+      const cells = Math.max(1, data.length / 4);
+      const shade = (v: number): number => Math.round((v / cells) * 0.72);
+      dst.fillStyle = `rgb(${shade(sr)},${shade(sg)},${shade(sb)})`;
+      dst.fillRect(0, 0, w, h);
+      const grout = Math.max(0.5, step * 0.04);
+      const d = half - grout;
+      // Row index counts half-steps; odd rows are the offset lattice.
+      for (let gy = 0; gy < sh; gy++) {
+        for (let gx = gy % 2; gx < sw; gx += 2) {
+          const i = (Math.min(gy, sh - 1) * sw + Math.min(gx, sw - 1)) * 4;
+          const cx = gx * half;
+          const cy = gy * half;
+          dst.fillStyle = `rgb(${data[i]},${data[i + 1]},${data[i + 2]})`;
+          dst.beginPath();
+          dst.moveTo(cx, cy - d);
+          dst.lineTo(cx + d, cy);
+          dst.lineTo(cx, cy + d);
+          dst.lineTo(cx - d, cy);
+          dst.closePath();
+          dst.fill();
+        }
+      }
+      return;
+    }
+
     case "motion": {
       // Canvas has no directional blur, so it is built from stacked offset
-      // copies along the angle. 12 taps is where banding stops being visible
-      // at ordinary strengths without the cost of a real convolution.
-      const taps = 12;
+      // copies along the angle. The smear is at least half the region wide:
+      // sized off the frame alone, a 30 px smear over a label left every word
+      // readable. Copy k is drawn at alpha 1/k, which is an exact running
+      // average and ends fully opaque — a flat 1/taps per copy only reached
+      // ~65% cover, so the sharp original showed through the rest.
+      const len = Math.max(px * 2, regionSpan(w, h, r) * 0.5);
+      const taps = Math.max(12, Math.min(40, Math.round(len / 3)));
       const rad = (r.angle * Math.PI) / 180;
-      const dx = (Math.cos(rad) * px) / taps;
-      const dy = (Math.sin(rad) * px) / taps;
-      dst.globalAlpha = 1 / taps;
-      for (let i = -taps / 2; i < taps / 2; i++) {
-        dst.drawImage(src, dx * i, dy * i, w, h);
+      const dx = Math.cos(rad) * len;
+      const dy = Math.sin(rad) * len;
+      // An unshifted copy first, so the frame edge a shifted copy uncovers
+      // is still opaque.
+      dst.drawImage(src, 0, 0, w, h);
+      for (let k = 0; k < taps; k++) {
+        const t = k / (taps - 1) - 0.5;
+        dst.globalAlpha = 1 / (k + 2);
+        dst.drawImage(src, dx * t, dy * t, w, h);
       }
       dst.globalAlpha = 1;
       return;
     }
 
     case "radial": {
-      // Same trick, but each tap is scaled about the region centre instead of
-      // translated — a zoom smear rather than a linear one.
-      const taps = 12;
+      // Spin: copies rotated about the region centre and averaged like motion.
+      // A pure spin (or zoom) leaves the centre itself untouched, so a face
+      // right in the middle stayed readable; the copies are taken from a
+      // softly blurred frame, which hides the centre and costs nothing extra
+      // at the rim. The rim travels at least half the region's size.
+      const span = regionSpan(w, h, r);
+      const len = Math.max(px * 2, span * 0.5);
+      const taps = Math.max(12, Math.min(40, Math.round(len / 3)));
       const cx = (r.rect.x + r.rect.w / 2) * w;
       const cy = (r.rect.y + r.rect.h / 2) * h;
-      const step = (px / unit) * 0.5;
-      dst.globalAlpha = 1 / taps;
-      for (let i = 0; i < taps; i++) {
-        const s = 1 + (step * i) / taps;
-        dst.setTransform(s, 0, 0, s, cx * (1 - s), cy * (1 - s));
-        dst.drawImage(src, 0, 0, w, h);
+      const sweep = Math.min(1.2, Math.max(0.35, len / Math.max(1, span / 2)));
+      const base = document.createElement("canvas");
+      base.width = w;
+      base.height = h;
+      blurClamped(ctx2d(base), src, w, h, Math.max(px * 0.5, span * 0.03), 1);
+      // Unrotated first, so corners a rotated copy uncovers stay opaque.
+      dst.drawImage(base, 0, 0, w, h);
+      for (let k = 0; k < taps; k++) {
+        const a = (k / (taps - 1) - 0.5) * sweep;
+        const c = Math.cos(a);
+        const sn = Math.sin(a);
+        dst.globalAlpha = 1 / (k + 2);
+        dst.setTransform(c, sn, -sn, c, cx - c * cx + sn * cy, cy - sn * cx - c * cy);
+        dst.drawImage(base, 0, 0, w, h);
       }
       dst.setTransform(1, 0, 0, 1, 0, 0);
       dst.globalAlpha = 1;
@@ -260,16 +401,21 @@ function drawEffect(
     }
 
     case "frosted": {
-      dst.filter = `blur(${px * 0.7}px)`;
-      dst.drawImage(src, 0, 0, w, h);
-      dst.filter = "none";
-      // Grain on top. Deterministic per-pixel noise would need an ImageData
-      // pass; short random strokes are cheaper and read the same at size.
+      blurClamped(dst, src, w, h, px * 0.7, 1);
+      // Grain on top: small specks from a seeded generator, so the grain
+      // holds still while a slider moves and every redraw matches the last.
       const grains = Math.round((w * h) / 900);
       dst.globalAlpha = 0.05;
       dst.fillStyle = "#ffffff";
+      let seed = 0x9e3779b9 ^ (w * 73856093) ^ (h * 19349663);
+      const rnd = (): number => {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
       for (let i = 0; i < grains; i++) {
-        dst.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5);
+        dst.fillRect(rnd() * w, rnd() * h, 1.5, 1.5);
       }
       dst.globalAlpha = 1;
       return;
@@ -278,19 +424,75 @@ function drawEffect(
     case "box":
       // Two passes of a smaller radius approximates a box kernel's flatter,
       // harsher falloff well enough to be visibly different from gaussian.
-      dst.filter = `blur(${px * 0.6}px)`;
-      dst.drawImage(src, 0, 0, w, h);
-      dst.drawImage(dst.canvas, 0, 0, w, h);
-      dst.filter = "none";
+      blurClamped(dst, src, w, h, px * 0.6, 2);
       return;
 
     case "gaussian":
     default:
-      dst.filter = `blur(${px}px)`;
-      dst.drawImage(src, 0, 0, w, h);
-      dst.filter = "none";
+      blurClamped(dst, src, w, h, px, 1);
       return;
   }
+}
+
+let padA: HTMLCanvasElement | null = null;
+let padB: HTMLCanvasElement | null = null;
+
+/**
+ * Blur `src` into `dst` as if the picture carried on past its edges.
+ *
+ * A canvas blur treats everything outside the frame as transparent, so the
+ * result fades out towards the border. That fade became mask alpha, and the
+ * sharp original showed through it: with a whole-picture or inverted blur at
+ * full strength, headings and captions along the edge stayed readable. The
+ * frame is drawn onto a larger canvas with its outermost rows and columns
+ * stretched into the margin, blurred there, and the middle copied back, so
+ * every output pixel averages real picture and stays opaque.
+ */
+function blurClamped(
+  dst: CanvasRenderingContext2D,
+  src: CanvasImageSource,
+  w: number,
+  h: number,
+  sigma: number,
+  passes: number,
+): void {
+  if (sigma < 0.5) {
+    dst.drawImage(src, 0, 0, w, h);
+    return;
+  }
+  // Three sigma per pass holds all but a sliver of the kernel; the cap keeps a
+  // full-strength slider drag from allocating a canvas several times the photo.
+  const pad = Math.min(Math.ceil(sigma * 3 * Math.sqrt(passes)), 480);
+  const pw = w + pad * 2;
+  const ph = h + pad * 2;
+  if (!padA) padA = document.createElement("canvas");
+  if (!padB) padB = document.createElement("canvas");
+  for (const c of [padA, padB]) {
+    if (c.width !== pw || c.height !== ph) {
+      c.width = pw;
+      c.height = ph;
+    }
+  }
+  let from = padA;
+  let to = padB;
+  const a = clear(from);
+  a.imageSmoothingEnabled = false;
+  a.drawImage(src, 0, 0, w, h, pad, pad, w, h);
+  // Edges from the copy just placed: one-pixel strips stretched outwards, then
+  // the corners filled from the corner pixels.
+  a.drawImage(from, pad, pad, w, 1, pad, 0, w, pad);
+  a.drawImage(from, pad, pad + h - 1, w, 1, pad, pad + h, w, pad);
+  a.drawImage(from, pad, 0, 1, ph, 0, 0, pad, ph);
+  a.drawImage(from, pad + w - 1, 0, 1, ph, pad + w, 0, pad, ph);
+  a.imageSmoothingEnabled = true;
+  for (let i = 0; i < passes; i++) {
+    const b = clear(to);
+    b.filter = `blur(${sigma}px)`;
+    b.drawImage(from, 0, 0);
+    b.filter = "none";
+    [from, to] = [to, from];
+  }
+  dst.drawImage(from, pad, pad, w, h, 0, 0, w, h);
 }
 
 // ── The mask pass ──────────────────────────────────────────────────────────
@@ -366,35 +568,49 @@ function drawMask(
   // full alpha, and the region is see-through however hard the blur under it
   // is working. See `regionSpan`.
   const feather = Math.min(r.feather * unit, regionSpan(w, h, r) * 0.25);
+  // A redaction seals its own outline. Canvas antialiases every filled edge,
+  // so the boundary pixels of a bar come out at part alpha and the original
+  // shows through them — one pixel deep, but one pixel of a character is more
+  // than none, and "no loopholes" has to mean none. Stroking the same path at
+  // full alpha afterwards covers that ring, and errs outward: a redaction that
+  // hides a hair more than asked is the failure you want.
+  const seal = r.kind === "redact" && !r.invert;
   const R = { x: r.rect.x * w, y: r.rect.y * h, w: r.rect.w * w, h: r.rect.h * h };
 
   g.fillStyle = "#ffffff";
   g.strokeStyle = "#ffffff";
 
-  // Feathering by blurring the mask pulls alpha *inward* from the shape edge,
-  // so a hard-edged fill would end up smaller than the handles promise. The
-  // filter is applied to the fill itself and the shape is not inset; the
-  // handles then mark the 50% point of the falloff, which is what feels right
-  // when you drag a corner tight to a face.
+  // Feathering by blurring the mask pulls alpha *inward* from the shape edge.
+  // Drawn at its handles, a heavily feathered box was only ~70% opaque a short
+  // way in from the edge — enough to read text straight through the blur. So
+  // the shape grows by 2.5 sigma first: everything inside the handles stays
+  // at 98%+ cover and the softness spills outward instead. Inverted, the
+  // hidden part is outside the shape, so the shape shrinks instead.
   if (feather > 0.5) g.filter = `blur(${feather}px)`;
+  const grow = feather > 0.5 ? feather * 2.5 : 0;
+  const inset = r.invert ? -grow : grow;
 
   switch (r.shape) {
     case "full":
-      g.fillRect(-feather * 2, -feather * 2, w + feather * 4, h + feather * 4);
+      g.fillRect(-feather * 3, -feather * 3, w + feather * 6, h + feather * 6);
       break;
 
     case "rect": {
-      const radius = Math.min(R.w, R.h) * Math.max(0, Math.min(0.5, r.corners));
+      const rx = Math.max(1, R.w + inset * 2);
+      const ry = Math.max(1, R.h + inset * 2);
+      const radius = Math.max(0, Math.min(R.w, R.h) * Math.max(0, Math.min(0.5, r.corners)) + inset);
       g.beginPath();
-      g.roundRect(R.x, R.y, R.w, R.h, radius);
+      g.roundRect(R.x + (R.w - rx) / 2, R.y + (R.h - ry) / 2, rx, ry, Math.min(radius, rx / 2, ry / 2));
       g.fill();
+      if (seal) { g.lineWidth = 2; g.stroke(); }
       break;
     }
 
     case "ellipse":
       g.beginPath();
-      g.ellipse(R.x + R.w / 2, R.y + R.h / 2, R.w / 2, R.h / 2, 0, 0, Math.PI * 2);
+      g.ellipse(R.x + R.w / 2, R.y + R.h / 2, Math.max(0.5, R.w / 2 + inset), Math.max(0.5, R.h / 2 + inset), 0, 0, Math.PI * 2);
       g.fill();
+      if (seal) { g.lineWidth = 2; g.stroke(); }
       break;
 
     case "polygon": {
@@ -408,6 +624,13 @@ function drawMask(
       });
       g.closePath();
       g.fill();
+      // Growing a freehand outline is a fat stroke along it. Shrinking one has
+      // no cheap equivalent, so an inverted lasso keeps its drawn edge.
+      if (!r.invert && (grow > 0 || seal)) {
+        g.lineJoin = "round";
+        g.lineWidth = Math.max(seal ? 2 : 0, grow * 2);
+        g.stroke();
+      }
       break;
     }
 
@@ -419,7 +642,10 @@ function drawMask(
         // Erase strokes cut alpha back out of the mask. Doing it inside the
         // same pass means an erase can soften an edge the paint made hard.
         g.globalCompositeOperation = s.erase ? "destination-out" : "source-over";
-        g.lineWidth = Math.max(1, s.width * unit);
+        // Paint grows like a shape does; an erase shrinks by the same amount
+        // so it never uncovers more than the eraser was dragged across.
+        const pad = r.invert ? 0 : s.erase ? -grow : grow;
+        g.lineWidth = Math.max(1, s.width * unit + pad * 2);
         g.beginPath();
         s.points.forEach((p, i) => {
           const x = p.x * w;
@@ -529,7 +755,8 @@ export function renderBlur(
 
   const s = scratchFor(srcW, srcH);
 
-  for (const r of active) {
+  for (const raw of active) {
+    const r = harden(raw);
     // Each region samples the *accumulated* result rather than the original,
     // so stacking a pixelate over a gaussian does what stacking implies. The
     // alternative — every region reading the pristine source — makes the top

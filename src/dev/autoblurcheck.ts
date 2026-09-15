@@ -20,16 +20,19 @@ import { PhoneEditor, railFor, type EditorHost } from "@ui/phone/editor";
 import { SettingsSheet } from "@ui/phone/settings-sheet";
 import { PhonePrefsStore, type PrefsStorage } from "@core/phone/prefs";
 import { AutoBlurStore, sanitize, STORAGE_KEY } from "@core/phone/autoblur-prefs";
-import { AUTO_CATEGORIES, defaultConfig, enabledCategories } from "@core/vision/autoblur-config";
+import { AUTO_CATEGORIES, AUTO_DEFAULTS, defaultConfig, enabledCategories } from "@core/vision/autoblur-config";
 import {
-  decodePlates, decodeYolox, decodeYunet, iou, letterbox, nms, unletterbox, yoloxRows, type Det,
+  COCO, decodePlates, decodeYolox, decodeYunet, iou, letterbox, nms, unletterbox, yoloxRows, type Det,
 } from "@core/vision/onnx";
-import { luhn, matchSpans, textHitBoxes } from "@core/vision/textrules";
+import { isVin, luhn, matchSpans, textHitBoxes } from "@core/vision/textrules";
+import { windshieldBoxes } from "@core/vision/windshields";
 import { cardEvidence, detectCards } from "@core/vision/cards";
 import { judgeTerminal, looksLikeScreenshot } from "@core/vision/terminals";
 import { findQrBoxes } from "@core/vision/codes";
 import { detectAll, detectionsToRegions, summarise, type Detection } from "@core/vision/autoblur";
-import { autoSampleTimes, layersFromDetections, type FrameDetections } from "@core/vision/autoblur-video";
+import { autoSampleTimes, detectVideo, layersFromDetections, type FrameDetections, type SampledFrame } from "@core/vision/autoblur-video";
+import { imagesToPdf } from "@core/scan/pdf";
+import { loadPdfjs } from "@core/explorer/preview";
 import { prepareInput } from "@core/vision/autoblur-image";
 import { getRunner } from "@core/vision/onnx-runner";
 import type { OcrPage, OcrWord } from "@core/ocr/page";
@@ -136,7 +139,7 @@ function tensorTests(): void {
 // ── Rule-based categories ──────────────────────────────────────────────────
 
 function ruleTests(): void {
-  const rules = { emails: true, phones: true, urls: true, cardNumbers: true, keywords: ["secret"] };
+  const rules = { emails: true, phones: true, urls: true, cardNumbers: true, vins: true, registrations: true, keywords: ["secret"] };
   ok("luhn accepts a valid number", luhn("4111 1111 1111 1111"));
   ok("luhn rejects a bad one", !luhn("4111 1111 1111 1112"));
   ok("luhn wants 13–19 digits", !luhn("123456"));
@@ -148,6 +151,45 @@ function ruleTests(): void {
   ok("card rule matches only with Luhn", kinds.has("card") && matchSpans("card 4111 1111 1111 1112", rules).every((s) => s.rule !== "card"));
   ok("keywords match case-insensitively", kinds.has("keyword"));
   ok("rules off match nothing", matchSpans("bob@example.com", { ...rules, emails: false, keywords: [] }).length === 0);
+
+  // VINs and registrations. A VIN is the one thing on a vehicle document that
+  // survives a change of plate and of owner, so a miss here is permanent.
+  ok("a real VIN matches", matchSpans("VIN 1HGCM82633A004352 on the title", rules).some((x) => x.rule === "vin"));
+  ok("and the whole 17 characters are covered",
+    matchSpans("VIN 1HGCM82633A004352", rules).some((x) => x.rule === "vin" && x.match === "1HGCM82633A004352"));
+  ok("a 17-digit account number is not a VIN", !isVin("12345678901234567"));
+  ok("nor is a 17-letter word", !isVin("ABCDEFGHJKLMNPRST"));
+  ok("and neither reaches the blur",
+    matchSpans("account 12345678901234567", rules).every((x) => x.rule !== "vin"));
+  ok("16 characters is not a VIN", matchSpans("1HGCM82633A00435", rules).every((x) => x.rule !== "vin"));
+  ok("VINs off match nothing", matchSpans("1HGCM82633A004352", { ...rules, vins: false }).every((x) => x.rule !== "vin"));
+
+  const reg = matchSpans("Reg no: AB12 CDE", rules).filter((x) => x.rule === "reg");
+  ok("a labelled registration matches", reg.length === 1, JSON.stringify(reg));
+  ok("and only the number is covered, not the label", reg[0]?.match.trim() === "AB12 CDE", reg[0]?.match);
+  ok("an unlabelled plate is left alone", matchSpans("seat AB12 CDE", rules).every((x) => x.rule !== "reg"));
+  ok("registrations off match nothing", matchSpans("Reg no: AB12 CDE", { ...rules, registrations: false }).every((x) => x.rule !== "reg"));
+
+  // Windscreens: geometry off the vehicle boxes the COCO pass already found.
+  const car = { x: 100, y: 100, w: 400, h: 300, score: 0.9, cls: COCO.indexOf("car") };
+  const moto = COCO.indexOf("motorcycle");
+  const glass = windshieldBoxes([car], 1000, 1000, moto);
+  ok("a car gets a windscreen band", glass.length === 1, String(glass.length));
+  ok("the band sits in the upper half of the car",
+    !!glass[0] && glass[0].y > car.y && glass[0].y + glass[0].h < car.y + car.h, JSON.stringify(glass[0]));
+  ok("and reaches the scuttle, where the VIN plate is",
+    !!glass[0] && glass[0].y + glass[0].h > car.y + car.h * 0.5, JSON.stringify(glass[0]));
+  ok("a motorcycle gets nothing",
+    windshieldBoxes([{ ...car, cls: moto }], 1000, 1000, moto).length === 0);
+  ok("a car too small to read gets nothing",
+    windshieldBoxes([{ ...car, w: 40, h: 30 }], 1000, 1000, moto).length === 0);
+  ok("a low-confidence vehicle gets nothing",
+    windshieldBoxes([{ ...car, score: 0.1 }], 1000, 1000, moto).length === 0);
+  const edge = windshieldBoxes([{ ...car, x: -200, y: -50 }], 1000, 1000, moto);
+  ok("a vehicle half off the frame is clamped to it",
+    !!edge[0] && edge[0].x >= 0 && edge[0].y >= 0 && edge[0].x + edge[0].w <= 1000, JSON.stringify(edge[0]));
+  ok("windscreens are off until asked for", AUTO_DEFAULTS.categories.windshields.on === false);
+  ok("and when asked for, they cannot be undone", AUTO_DEFAULTS.categories.windshields.kind === "redact");
 
   // Cards: six words in two lines making a 1.6:1 block, plus a far-off word.
   const card = pageOf(1000, 1000, [
@@ -206,12 +248,32 @@ function ruleTests(): void {
   ok("a synthetic QR is found by its finders", boxes.length === 1, String(boxes.length));
   const qb = boxes[0];
   ok("and the box covers the symbol", !!qb && qb.x <= 40 && qb.y <= 40 && qb.x + qb.w >= 40 + 25 * 8 - 1 && qb.y + qb.h >= 40 + 25 * 8 - 1, JSON.stringify(qb));
+  // Module size, one octave at a time. This block is the whole reason the
+  // finder search runs over a scale pyramid: every one of these from 12 px up
+  // came back empty when `binarise` only ever looked at the full-size picture,
+  // because its fixed-radius window fits inside a big finder's black core and
+  // reads it as white. A code held up to the camera is the LEAST likely thing
+  // to be missed and it was the one thing that was.
+  for (const mod of [4, 8, 12, 16, 24, 40]) {
+    const s = qrCanvas(25, mod, mod * 5);
+    const n = findQrBoxes(s.rgba, s.width, s.height).length;
+    ok(`a QR with ${mod}px modules is found (${s.width}px)`, n === 1, String(n));
+  }
   const blank = new Uint8ClampedArray(200 * 200 * 4).fill(255);
   ok("a blank picture has no code", findQrBoxes(blank, 200, 200).length === 0);
+  // Three finder-shaped rings at a right angle with nothing between them —
+  // what letters and icons on a text-heavy screenshot add up to. Used to come
+  // back as one code the size of the page and black it out.
+  const rings = qrCanvas(25, 8, 40, false);
+  ok("finders without a timing strip are not a code", findQrBoxes(rings.rgba, rings.width, rings.height).length === 0);
+  // The same negative at a size the pyramid has to walk down to reach: extra
+  // passes must not turn "not a code" into a false cover.
+  const bigRings = qrCanvas(25, 24, 120, false);
+  ok("nor at a size that takes several passes", findQrBoxes(bigRings.rgba, bigRings.width, bigRings.height).length === 0);
 }
 
 /** A QR-shaped symbol: three finders, timing rows, pseudo-random data, on white. */
-function qrCanvas(modules: number, mod: number, margin: number): { rgba: Uint8ClampedArray; width: number; height: number } {
+function qrCanvas(modules: number, mod: number, margin: number, body = true): { rgba: Uint8ClampedArray; width: number; height: number } {
   const side = modules * mod + margin * 2;
   const c = document.createElement("canvas");
   c.width = side; c.height = side;
@@ -228,6 +290,7 @@ function qrCanvas(modules: number, mod: number, margin: number): { rgba: Uint8Cl
     }
   };
   finder(0, 0); finder(modules - 7, 0); finder(0, modules - 7);
+  if (!body) return { rgba: ctx.getImageData(0, 0, side, side).data, width: side, height: side };
   let seed = 7;
   const rnd = (): number => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   for (let y = 0; y < modules; y++) for (let x = 0; x < modules; x++) {
@@ -247,7 +310,15 @@ function storeTests(): void {
   const clamped = sanitize({ categories: { plates: { amount: 9, pad: -1, kind: "nope", minSize: 3.7 } }, video: { fps: 99 }, text: { keywords: ["a", 3, " b "] } });
   ok("amount clamps to 0.5", clamped.categories.plates.amount === 0.5, String(clamped.categories.plates.amount));
   ok("pad clamps to 0", clamped.categories.plates.pad === 0);
-  ok("unknown kind falls back", clamped.categories.plates.kind === "pixelate", clamped.categories.plates.kind);
+  // Against `AUTO_DEFAULTS` rather than a literal. This assertion used to name
+  // "pixelate", and when every category was switched to the irreversible cover
+  // it failed -- correctly, but for a reason that had nothing to do with what
+  // it is checking, which is that garbage in a stored config falls back to
+  // whatever the default happens to be rather than being kept.
+  ok("unknown kind falls back to the category default",
+    clamped.categories.plates.kind === AUTO_DEFAULTS.categories.plates.kind, clamped.categories.plates.kind);
+  ok("and that default is one that cannot be reversed",
+    AUTO_DEFAULTS.categories.plates.kind === "redact", AUTO_DEFAULTS.categories.plates.kind);
   ok("minSize rounds", clamped.categories.plates.minSize === 4);
   ok("fps clamps to 4", clamped.video.fps === 4);
   ok("keywords keep strings, trimmed", JSON.stringify(clamped.text.keywords) === JSON.stringify(["a", "b"]), JSON.stringify(clamped.text.keywords));
@@ -280,7 +351,9 @@ function storeTests(): void {
   ok("one region per detection", regions.length === 3, String(regions.length));
   ok("ids are category-numbered", regions.map((r) => r.id).join(",") === "screens-1,screens-2,plates-1", regions.map((r) => r.id).join(","));
   ok("labels number only repeats", regions.map((r) => r.label).join(",") === "screen 1,screen 2,plate", regions.map((r) => r.label).join(","));
-  ok("style comes from the category", regions[0]!.kind === "pixelate" && regions[0]!.amount === cfg.categories.screens.amount);
+  ok("style comes from the category",
+    regions[0]!.kind === AUTO_DEFAULTS.categories.screens.kind && regions[0]!.amount === cfg.categories.screens.amount,
+    `${regions[0]!.kind}/${regions[0]!.amount}`);
   const r0 = regions[0]!.rect;
   ok("padding grew the box", r0.x < 100 / 1200 && r0.w > 400 / 1200, JSON.stringify(r0));
   const again = detectionsToRegions(dets, 1200, 800, cfg, regions);
@@ -383,7 +456,7 @@ async function uiTests(): Promise<void> {
   mount.remove();
 }
 function sanitizeTitle(c: string): string {
-  return { faces: "Faces", plates: "Licence plates", screens: "Screens", terminals: "Terminals", cards: "Cards", codes: "QR", text: "Text by rule" }[c] ?? c;
+  return { faces: "Faces", plates: "Licence plates", windshields: "Windscreens", screens: "Screens", terminals: "Terminals", cards: "Cards", codes: "QR", text: "Text by rule" }[c] ?? c;
 }
 
 // ── Real models on the bundled pictures ────────────────────────────────────
@@ -487,6 +560,191 @@ async function modelTests(): Promise<void> {
   console.log(`autoblur: runner threads=${runner.stats.threads}`);
 }
 
+// ── Faces in a video and faces in a PDF ────────────────────────────────────
+
+/**
+ * The two containers a face most often arrives in, tested end to end.
+ *
+ * Everything above this point hands the detector a bitmap that a decoder
+ * already produced. That is not how a face reaches the user: it arrives inside
+ * an MP4 or inside a PDF, and between the file and the detector sits a video
+ * decoder or pdf.js -- either of which can hand back a frame at the wrong
+ * size, at the wrong moment, colour-shifted, or blank. A detector that finds a
+ * face in `face-a.jpg` and nothing in a video of the same face is a detector
+ * that reports "0 faces found" over somebody's holiday clip and lets them
+ * publish it.
+ *
+ * Both documents are built here from the same fixture rather than staged, so
+ * the pixels the detector should find are known exactly and the test needs
+ * nothing on disk that `face-a.jpg` does not already provide.
+ */
+async function containerFaceTests(): Promise<void> {
+  const runner = getRunner();
+  if (!(await runner.available())) return;
+  const cfg = defaultConfig();
+  const bmp = await load("face-a.jpg");
+  if (!bmp) { ok("face-a.jpg is served by the dev server", false, "fetch failed"); return; }
+
+  // ── In a PDF ─────────────────────────────────────────────────────────────
+  // Built with the app's own `imagesToPdf`, read back through the app's own
+  // pdf.js, so this is the exact round trip a scanned page takes.
+  const jpeg = await fetch("/_autoblurcheck/face-a.jpg").then((r) => r.arrayBuffer());
+  const pdf = await imagesToPdf([{
+    bytes: new Uint8Array(jpeg), kind: "jpeg", width: bmp.width, height: bmp.height,
+  }], { title: "face" });
+  ok("a PDF was built around the face picture", pdf.length > 1000, `${pdf.length} bytes`);
+
+  const pdfjs = await loadPdfjs();
+  // A copy: pdf.js takes ownership of the buffer it is handed, and `pdf` is
+  // still wanted above for its length.
+  const copy = new Uint8Array(pdf.length);
+  copy.set(pdf);
+  const task = pdfjs.getDocument({ data: copy });
+  let pdfFaces = 0;
+  try {
+    const doc = await task.promise;
+    ok("the PDF has one page", doc.numPages === 1, String(doc.numPages));
+    const page = await doc.getPage(1);
+    // Scale 2, because a page rendered at 1:1 puts a face that was 200px in
+    // the photograph at well under the detector's floor -- and a viewer
+    // showing the page full-screen renders it at roughly this too.
+    const view = page.getViewport({ scale: 2 });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(view.width);
+    canvas.height = Math.round(view.height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvas, canvasContext: ctx, viewport: view }).promise;
+    const input = prepareInput(canvas, canvas.width, canvas.height, {});
+    const r = await detectAll(input, ["faces"], { runner, config: cfg });
+    show("face-a.jpg rendered out of a PDF", bmp, input, r.detections, 0);
+    pdfFaces = r.detections.filter((d) => d.category === "faces").length;
+    ok("a face is found on a rendered PDF page", pdfFaces >= 1, `${pdfFaces} via ${r.faceEngine} (${r.notes.join("; ")})`);
+    const inside = r.detections.every((d) => d.box.x >= -2 && d.box.y >= -2
+      && d.box.x + d.box.w <= input.width * input.scale + 2
+      && d.box.y + d.box.h <= input.height * input.scale + 2);
+    ok("and its box lands inside the page, not in the margins", inside,
+      r.detections.map((d) => `${Math.round(d.box.x)},${Math.round(d.box.y)} ${Math.round(d.box.w)}x${Math.round(d.box.h)}`).join(" | "));
+  } finally {
+    await task.destroy();
+  }
+
+  // ── In a video ───────────────────────────────────────────────────────────
+  // Recorded here rather than staged, and recorded rather than faked: the
+  // frames come back out of a real decoder, with the codec's colour
+  // conversion and chroma subsampling applied, which is most of what makes a
+  // video frame harder for a detector than the JPEG it was drawn from.
+  const clip = await recordFaceClip(bmp);
+  if (clip === null) {
+    ok("a clip can be recorded in this browser", false, "MediaRecorder produced nothing");
+  } else {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.src = URL.createObjectURL(clip.blob);
+    const ready = await new Promise<boolean>((done) => {
+      video.onloadeddata = () => done(true);
+      video.onerror = () => done(false);
+      setTimeout(() => done(false), 8000);
+    });
+    ok("the recorded clip decodes", ready && video.videoWidth > 0, `${video.videoWidth}x${video.videoHeight}`);
+    if (ready && video.videoWidth > 0) {
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : clip.seconds;
+      const times = autoSampleTimes(Math.min(duration, clip.seconds), 2);
+      ok("the clip is sampled at more than one moment", times.length >= 2, times.map((t) => t.toFixed(2)).join(","));
+
+      const grab = document.createElement("canvas");
+      grab.width = video.videoWidth;
+      grab.height = video.videoHeight;
+      const gctx = grab.getContext("2d", { willReadFrequently: true })!;
+      const sample = async (t: number): Promise<SampledFrame | null> => {
+        const seeked = await new Promise<boolean>((done) => {
+          video.onseeked = () => done(true);
+          video.currentTime = Math.min(t, Math.max(0, (video.duration || clip.seconds) - 0.01));
+          setTimeout(() => done(false), 4000);
+        });
+        if (!seeked) return null;
+        gctx.drawImage(video, 0, 0, grab.width, grab.height);
+        return { ...prepareInput(grab, grab.width, grab.height, {}), t };
+      };
+
+      const t0 = performance.now();
+      const found = await detectVideo(sample, times, ["faces"], { runner, config: cfg });
+      const ms = performance.now() - t0;
+      const hits = found.frames.filter((f) => f.detections.some((d) => d.category === "faces"));
+      ok("a face is found in the video", hits.length >= 1,
+        `${hits.length}/${found.frames.length} frames (${found.notes.join("; ")})`);
+      // Most, not all: one frame at a seek boundary can come back part-drawn,
+      // and the layer below is what actually covers the face anyway.
+      ok("and on most of the sampled frames, not just one",
+        hits.length >= Math.ceil(found.frames.length * 0.6), `${hits.length}/${found.frames.length}`);
+      console.log(`autoblur: video faces=${hits.length}/${found.frames.length} ms=${Math.round(ms)} type=${clip.type}`);
+
+      const layers = layersFromDetections(found.frames, duration, { ...cfg, video: { ...cfg.video, wholeClip: true } });
+      const faceLayers = layers.filter((l) => l.region.label?.includes("face") ?? true);
+      ok("the face becomes one tracked layer, not one per frame",
+        layers.length >= 1 && layers.length <= 2, `${layers.length} layers`);
+      ok("and the cover on it cannot be undone",
+        layers.every((l) => l.region.kind === "redact"), layers.map((l) => l.region.kind).join(","));
+      ok("the layer spans the clip, not a single instant",
+        faceLayers.every((l) => l.to - l.from > 0.1), layers.map((l) => `${l.from.toFixed(2)}-${l.to.toFixed(2)}`).join(" "));
+      for (const l of layers) console.log(`autoblur: video layer ${l.region.label ?? l.id} ${l.from.toFixed(2)}-${l.to.toFixed(2)} ${l.region.kind}`);
+    }
+    URL.revokeObjectURL(video.src);
+  }
+  bmp.close();
+}
+
+/**
+ * A short clip of the face picture drifting across the frame.
+ *
+ * It drifts on purpose. A static picture encoded as video is almost entirely
+ * keyframe-free after the first frame and proves nothing about later ones;
+ * motion forces the encoder to actually re-encode, and it gives the tracker
+ * something to track, which is the other half of what video auto-blur does.
+ *
+ * Returns null rather than throwing when the browser has no MediaRecorder or
+ * no codec it will accept -- the caller reports that as a failure, because a
+ * harness that silently skips is a harness that passes for the wrong reason.
+ */
+async function recordFaceClip(bmp: ImageBitmap): Promise<{ blob: Blob; type: string; seconds: number } | null> {
+  if (typeof MediaRecorder === "undefined") return null;
+  const type = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"]
+    .find((t) => MediaRecorder.isTypeSupported(t));
+  if (!type) return null;
+
+  const k = Math.min(1, 640 / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bmp.width * k) + 80;
+  canvas.height = Math.round(bmp.height * k);
+  const ctx = canvas.getContext("2d")!;
+  const stream = canvas.captureStream(12);
+  const chunks: Blob[] = [];
+  const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 4_000_000 });
+  rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+  const seconds = 2;
+  const stopped = new Promise<void>((done) => { rec.onstop = () => done(); });
+  rec.start(200);
+  const started = performance.now();
+  await new Promise<void>((done) => {
+    const draw = (): void => {
+      const p = (performance.now() - started) / (seconds * 1000);
+      ctx.fillStyle = "#202020";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bmp, Math.round(80 * Math.min(1, p)), 0, canvas.width - 80, canvas.height);
+      if (p >= 1) { done(); return; }
+      requestAnimationFrame(draw);
+    };
+    draw();
+  });
+  rec.stop();
+  await stopped;
+  for (const t of stream.getTracks()) t.stop();
+  if (chunks.length === 0) return null;
+  return { blob: new Blob(chunks, { type }), type, seconds };
+}
+
 async function main(): Promise<void> {
   document.body.style.background = "#111";
   tensorTests();
@@ -494,6 +752,7 @@ async function main(): Promise<void> {
   storeTests();
   await uiTests();
   await modelTests();
+  await containerFaceTests();
   const line = `autoblur: ${pass} passed, ${fail} failed`;
   console.log(line);
   document.title = line;

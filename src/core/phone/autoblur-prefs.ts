@@ -70,6 +70,8 @@ export function sanitize(raw: unknown): AutoBlurConfig {
       phones: bool(text["phones"], d.text.phones),
       urls: bool(text["urls"], d.text.urls),
       cardNumbers: bool(text["cardNumbers"], d.text.cardNumbers),
+      vins: bool(text["vins"], d.text.vins),
+      registrations: bool(text["registrations"], d.text.registrations),
       keywords,
     },
     video: {

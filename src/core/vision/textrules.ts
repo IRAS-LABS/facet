@@ -13,6 +13,8 @@
  *   phones    7+ digits with the usual separators, optional +country
  *   urls      http(s)://…, www.…, or a bare host.tld/path
  *   cards     13–19 digits in groups, passing Luhn
+ *   vins      17 characters in the VIN alphabet, letters and digits mixed
+ *   reg       a plate after a label word, or a rigid national format
  *   keywords  case-insensitive substrings the user typed
  */
 
@@ -20,7 +22,7 @@ import type { OcrLine, OcrPage, OcrWord } from "@core/ocr/page";
 import type { TextRules } from "./autoblur-config";
 import type { Det } from "./onnx";
 
-export type TextRule = "email" | "phone" | "url" | "card" | "keyword";
+export type TextRule = "email" | "phone" | "url" | "card" | "vin" | "reg" | "keyword";
 
 export interface TextHit {
   word: OcrWord;
@@ -33,6 +35,48 @@ const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const PHONE = /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3}[\s.-]?\d{3,4}(?:[\s.-]?\d{2,4})?/g;
 const URL = /(?:https?:\/\/|www\.)[^\s]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\.(?:com|net|org|io|dev|gov|edu|co|uk|de|fr|app|me|info|ai)\b(?:\/[^\s]*)?/gi;
 const CARD = /\b(?:\d[ -]?){13,19}\b/g;
+/**
+ * A vehicle identification number: exactly 17 characters, no I, O or Q.
+ *
+ * The excluded letters are the reason this rule can run unanchored where the
+ * registration rule below cannot. The standard drops them so they cannot be
+ * confused with 1 and 0, which means a 17-character run drawn from what is
+ * left is a shape almost nothing else has -- and `isVin` then insists on at
+ * least one letter and one digit, so a 17-digit account number and a
+ * 17-letter word are both thrown out.
+ */
+const VIN = /\b[A-HJ-NPR-Z0-9]{17}\b/gi;
+
+/**
+ * A registration number, but only where a label says that is what it is.
+ *
+ * The capture group is the point: the label is left readable and only the
+ * value is covered, so a redacted document still says what was taken out. A
+ * reader who cannot tell whether a blacked-out field was the plate or the
+ * owner's name has been handed a worse document than necessary.
+ *
+ * Unanchored plates are deliberately not attempted. Three to eight letters and
+ * digits is also every part number, invoice reference, seat number and airport
+ * code there is; a rule that caught those would black out a third of an
+ * ordinary page, and a feature that does that gets switched off.
+ */
+const REG = /\b(?:reg(?:\.|istration)?(?:\s*(?:no|number|mark|plate))?|licen[cs]e\s*(?:plate|no|number)|plate(?:\s*(?:no|number))?|number\s*plate|tag\s*(?:no|number)?|vrm|vrn)\b\s*[:#-]?\s*([A-Z0-9][A-Z0-9 -]{2,9}[A-Z0-9])/gi;
+
+/**
+ * Does a 17-character run actually look like a VIN?
+ *
+ * Both a letter and a digit, because the alphabet alone is not enough: the
+ * 17-character runs that turn up in real documents are account numbers, order
+ * references and hashes, and requiring the mix throws out the all-digit ones
+ * without touching a real VIN, which always carries letters in the first three
+ * characters (the manufacturer) and digits in the last eight (the serial).
+ *
+ * The check digit is not verified. It is only mandatory in North America, and
+ * a VIN the OCR read one character wrong is still a VIN that has to be covered.
+ */
+export function isVin(s: string): boolean {
+  return /[A-HJ-NPR-Z]/i.test(s) && /\d/.test(s);
+}
 
 /** Luhn check on the digits of a string. */
 export function luhn(s: string): boolean {
@@ -58,13 +102,26 @@ export function matchSpans(text: string, rules: TextRules): Span[] {
     re.lastIndex = 0;
     for (let m = re.exec(text); m; m = re.exec(text)) {
       if (m[0].length === 0) { re.lastIndex++; continue; }
-      if (accept && !accept(m[0])) continue;
-      out.push({ start: m.index, end: m.index + m[0].length, rule, match: m[0] });
+      // A capture group, where the pattern has one, is the part that gets
+      // covered; the label that anchored the match stays readable. Without
+      // this, "Reg no: AB12 CDE" would blur the words "Reg no" too, and a
+      // redacted document that no longer says which field was removed is a
+      // worse document than one that does.
+      const hit = m[1] ?? m[0];
+      if (hit.length === 0) continue;
+      if (accept && !accept(hit)) continue;
+      const at = m[1] === undefined ? m.index : m.index + m[0].lastIndexOf(m[1]);
+      out.push({ start: at, end: at + hit.length, rule, match: hit });
     }
   };
   if (rules.emails) run(EMAIL, "email");
   if (rules.urls) run(URL, "url");
   if (rules.cardNumbers) run(CARD, "card", luhn);
+  if (rules.vins) run(VIN, "vin", isVin);
+  // A plate has to contain both a digit and a letter. The label anchor is
+  // strong but not perfect -- "plate number" also appears in a kitchen
+  // inventory -- and this drops the matches that are plainly not vehicles.
+  if (rules.registrations) run(REG, "reg", (m) => /\d/.test(m) && /[A-Z]/i.test(m));
   if (rules.phones) run(PHONE, "phone", (m) => m.replace(/\D/g, "").length >= 7 && !luhn(m));
   for (const k of rules.keywords) {
     const key = k.trim().toLowerCase();

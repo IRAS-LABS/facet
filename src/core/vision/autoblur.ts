@@ -20,7 +20,9 @@ import { detectCodes } from "./codes";
 import { DEFAULTS, detectFaces, type Box } from "./detect";
 import { iou, padDet, type Det } from "./onnx";
 import type { OnnxRunner } from "./onnx-runner";
+import { COCO } from "./onnx";
 import { detectPlates } from "./plates";
+import { windshieldBoxes } from "./windshields";
 import { detectTerminals, looksLikeScreenshot } from "./terminals";
 import { textHitBoxes } from "./textrules";
 import { detectFacesNet } from "./yunet";
@@ -61,7 +63,8 @@ export interface DetectResult {
 }
 
 const wantsOcr = (c: AutoCategory): boolean => c === "terminals" || c === "cards" || c === "text";
-const wantsCoco = (c: AutoCategory): boolean => c === "screens" || c === "terminals" || c === "plates";
+const wantsCoco = (c: AutoCategory): boolean =>
+  c === "screens" || c === "terminals" || c === "plates" || c === "windshields";
 
 function gray(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number): Uint8ClampedArray {
   const g = new Uint8ClampedArray(width * height);
@@ -180,12 +183,24 @@ export async function detectAll(
         }
         break;
       }
+      case "windshields": {
+        // No model of its own and no detector call: the vehicle boxes were
+        // already found by the COCO pass that the plate stage needs anyway,
+        // so this stage is arithmetic and costs nothing measurable.
+        if (!coco) break;
+        tick("Covering windscreens…");
+        const moto = COCO.indexOf("motorcycle");
+        for (const b of windshieldBoxes(coco.vehicles, width, height, moto, { conf: cc.conf, minVehicle: cc.minSize })) {
+          out.detections.push({ category: c, label: "windscreen", box: b });
+        }
+        break;
+      }
       case "codes": {
         tick("Looking for codes…");
         const r = await detectCodes(rgba, width, height);
         for (const b of r.codes) {
           if (Math.min(b.w, b.h) < cc.minSize) continue;
-          out.detections.push({ category: c, label: b.cls === 0 ? "code" : "barcode", box: b });
+          out.detections.push({ category: c, label: b.cls === 0 ? "QR code" : "barcode", box: b });
         }
         break;
       }
