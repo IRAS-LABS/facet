@@ -416,6 +416,9 @@ export class SignView {
     this.canvas.getContext("2d")?.drawImage(img, 0, 0);
   }
 
+  /** The render in flight on `canvas`, so a second one can cancel it first. */
+  private pageRender: { cancel(): void; promise: Promise<unknown> } | null = null;
+
   private async drawPdfPage(url: string, index: number): Promise<void> {
     if (!this.pdfTask) {
       const pdfjs = await loadPdfjs();
@@ -437,10 +440,42 @@ export class SignView {
     this.canvas.width = Math.round(view.width);
     this.canvas.height = Math.round(view.height);
     const ctx = this.canvas.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      await page.render({ canvas: this.canvas, canvasContext: ctx, viewport: view }).promise;
+    if (!ctx) return;
+
+    /*
+     * One render at a time on this canvas.
+     *
+     * pdf.js throws "Cannot use the same canvas during multiple render()
+     * operations" if a second one starts while the first is still going, and
+     * that sentence went straight into the save bar where somebody signing a
+     * tax form would read it. Pressing the shortcut twice was enough, and so
+     * was turning the page faster than a page renders.
+     *
+     * The old task is cancelled rather than waited for: the new page is the
+     * one wanted, and a cancelled task rejects, which is why the await below
+     * is allowed to fail quietly.
+     */
+    this.pageRender?.cancel();
+    try {
+      await this.pageRender?.promise;
+    } catch {
+      // A cancelled render rejects. That is the cancel working.
+    }
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    const task = page.render({ canvas: this.canvas, canvasContext: ctx, viewport: view });
+    this.pageRender = task;
+    try {
+      await task.promise;
+    } catch (err) {
+      // Cancelled because a newer page took over: not this caller's problem,
+      // and certainly not something to report as a failure to open the file.
+      if (!(err && typeof err === "object" && (err as { name?: string }).name === "RenderingCancelledException")) {
+        throw err;
+      }
+    } finally {
+      if (this.pageRender === task) this.pageRender = null;
     }
   }
 
@@ -641,6 +676,7 @@ export class SignView {
     this.marks.push(mark);
     this.picked = mark.id;
     this.paintMarks();
+    this.reveal(mark.id);
     this.buildSide();
     this.say("type what you want, then drag it into place");
     this.side.querySelector<HTMLInputElement>(".fct-signv-text")?.select();
@@ -679,6 +715,7 @@ export class SignView {
     this.marks.push(mark);
     this.picked = mark.id;
     this.paintMarks();
+    this.reveal(mark.id);
     this.buildSide();
   }
 
@@ -767,6 +804,20 @@ export class SignView {
   }
 
   private pick(id: string | null): void {
+    /*
+     * Take the keyboard back when something is selected.
+     *
+     * Delete is handled on this panel and skipped while a text field has the
+     * focus, so after so much as clicking into the file-name box at the foot of
+     * the panel, Delete stopped removing marks and the mark looked undeletable.
+     * Selecting one is an unambiguous statement about what the keys are for.
+     *
+     * This sits above the "nothing changed" guard on purpose. A freshly placed
+     * mark is already the picked one, so clicking the very mark you just added
+     * — the most ordinary way to reach for Delete — takes that early return and
+     * would otherwise leave the focus wherever it was.
+     */
+    if (id) this.root.focus({ preventScroll: true });
     if (this.picked === id) return;
     this.picked = id;
     for (const node of this.overlay.querySelectorAll(".fct-signv-mark")) {
@@ -777,6 +828,28 @@ export class SignView {
 
   private pickedMark(): Mark | null {
     return this.marks.find((m) => m.id === this.picked) ?? null;
+  }
+
+  /**
+   * Scroll a mark into view, if it is not already.
+   *
+   * A signature goes near the foot of the page because that is where forms are
+   * signed, and on any window shorter than a page that is below the fold. So
+   * the panel said "drag it where you want it" about something that was not on
+   * screen, and the only clue that anything had happened at all was the side
+   * panel changing. Both doors — a placed signature and a typed date — land
+   * here for the same reason.
+   *
+   * `block: "center"` rather than "nearest": a mark flush against the bottom
+   * edge counts as visible to "nearest" and stays half under the window trim.
+   */
+  private reveal(id: string): void {
+    const node = this.overlay.querySelector<HTMLElement>(`[data-id="${id}"]`);
+    if (!node) return;
+    const box = this.stage.getBoundingClientRect();
+    const at = node.getBoundingClientRect();
+    if (at.top >= box.top && at.bottom <= box.bottom) return;
+    node.scrollIntoView({ block: "center", inline: "nearest" });
   }
 
   /** Drop a signature onto the middle-right of the page, where one usually goes. */
@@ -795,6 +868,7 @@ export class SignView {
     this.store.touch(sig.id);
     this.picked = mark.id;
     this.paintMarks();
+    this.reveal(mark.id);
     this.buildSide();
     this.say(`${sig.name} placed — drag it where you want it`);
   }
