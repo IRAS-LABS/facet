@@ -44,6 +44,9 @@ import {
   type StampRequest,
   type Watermark,
 } from "@core/sign/stamp";
+import { opaque } from "@core/edit/blur";
+import { flattenPdf } from "@core/sign/flatten";
+import { loadPicture } from "@core/canvas/picture";
 import { browserSigBackend, SignatureStore, type SigKind, type Signature } from "@core/sign/store";
 import { textPaths } from "@core/sign/text";
 import { el, fill } from "./phone/dom";
@@ -145,10 +148,18 @@ const newId = (): string => `m${Date.now().toString(36)}${Math.random().toString
 
 const toRedaction = (m: Mark): Redaction => ({ page: m.page, place: m.place, colour: m.colour });
 
+
 export class SignView {
   private readonly root = el<"div">("div.fct-signv", { hidden: true });
   private readonly titleEl = el("div.fct-signv-title");
   private readonly pageNote = el("span.fct-signv-note");
+  // Page turners. A picture has exactly one page, and a control that is always
+  // there and never does anything is worse than no control: on a phone the
+  // common case IS a picture, so these two chevrons sat in the bar looking
+  // live and answering every tap with nothing. They are hidden unless the file
+  // actually has pages, and greyed at the first and last one.
+  private readonly prevBtn = this.iconBtn("chevron-left", "Previous page", () => void this.turn(-1));
+  private readonly nextBtn = this.iconBtn("chevron-right", "Next page", () => void this.turn(1));
   private readonly zoomNote = el("span.fct-signv-note");
   private readonly stage = el("div.fct-signv-stage");
   private readonly pageBox = el("div.fct-signv-page");
@@ -185,6 +196,21 @@ export class SignView {
    * and some covers are only tidying.
    */
   private burnIn = true;
+  /**
+   * Save the whole document as pictures of itself, so nothing on it can be
+   * taken off.
+   *
+   * Off by default, unlike `burnIn`, and the difference is who is being
+   * protected. A cover is a promise to the person in the document that a
+   * particular thing is gone, so it defaults to being kept. This is a promise
+   * to the person *sending* the document that their signature and watermark
+   * cannot be lifted off it -- worth a great deal on an agreement and worth
+   * nothing on a form somebody still has to fill in, and it costs the whole
+   * document its text: no search, no copying, no screen reader, and a file
+   * many times the size. A cost that large is not one to impose on a save
+   * nobody asked to be locked.
+   */
+  private lockPage = false;
   private busy = false;
   private pdfTask: import("pdfjs-dist").PDFDocumentLoadingTask | null = null;
   private pdfDoc: import("pdfjs-dist").PDFDocumentProxy | null = null;
@@ -208,9 +234,9 @@ export class SignView {
       undefined,
       this.titleEl,
       el("div.fct-signv-spacer"),
-      this.iconBtn("chevron-left", "Previous page", () => void this.turn(-1)),
+      this.prevBtn,
       this.pageNote,
-      this.iconBtn("chevron-right", "Next page", () => void this.turn(1)),
+      this.nextBtn,
       el("div.fct-signv-gap"),
       this.iconBtn("minus", "Zoom out", () => this.stepZoom(-1)),
       this.zoomNote,
@@ -268,6 +294,7 @@ export class SignView {
     this.picked = null;
     this.crop = { on: false, place: placement({ x: 0, y: 0, w: 100, h: 100 }), scope: "all" };
     this.burnIn = true;
+    this.lockPage = false;
     this.root.hidden = false;
     this.root.focus();
 
@@ -326,18 +353,17 @@ export class SignView {
     else await this.drawImage(url);
     this.layout();
     this.paintMarks();
+    const paged = this.isPdf && this.pageCount > 1;
     this.pageNote.textContent = this.isPdf ? `${this.at + 1} / ${this.pageCount}` : "";
+    this.prevBtn.hidden = !paged;
+    this.nextBtn.hidden = !paged;
+    (this.prevBtn as HTMLButtonElement).disabled = this.at <= 0;
+    (this.nextBtn as HTMLButtonElement).disabled = this.at >= this.pageCount - 1;
     this.zoomNote.textContent = `${Math.round(this.zoom * 100)}%`;
   }
 
   private async drawImage(url: string): Promise<void> {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const node = new Image();
-      node.decoding = "async";
-      node.addEventListener("load", () => resolve(node));
-      node.addEventListener("error", () => reject(new Error("not a picture this build can open")));
-      node.src = url;
-    });
+    const img = await loadPicture(url, "not a picture this build can open");
     // For a picture, one pixel is one "point". There is no other unit on offer
     // and inventing a dpi would only make the numbers in the panel lie.
     this.pageW = img.naturalWidth;
@@ -778,6 +804,23 @@ export class SignView {
         "The fill is painted into the picture, so what is under it is gone from the saved copy."));
     }
 
+    // Only on a PDF, and for the same reason the burn-in switch is: a picture
+    // has no removable layer to lock down. A signature on a JPG is already
+    // pixels the moment it is saved.
+    if (this.isPdf) {
+      const lock = el("button.fct-signv-toggle", {
+        type: "button", "aria-pressed": this.lockPage ? "true" : "false",
+      }, icon("lock"), this.lockPage ? "Locked — nothing removable" : "Lock the page");
+      lock.addEventListener("click", () => {
+        this.lockPage = !this.lockPage;
+        this.buildSide();
+      });
+      kids.push(el("div.fct-signv-btns", undefined, lock));
+      kids.push(el("p.fct-signv-empty", undefined, this.lockPage
+        ? "Every page is saved as a picture of itself, so the signature and the watermark are part of the page and cannot be peeled off. The whole document stops being searchable and the file gets a lot bigger."
+        : "Normally a signature and a watermark sit on top of the page, and anyone with a PDF editor can take them off again. Lock the page to make them permanent."));
+    }
+
     const cropBtn = el("button.fct-signv-toggle", {
       type: "button", "aria-pressed": this.crop.on ? "true" : "false",
     }, icon("crop"), this.crop.on ? "Cropping" : "Crop");
@@ -1012,12 +1055,22 @@ export class SignView {
           const data = await this.rasterPage(page, covers.filter((c) => c.page === page));
           if (data) rasters.push({ page, data });
         }
-        if (rasters.length > 0) extras.flatten = rasters;
-        // Anything that would not rasterise still gets a drawn cover, so a
-        // failure degrades to the weaker guarantee instead of to none.
+        // A page that would not rasterise stops the save. It used to fall back
+        // to a drawn cover, which is defensible as engineering and indefensible
+        // here: the checkbox said the text underneath would be removed, the
+        // file would have been named and saved and sent, and the one page that
+        // quietly got a sticker instead is exactly the page somebody chose to
+        // redact. A save that fails is an inconvenience. A save that succeeds
+        // and lies is how people get hurt.
         const done = new Set(rasters.map((r) => r.page));
-        const left = covers.filter((c) => !done.has(c.page));
-        if (left.length > 0) extras.redactions = left.map(toRedaction);
+        const left = [...new Set(covers.filter((c) => !done.has(c.page)).map((c) => c.page))];
+        if (left.length > 0) {
+          const which = left.map((p) => p + 1).join(", ");
+          throw new Error(
+            `page ${which} could not be flattened, so the text under the covers would still be in the file. Nothing was saved. Turn off “Text underneath removed” to save it with covers drawn on top instead — but then the words are still there.`,
+          );
+        }
+        extras.flatten = rasters;
       } else {
         extras.redactions = covers.map(toRedaction);
       }
@@ -1032,7 +1085,13 @@ export class SignView {
       } satisfies CropBox;
     }
 
-    return stampPdf(src, stamps, marks, extras);
+    const out = await stampPdf(src, stamps, marks, extras);
+    if (!this.lockPage) return out;
+    // Last, and over the finished document, so the signature and the watermark
+    // are flattened along with everything else. Doing it earlier would flatten
+    // the page and then draw removable operators back on top of it, which is
+    // the same file with extra steps.
+    return flattenPdf(out, ({ page, pages }) => this.say(`locking page ${page} of ${pages}…`));
   }
 
   /**
@@ -1061,8 +1120,13 @@ export class SignView {
       const sx = out.width / unit.width;
       const sy = out.height / unit.height;
       for (const c of covers) {
-        ctx.globalAlpha = c.place.opacity;
-        ctx.fillStyle = c.colour;
+        // Opaque, and `c.place.opacity` is not consulted. Burning a cover in
+        // at 60% burns in `orig x 0.4` -- the words are still there, dimmer,
+        // and one division by 0.4 brings them back exactly. Baking a leak into
+        // the pixels is worse than leaving it on top of them, because now it
+        // looks permanent.
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = opaque(c.colour);
         // Points are y-up from the bottom; a canvas is y-down from the top.
         ctx.fillRect(
           c.place.x * sx,
@@ -1088,12 +1152,7 @@ export class SignView {
   private async signedImage(): Promise<Uint8Array> {
     const { drawStampOnCanvas, drawImageStampOnCanvas } = await import("@core/sign/stamp");
     const url = await this.host.fileUrl(this.path);
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const node = new Image();
-      node.addEventListener("load", () => resolve(node));
-      node.addEventListener("error", () => reject(new Error("could not re-read the picture")));
-      node.src = url;
-    });
+    const img = await loadPicture(url, "could not re-read the picture");
 
     const out = document.createElement("canvas");
     out.width = img.naturalWidth;

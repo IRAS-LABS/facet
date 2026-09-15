@@ -55,6 +55,7 @@ import {
   type OcrWord,
 } from "@core/ocr/page";
 import { mergePdfs } from "@core/ocr/pdf";
+import { loadPicture } from "@core/canvas/picture";
 
 export interface OcrHost {
   fileUrl(path: string): Promise<string>;
@@ -422,13 +423,10 @@ export class OcrView {
   }
 
   private async loadImage(url: string): Promise<void> {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.decoding = "async";
-      el.addEventListener("load", () => resolve(el));
-      el.addEventListener("error", () => reject(new Error("not a picture this build can open")));
-      el.src = url;
-    });
+    // Through `loadPicture`, not straight into an <img>: the OCR engine reads
+    // this canvas back pixel by pixel, and on the phone a cross-origin picture
+    // would taint it and make that read throw. See `@core/canvas/picture`.
+    const img = await loadPicture(url, "not a picture this build can open");
     this.canvas.width = img.naturalWidth;
     this.canvas.height = img.naturalHeight;
     this.canvas.getContext("2d")?.drawImage(img, 0, 0);

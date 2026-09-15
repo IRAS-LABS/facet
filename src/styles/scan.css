@@ -1,0 +1,342 @@
+/* ── The document scanner ─────────────────────────────────────────────────────
+   A full-screen surface like the camera's, and deliberately the same shape:
+   bar, stage, controls, strip, foot. Someone who has used the camera should
+   not have to learn where anything is.
+
+   The stage is black and the page sits in it letterboxed. Not because black is
+   fashionable but because the thing on the stage is nearly white and nearly
+   fills it, and any other surround makes the edge of the scan impossible to
+   see -- which is exactly the edge you are being asked to check. */
+
+.scan {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+}
+
+.scan-bar,
+.scan-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2);
+  background: var(--fct-surface);
+  border-bottom: 1px solid var(--fct-border);
+}
+.scan-foot {
+  border-bottom: none;
+  border-top: 1px solid var(--fct-border);
+  padding-bottom: max(var(--fct-sp-2), env(safe-area-inset-bottom));
+  flex-wrap: wrap;
+}
+
+.scan-spacer {
+  flex: 1 1 auto;
+}
+
+.scan-count {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  white-space: nowrap;
+}
+
+.scan-btn {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: 8px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+.scan-btn:hover {
+  background: var(--fct-surface-overlay);
+}
+.scan-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.scan-btn.on {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+}
+
+.scan-sel {
+  min-height: 34px;
+  border: 1px solid var(--fct-border);
+  border-radius: 8px;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font-size: var(--fct-fs-sm);
+}
+
+.scan-go {
+  background: var(--fct-accent);
+  border-color: transparent;
+  color: var(--fct-accent-ink);
+  font-weight: 600;
+}
+.scan-go:hover {
+  background: var(--fct-accent-hover);
+}
+
+/* ── Stage ─────────────────────────────────────────────────────────────────── */
+
+.scan-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+  background: #000;
+  touch-action: none;
+}
+
+.scan-video,
+.scan-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* A <video> with no frames yet paints the WebView's grey poster and play
+   triangle. The stage behind is already black, so fading the element in on
+   its first frame shows black-then-picture instead of grey-box-then-picture.
+   `opacity` rather than `visibility` so the swap is not a hard cut. */
+.scan-video {
+  background: #000;
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+.scan-video.ready {
+  opacity: 1;
+}
+
+/* Stretched to the stage rather than to the picture: the quad is normalised
+   against the *photograph*, and the photograph is what fills the stage. */
+.scan-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Spelled out because the overlay is an <svg>, hidden through the *attribute*,
+   and the only thing hiding it would otherwise be the user-agent's `[hidden]`
+   rule -- which this element's own `position`/`inset` rule is one specificity
+   tie away from beating. Not worth leaving to the cascade. */
+.scan-overlay[hidden] {
+  display: none;
+}
+
+.scan-quad {
+  fill: color-mix(in srgb, var(--fct-accent) 12%, transparent);
+  stroke: var(--fct-accent);
+  /* `vector-effect` keeps the line one pixel wide however the viewBox is
+     stretched. Without it a wide stage draws a hairline down the sides and a
+     fat band across the top, from one `stroke-width`. */
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+/* White, not `--fct-surface`: these sit on top of an arbitrary photograph,
+   not on the app's own background, and in dark mode a surface-coloured handle
+   on a dark photo is invisible -- which was exactly the bug. White against the
+   accent ring reads on a dark photo and on a white page alike. */
+.scan-handle {
+  fill: #fff;
+  stroke: var(--fct-accent);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  /* The circle is drawn in stretched viewBox units, so it is an ellipse on any
+     stage that is not square. Nothing in SVG 1.1 fixes that for a shape; the
+     handle is small enough that the distortion reads as a dot either way, and
+     the hit-testing is done in normalised space where it is exact. */
+}
+
+/* ── Sliders ───────────────────────────────────────────────────────────────── */
+
+.scan-tune {
+  display: flex;
+  gap: var(--fct-sp-3);
+  align-items: center;
+  padding: var(--fct-sp-2);
+  background: var(--fct-surface);
+  border-bottom: 1px solid var(--fct-border);
+}
+.scan-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  flex: 1 1 0;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+}
+.scan-slider input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.scan-check {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* Left to itself this is the platform's default square, which on Android is a
+   large pale box that matches nothing else in the row. `accent-color` recolours
+   the native control without replacing it, so it keeps its own focus ring and
+   its own touch target. */
+.scan-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--fct-accent);
+  cursor: pointer;
+}
+
+.scan-status {
+  flex: 1 1 100%;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  min-height: 1.2em;
+}
+
+/* ── Page strip ────────────────────────────────────────────────────────────── */
+
+.scan-strip {
+  display: flex;
+  gap: var(--fct-sp-2);
+  align-items: flex-end;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: var(--fct-sp-2);
+  background: var(--fct-surface);
+  border-top: 1px solid var(--fct-border);
+  min-height: 96px;
+}
+
+.scan-page {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+}
+.scan-page.on {
+  border-color: var(--fct-accent);
+  background: var(--fct-surface-raised);
+}
+
+.scan-thumb {
+  display: block;
+  width: auto;
+  height: 84px;
+  max-width: 120px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.scan-no {
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+}
+
+.scan-pagetools {
+  display: flex;
+  gap: 2px;
+}
+.scan-pagetools .scan-btn {
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0;
+  font-size: var(--fct-fs-xs);
+}
+
+.scan-empty {
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+  align-self: center;
+}
+/* `min-height` is sized for thumbnails; before the first page there are none,
+   and the band is just a sentence floating in a lot of nothing. Give the
+   height back to the stage until there is something to show. */
+.scan-strip:has(> .scan-empty) {
+  min-height: 0;
+}
+
+/* ── The shutter ───────────────────────────────────────────────────────────── */
+
+.scan-shutter {
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  min-height: 56px;
+  border-radius: 999px;
+  border: 3px solid var(--fct-text);
+  background: var(--fct-surface-raised);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.scan-shutter:active {
+  background: var(--fct-accent);
+}
+
+/* ── Phone ─────────────────────────────────────────────────────────────────── */
+
+body.fct-phone .scan-bar,
+body.fct-phone .scan-foot {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+body.fct-phone .scan-bar {
+  padding-top: max(var(--fct-sp-2), env(safe-area-inset-top));
+}
+/* A page thumbnail has to stay big enough to tell two pages of the same
+   document apart, which is the whole job of the strip. */
+body.fct-phone .scan-thumb {
+  height: 72px;
+}
+
+/* The bar and the foot both separate their groups with a stretching spacer, so
+   that on a wide desktop window Close and Images sit against the far edge. A
+   stretching spacer inside a row that wraps is a different thing entirely: the
+   spacer keeps its stretch on whichever row it lands in, so the two buttons
+   left after the break get thrown to opposite edges with a hand's width of
+   dead bar between them. That is what the phone was showing.
+
+   The bar wraps here for the reason base.css already gives for the topbar --
+   a sideways swipe near either edge is Samsung's back gesture, so scrolling
+   to reach a control is not reachable in practice. So wrap, and take the
+   stretch out of the spacer: a wrapped row packs its buttons together and the
+   spacer is only a gap. */
+body.fct-phone .scan-bar {
+  flex-wrap: wrap;
+  row-gap: var(--fct-sp-1);
+}
+body.fct-phone .scan-spacer {
+  flex: 0 0 var(--fct-sp-3);
+}
+
+/* The label is the tap target -- it wraps the box and its text -- but it sizes
+   to the 16px checkbox and ends up 24px tall, well under the 44px every other
+   control in this footer already honours. Measured 90x24 on a test phone. Padding
+   rather than height so the text stays centred beside the box. */
+body.fct-phone .scan-check {
+  min-height: 44px;
+  padding-inline: var(--fct-sp-1);
+}

@@ -286,10 +286,15 @@ export function paragraphsOf(block: OcrBlock): OcrLine[][] {
 /**
  * Join lines into a paragraph, undoing the hyphens the typesetter added.
  *
- * Only when the break looks mechanical: a hyphen at the very end of a line,
- * letters on both sides of it, and a lower-case letter starting the next line.
- * "Self-" / "employed" rejoins; "Anglo-" / "Saxon" does not, because the S is
- * a capital; and a dash used as punctuation keeps its space. There is no
+ * A hyphen at the end of a line never leaves a gap behind it: the two halves
+ * are one word on the page. The only question is whether the hyphen itself
+ * survives, and the test for that is the letter after it. Lower case means a
+ * word broken to fit the measure, so "self-" / "employed" becomes
+ * "selfemployed"; a hyphen still standing in what follows says the break fell
+ * inside a compound, so "English-" / "to-German" keeps both; anything else is
+ * a compound that happens to have been broken
+ * at its own hyphen, so "Anglo-" / "Saxon" and "1998-" / "ish" keep it. A dash
+ * standing on its own is punctuation and keeps its spaces. There is no
  * dictionary here and there should not be — a wrong rejoin invents a word that
  * was never on the page, which is worse than a visible hyphen.
  */
@@ -302,8 +307,15 @@ export function joinLines(lines: readonly OcrLine[], dehyphenate = true): string
       return;
     }
     const next = text;
-    if (dehyphenate && /[\p{L}]-$/u.test(out) && /^[\p{Ll}]/u.test(next)) {
+    const broken = dehyphenate && /[\p{L}\p{N}]-$/u.test(out) && /^[\p{L}\p{N}]/u.test(next);
+    // A hyphen still standing in the following line's first word means the
+    // break fell inside a compound -- "English-" / "to-German" -- not between
+    // two syllables, so the first hyphen belongs there as much as the second.
+    const compound = /^\S*\p{L}-\p{L}/u.test(next);
+    if (broken && !compound && /[\p{L}]-$/u.test(out) && /^[\p{Ll}]/u.test(next)) {
       out = `${out.slice(0, -1)}${next}`;
+    } else if (broken) {
+      out = `${out}${next}`;
     } else {
       out = `${out} ${next}`;
     }

@@ -226,15 +226,32 @@ export function drawImageStampOnCanvas(
 
 /* ────────────────────────────────────────────────────────────────── svg ── */
 
+/**
+ * Path data with everything that is not path data taken out.
+ *
+ * Imported art is normalised to numbers and commands before it is stored, so
+ * this removes nothing a real path carries. It exists because the result of
+ * `artToSvg` is assigned to `innerHTML`, and a stored signature file is a file
+ * on disk: if one ever came back holding a quote, the attribute it sits in
+ * would end early and the rest would be parsed as markup. Keeping the filter
+ * here means that is impossible regardless of what the store hands over.
+ */
+function safePath(d: string): string {
+  return d.replace(/[^MmLlHhVvCcSsQqTtAaZz0-9eE+\-.,\s]/g, "");
+}
+
 /** A standalone SVG document for the art at a given width. */
 export function artToSvg(art: ArtPaths, colour: string, width: number): string {
   const [bx, by, bw, bh] = art.box;
   const height = (bh / Math.max(bw, 1e-6)) * width;
-  const body = art.paths.map((d) => `<path d="${d}"/>`).join("");
+  const body = art.paths.map((d) => `<path d="${safePath(d)}"/>`).join("");
+  // Same reasoning for the fill: it is a colour string, and a colour string
+  // has no business carrying a quote or an angle bracket.
+  const fill = colour.replace(/[^#A-Za-z0-9(),.%\s-]/g, "") || "#000000";
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${round(width)}" height="${round(height)}" ` +
     `viewBox="${round(bx)} ${round(by)} ${round(bw)} ${round(bh)}">` +
-    `<g fill="${colour}" fill-rule="nonzero">${body}</g></svg>`
+    `<g fill="${fill}" fill-rule="nonzero">${body}</g></svg>`
   );
 }
 
@@ -559,7 +576,14 @@ export async function stampPdf(
       width: box.place.w,
       height: box.place.h,
       color: rgb(c.r, c.g, c.b),
-      opacity: clamp01(box.place.opacity),
+      // Fully opaque, and `box.place.opacity` is ignored rather than clamped.
+      // A cover you can see through is not a cover: PDF composites it the same
+      // way a canvas does, so what lands on the page is orig x (1 - a), and
+      // anybody who knows a is one division away from the original. There is
+      // no honest use for a half-transparent black bar over somebody's
+      // address, and a `place` reaches here from a restored session where the
+      // number could be anything.
+      opacity: 1,
       borderWidth: 0,
     });
   }

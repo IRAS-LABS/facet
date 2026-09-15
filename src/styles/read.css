@@ -1,0 +1,876 @@
+/*
+ * Read aloud.
+ *
+ * The page area is set for reading with your eyes as well as your ears, so the
+ * measure is capped and the line height is generous: someone following along
+ * while it speaks is doing both at once. The highlight is a background wash
+ * rather than a colour change, because changing the text colour while keeping
+ * the background fixed is what makes a word look broken rather than marked.
+ */
+
+.read {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto auto auto auto auto 1fr auto;
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  overflow: hidden;
+}
+
+.read[hidden] {
+  display: none;
+}
+
+/* ── The top bar ─────────────────────────────────────────────────────────── */
+
+.read-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid var(--fct-surface);
+  background: var(--fct-surface);
+}
+
+.read-title {
+  font-size: var(--fct-fs-md);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+
+.read-note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+}
+
+.read-bad {
+  color: var(--fct-danger);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.read-btn {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--fct-text) 18%, transparent);
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  border-radius: var(--fct-radius);
+  padding: 6px 10px;
+  font-size: var(--fct-fs-sm);
+  line-height: 1.2;
+  cursor: pointer;
+  min-height: 34px;
+}
+
+.read-btn:hover:not(:disabled) {
+  border-color: var(--fct-accent);
+}
+
+.read-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.read-btn.read-on {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+}
+
+.read-btn[aria-pressed="true"] {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+}
+
+.read-offer {
+  border-color: var(--fct-accent);
+  color: var(--fct-accent);
+}
+
+/* ── Setup rows ──────────────────────────────────────────────────────────── */
+
+.read-setup,
+.read-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fct-sp-2) var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border-bottom: 1px solid color-mix(in srgb, var(--fct-text) 10%, transparent);
+}
+
+.read-extra[hidden] {
+  display: none;
+}
+
+.read-field {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+}
+
+.read-field select,
+.read-engines,
+.read-langs,
+.read-speedsel,
+.read-voices {
+  background: var(--fct-bg);
+  color: var(--fct-text);
+  border: 1px solid color-mix(in srgb, var(--fct-text) 18%, transparent);
+  border-radius: var(--fct-radius);
+  padding: 5px 8px;
+  font-size: var(--fct-fs-sm);
+  max-width: 17rem;
+}
+
+.read-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+}
+
+/* The speed picker is sized for "1.05x" and no wider: it is the shortest
+   answer in the panel and should not sit there looking like the voice list. */
+.read-speedsel {
+  width: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The voice picker is the one control here that should take whatever width is
+   going: its entries are the longest and are the reason anybody opened this
+   row. Everything else beside it is a fixed-width thing. */
+.read-voices {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+}
+
+.read-skips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  flex-basis: 100%;
+}
+
+.read-legend {
+  font-size: var(--fct-fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fct-text-dim);
+}
+
+/* ── Progress ────────────────────────────────────────────────────────────── */
+
+.read-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+}
+
+.read-progress[hidden] {
+  display: none;
+}
+
+.read-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fct-text) 12%, transparent);
+  overflow: hidden;
+}
+
+.read-fill {
+  height: 100%;
+  width: 0;
+  background: var(--fct-accent);
+  transition: width 120ms linear;
+}
+
+/* Work whose length nobody knows: a stripe that moves rather than a lie
+   about how far along it is. */
+.read-fill.read-unknown {
+  width: 35% !important;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--fct-accent) 0 12px,
+    transparent 12px 24px
+  );
+  animation: read-slide 1s linear infinite;
+}
+
+@keyframes read-slide {
+  to {
+    transform: translateX(24px);
+  }
+}
+
+.read-barnote {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  min-width: 14rem;
+}
+
+/* ── What is being skipped ───────────────────────────────────────────────── */
+
+.read-skipped {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-3);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-dim);
+  background: color-mix(in srgb, var(--fct-accent) 8%, transparent);
+}
+
+.read-skipped[hidden] {
+  display: none;
+}
+
+/* ── The page ────────────────────────────────────────────────────────────── */
+
+.read-page {
+  overflow: auto;
+  padding: var(--fct-sp-4) var(--fct-sp-3) 30vh;
+  scroll-behavior: smooth;
+  /* The body sets `touch-action: none` so the 2D canvas can own every
+     gesture. The reader needs two fingers back to zoom and one to scroll, and
+     `pinch-zoom` here is not the browser's page zoom -- that is off for good
+     by `user-scalable=no` -- it is only permission for the recogniser in
+     zoom.ts to see the second finger without the platform stealing it. */
+  touch-action: pan-x pan-y pinch-zoom;
+
+  /* Selectable, because this is a document. `base.css` turns selection off on
+     the whole body -- the right call for a file manager, where a drag is a
+     lasso and a long press is a context menu, and the wrong one for the one
+     pane whose contents are words somebody wants to quote. Long press here
+     gets the platform's own selection handles and its Copy, exactly as in
+     every other reader on the phone.
+
+     It costs nothing: a tap still starts reading at that word, because a tap
+     is not a selection, and the zoom recogniser only swallows the click that
+     ends a pinch. */
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Zoom grows the type, not a transform of it: the column re-wraps at the new
+   size, which is what makes a two-column paper readable on a phone rather
+   than just larger and still clipped. `--zoom` is set by zoom.ts on the pane
+   and is absent at 1x, so the fallback is the normal size. */
+.read-block {
+  max-width: 38rem;
+  margin: 0 auto var(--fct-sp-3);
+  font-size: calc(var(--fct-fs-md) * var(--zoom, 1));
+  line-height: 1.7;
+  border-radius: var(--fct-radius);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.read-block:hover {
+  background: color-mix(in srgb, var(--fct-text) 5%, transparent);
+}
+
+.read-heading {
+  font-weight: 700;
+  font-size: calc(var(--fct-fs-lg) * var(--zoom, 1));
+}
+
+.read-caption,
+.read-footnote,
+.read-reference {
+  font-size: calc(var(--fct-fs-sm) * var(--zoom, 1));
+  color: var(--fct-text-dim);
+}
+
+.read-equation {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: calc(var(--fct-fs-sm) * var(--zoom, 1));
+}
+
+.read-said {
+  color: var(--fct-text-dim);
+  font-style: italic;
+}
+
+.read-pagemark {
+  max-width: 38rem;
+  margin: var(--fct-sp-4) auto var(--fct-sp-3);
+  font-size: var(--fct-fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fct-text-dim);
+  border-top: 1px dashed color-mix(in srgb, var(--fct-text) 20%, transparent);
+  padding-top: 4px;
+}
+
+/* Skipped blocks stay visible and readable. Hiding them is how a reader
+   loses a paragraph without anybody noticing. */
+.read-off {
+  opacity: 0.45;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--fct-text) 35%, transparent);
+}
+
+.read-why {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: var(--fct-fs-xs);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--fct-text) 12%, transparent);
+  color: var(--fct-text-dim);
+  vertical-align: middle;
+}
+
+/* ── The highlight ───────────────────────────────────────────────────────── */
+
+.read-now {
+  background: color-mix(in srgb, var(--fct-accent) 12%, transparent);
+}
+
+.read-lit {
+  background: color-mix(in srgb, var(--fct-accent) 26%, transparent);
+  border-radius: 3px;
+}
+
+.read-said-now {
+  background: var(--fct-accent);
+  color: var(--fct-bg);
+  border-radius: 3px;
+}
+
+/* ── The real page ───────────────────────────────────────────────────────── */
+
+/* Reading along on the document itself rather than on the rebuilt text. The
+   sheet is the page; the marks layer is a transparent copy of every word laid
+   over it, positioned in per cent so a zoom is one width change rather than a
+   few thousand recalculated offsets. */
+
+.read-onpage {
+  padding-left: var(--fct-sp-2);
+  padding-right: var(--fct-sp-2);
+}
+
+/* The sheet grows instead of being scaled. Widening it means the canvas is
+   re-rasterised at the width it is now shown at -- see `Sheets.rescale` -- so
+   a page zoomed to 3x is three times the detail, not three times the pixel.
+   Past 100% of the pane the pane scrolls sideways, which is why `.read-page`
+   allows `pan-x`. */
+.read-sheet {
+  position: relative;
+  width: calc(min(100%, 62rem) * var(--zoom, 1));
+  /* A container, so the transparent word overlay can size its type against the
+     sheet in `cqw` and stay welded to the real glyphs at every zoom. Without a
+     unit tied to the sheet the overlay would need several thousand font sizes
+     recomputed on every zoom step, which is the thing this file exists to
+     avoid. `inline-size` only: the height comes from the page's aspect ratio,
+     so full size containment would be claiming something that is not true. */
+  container-type: inline-size;
+  margin: 0 auto var(--fct-sp-4);
+  /* White, not the panel colour: this is paper, and a page that inherits the
+     dark theme is the thing the page view exists to get away from. */
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 2px 16px rgb(0 0 0 / 45%);
+  overflow: hidden;
+}
+
+.read-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.read-sheetnum {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  z-index: 2;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: var(--fct-fs-xs);
+  color: #6b7280;
+  background: rgb(255 255 255 / 75%);
+  pointer-events: none;
+}
+
+.read-marks {
+  position: absolute;
+  inset: 0;
+  /* Multiply, so a highlight tints the real glyphs underneath instead of
+     covering them up. A solid block over the word being spoken is the one
+     thing that would make this view worse than the text one. */
+  mix-blend-mode: multiply;
+}
+
+.read-onpage .read-block {
+  position: absolute;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 2px;
+  background: none;
+  line-height: 1;
+}
+
+.read-onpage .read-block:hover {
+  background: color-mix(in srgb, var(--fct-accent) 10%, transparent);
+}
+
+/* Selecting a transparent overlay word has to paint something or a long press
+   on the paper looks broken. The platform's own selection colour, over the
+   real glyph underneath, reads as selecting the page itself -- which is what
+   is happening. */
+.read-onpage .read-word::selection {
+  background: var(--fct-selection);
+  color: transparent;
+}
+
+.read-onpage .read-word {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 2px;
+  /* The glyphs on the page are the real ones. These spans are a hit area, a
+     highlight, something a screen reader can still find, and the thing a long
+     press selects -- so the text is kept and simply never painted.
+
+     It is laid out at the size of the word it covers, set per word in `cqw` by
+     `read-pages.ts`. That matters for one reason: a long press asks the
+     platform for the word under the finger, and the platform looks for *text*,
+     not for a box. Rendered at a token 6px the whole document was a field of
+     empty rectangles with a sliver of type in the corner of each -- the press
+     landed on nothing, and on the rare hit the selection handles came up a few
+     pixels tall over a word ten times that size. At the word's own size the
+     press lands, the highlight sits on the real glyphs, and dragging the
+     handles walks the page the way it walks any other page on the phone.
+
+     `pre` so a long word cannot wrap inside its own box, and `overflow:
+     hidden` so the fallback font's slightly different widths are trimmed to
+     the box rather than leaking over the neighbour. */
+  color: transparent;
+  font-size: 6px;
+  line-height: 1;
+  white-space: pre;
+}
+
+.read-onpage .read-now {
+  background: color-mix(in srgb, var(--fct-accent) 14%, transparent);
+}
+
+.read-onpage .read-lit {
+  background: color-mix(in srgb, var(--fct-accent) 32%, transparent);
+}
+
+.read-onpage .read-said-now {
+  background: color-mix(in srgb, var(--fct-accent) 58%, transparent);
+  color: transparent;
+}
+
+/* A struck-through line means nothing over a box with no type in it. */
+.read-onpage .read-off {
+  opacity: 1;
+  text-decoration: none;
+  outline: 1px dashed color-mix(in srgb, #b91c1c 55%, transparent);
+  background: rgb(148 163 184 / 22%);
+}
+
+/* ── Reading-order overlay ───────────────────────────────────────────────── */
+
+.read-ordering .read-block {
+  border: 1px dashed color-mix(in srgb, var(--fct-accent) 55%, transparent);
+  cursor: grab;
+}
+
+.read-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--fct-accent);
+  color: var(--fct-bg);
+  font-size: var(--fct-fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  vertical-align: middle;
+}
+
+.read-dragging {
+  opacity: 0.4;
+}
+
+.read-drop {
+  border-color: var(--fct-accent) !important;
+  border-style: solid !important;
+  box-shadow: 0 -2px 0 0 var(--fct-accent);
+}
+
+/* ── Transport ───────────────────────────────────────────────────────────── */
+
+/* Where you are, then what to press -- the shape of every player anyone has
+   used. It was twelve controls on two lines; it is now a hairline and nine
+   things on one, which is the shape every phone media player has settled on
+   and the shape a person can read a document behind. */
+.read-transport {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 var(--fct-sp-3) var(--fct-sp-2);
+  border-top: 1px solid color-mix(in srgb, var(--fct-text) 10%, transparent);
+  background: var(--fct-surface);
+}
+
+/* The position bar is a hairline welded to the top edge, not a slider sitting
+   in the row. It reads as progress rather than as a control, which is what it
+   mostly is, and it gives the row back a control's worth of width. It is still
+   draggable: the thumb appears on hover and on touch. */
+.read-scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  width: calc(100% + 2 * var(--fct-sp-3));
+  margin: 0 calc(-1 * var(--fct-sp-3));
+  height: 14px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  flex: none;
+}
+
+.read-scrub::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 0;
+  /* Two hard stops, not a gradient: the part already read is the accent, the
+     rest is the hairline. Without this the scrubber is a control that moves
+     the document and then shows nothing for it -- the thumb below is hidden
+     until it is grabbed, and a phone has no hover to reveal it, so the only
+     feedback was the counter three rows away. */
+  background: linear-gradient(
+    to right,
+    var(--fct-accent) var(--fct-scrub, 0%),
+    color-mix(in srgb, var(--fct-text) 24%, transparent) var(--fct-scrub, 0%)
+  );
+}
+
+.read-scrub::-moz-range-track {
+  height: 3px;
+  background: linear-gradient(
+    to right,
+    var(--fct-accent) var(--fct-scrub, 0%),
+    color-mix(in srgb, var(--fct-text) 16%, transparent) var(--fct-scrub, 0%)
+  );
+}
+
+.read-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  border: none;
+  background: var(--fct-accent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.read-scrub::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  background: var(--fct-accent);
+  opacity: 0;
+}
+
+.read-scrub:hover::-webkit-slider-thumb,
+.read-scrub:focus-visible::-webkit-slider-thumb,
+.read-scrub:active::-webkit-slider-thumb {
+  opacity: 1;
+}
+
+.read-scrub:hover::-moz-range-thumb,
+.read-scrub:focus-visible::-moz-range-thumb,
+.read-scrub:active::-moz-range-thumb {
+  opacity: 1;
+}
+
+/* A finger cannot hover, so on touch the dot is simply always there. It is the
+   only thing on the bar wide enough to aim at: a 3px line is not a target. */
+@media (pointer: coarse) {
+  .read-scrub::-webkit-slider-thumb,
+  .read-scrub::-moz-range-thumb {
+    opacity: 1;
+  }
+}
+
+/* Left weight, keys, right weight. The empty right side is what puts the play
+   button on the middle of the screen rather than wherever the counter's width
+   happens to leave it. */
+.read-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  min-width: 0;
+}
+
+.read-side {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.read-side-r {
+  justify-content: flex-end;
+}
+
+.read-keys {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fct-sp-1);
+  flex: none;
+}
+
+/* The skip keys carry no word and no box: a transport reads as a transport by
+   its shape, and seven outlined rectangles around seven arrows is a toolbar
+   pretending to be one. The hit area stays 44px whether or not anything is
+   drawn around it. */
+.read-keys .read-btn {
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  /* Never the emoji font: it paints the media arrows orange, and a transport
+     where three of seven keys are a different colour looks broken rather than
+     decorated. U+FE0E asks for the same thing from the other direction. */
+  font-family: system-ui, "Segoe UI Symbol", sans-serif;
+  font-size: var(--fct-fs-lg);
+  line-height: 1;
+  color: var(--fct-text-dim);
+}
+
+.read-keys .read-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--fct-text) 10%, transparent);
+  color: var(--fct-text);
+}
+
+.read-keys .read-btn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--fct-text) 18%, transparent);
+}
+
+/* The repeat toggle sits beside the counter, so it matches the counter rather
+   than the keys: small, quiet, and only coloured when it is on. */
+.read-side .read-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  font-size: var(--fct-fs-md);
+  line-height: 1;
+  color: var(--fct-text-dim);
+}
+
+.read-side .read-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--fct-text) 10%, transparent);
+  color: var(--fct-text);
+}
+
+.read-side .read-btn.read-on {
+  color: var(--fct-accent);
+}
+
+.read-gear,
+.read-bar > .read-btn {
+  flex: none;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  font-size: var(--fct-fs-md);
+  line-height: 1;
+  color: var(--fct-text-dim);
+}
+
+.read-gear:hover:not(:disabled),
+.read-bar > .read-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--fct-text) 10%, transparent);
+  color: var(--fct-text);
+}
+
+.read-gear.read-on {
+  color: var(--fct-accent);
+}
+
+.read-play {
+  width: 56px;
+  height: 56px;
+  margin: 0 2px;
+  border-radius: 50%;
+  border: none;
+  background: var(--fct-accent);
+  color: var(--fct-bg);
+  font-size: var(--fct-fs-lg);
+  cursor: pointer;
+  flex: none;
+}
+
+.read-play:hover {
+  filter: brightness(1.1);
+}
+
+.read-play.read-loading {
+  animation: read-pulse 1s ease-in-out infinite;
+}
+
+@keyframes read-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.read-place {
+  font-size: var(--fct-fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--fct-text-dim);
+  white-space: nowrap;
+}
+
+/* ── Folded away ────────────────────────────────────────────────
+
+   The voice picker, the speed row and the skip banner are four rows of
+   chrome above a document, and on a phone that is the top third of the
+   screen. They are settings: you touch them once and then read for forty
+   minutes. So they fold behind the gear in the title bar, and the reader
+   opens on the paper. Nothing is removed and nothing moves -- the same rows
+   come back in the same place -- and a window wide enough to hold them opens
+   with them already showing. */
+
+.read-tight .read-setup,
+.read-tight .read-extra,
+.read-tight .read-skipped {
+  display: none;
+}
+
+/* ── Narrow ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  .read-title {
+    max-width: 100%;
+  }
+
+  .read-setup,
+  .read-extra {
+    gap: var(--fct-sp-2);
+  }
+
+  .read-page {
+    padding: var(--fct-sp-3) var(--fct-sp-2) 40vh;
+  }
+
+  /* Every pixel spent on chrome here is a pixel of the document. */
+  .read-bar {
+    gap: var(--fct-sp-2);
+    padding: var(--fct-sp-1) var(--fct-sp-2);
+  }
+
+  .read-note {
+    font-size: var(--fct-fs-xs);
+  }
+
+  .read-transport {
+    padding: 0 var(--fct-sp-2) var(--fct-sp-1);
+  }
+
+  .read-scrub {
+    width: calc(100% + 2 * var(--fct-sp-2));
+    margin: 0 calc(-1 * var(--fct-sp-2));
+  }
+
+  .read-keys .read-btn {
+    min-width: 38px;
+    height: 40px;
+  }
+
+  .read-play {
+    width: 48px;
+    height: 48px;
+  }
+
+  /* Must carry the zoom too. Without it this rule -- which exists only to
+     hold the body text at the normal size on a narrow window -- silently
+     overrides the zoom on exactly the screen that needs it most. */
+  .read-block {
+    font-size: calc(var(--fct-fs-md) * var(--zoom, 1));
+  }
+
+  /* No spare weight to hand the empty right side here: the row gives what is
+     left to the keys and the counter keeps only what it needs. */
+  .read-row {
+    justify-content: space-between;
+    gap: var(--fct-sp-1);
+  }
+
+  .read-side {
+    flex: none;
+  }
+
+  .read-side-r {
+    display: none;
+  }
+
+  .read-wide-only {
+    display: none;
+  }
+
+  .read-side .read-btn {
+    min-width: 30px;
+    height: 30px;
+  }
+
+  .read-place {
+    font-size: var(--fct-fs-xs);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .read-page {
+    scroll-behavior: auto;
+  }
+
+  .read-fill.read-unknown,
+  .read-play.read-loading {
+    animation: none;
+  }
+}
