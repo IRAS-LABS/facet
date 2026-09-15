@@ -466,6 +466,59 @@ the hex inspector, inspected for metadata, and handed to the default
 application. Nothing is hidden because Facet does not understand
 it.
 
+## Use it from an AI assistant (MCP)
+
+Facet is also an [MCP](https://modelcontextprotocol.io) server. The same
+binary, started as `facet mcp`, speaks JSON-RPC on stdin and stdout instead of
+opening a window, so an assistant that supports MCP can read your folders,
+look inside media files and encode them — using the engine the app itself
+uses, with the ffmpeg that ships beside it.
+
+Point your client at the installed binary:
+
+```json
+{
+  "mcpServers": {
+    "facet": {
+      "command": "C:\Users\<you>\AppData\Local\Facet\facet.exe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+In Claude Code that is one line:
+
+```
+claude mcp add facet -- "C:\Users\<you>\AppData\Local\Facet\facet.exe" mcp
+```
+
+### The tools
+
+| Tool | What it does |
+| --- | --- |
+| `facet_places` | The drives and home folders on this machine — the place to start. |
+| `facet_list_dir` | One folder: names, sizes, dates, what is a directory. |
+| `facet_probe` | Inside a media file: duration, bitrate, size, every track. |
+| `facet_frame` | A still from a video or photo, returned as an image. |
+| `facet_keyframes` | Where the keyframes are, so a cut can be lossless. |
+| `facet_waveform` | Loudness over time, for finding silence and gaps. |
+| `facet_read_text` | The beginning of a file as text. |
+| `facet_copy` | Copy a file or folder. |
+| `facet_move` | Move or rename one. |
+| `facet_recycle` | To the Recycle Bin — never a permanent delete. |
+| `facet_convert` | Encode: trim, join, crop, rotate, scale, speed, fade, mute. |
+
+Two rules hold here exactly as they do in the app, because it is the same
+code: **nothing is overwritten unless you say so** — a copy onto a name that
+is taken quietly becomes `name-2`, and the name actually used comes back in
+the answer — and **nothing is deleted**, only recycled. There is deliberately
+no tool that erases a file.
+
+Anything that needs a hand rather than an instruction is not exposed:
+signing, the pop-out player, the share sheet. Those are gestures, and a model
+has no hand to make them.
+
 ## Build from source
 
 ### What you need

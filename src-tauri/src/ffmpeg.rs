@@ -17,7 +17,7 @@
 //! can be several seconds away. Both are offered; the job reports which one it
 //! took, and `Copy` is only chosen when nothing else in the job forces a decode.
 //!
-//! **Output is staged.** ffmpeg writes to `<name>.facet-part` in the destination
+//! **Output is staged.** ffmpeg writes to `<name>.facet-part.<ext>` in the destination
 //! directory and the file is renamed into place only on success. Same directory,
 //! so the rename is atomic and cannot fail across volumes, and a cancelled job
 //! can never leave something that looks like a finished export. The partial is
@@ -1081,7 +1081,27 @@ struct Done {
 fn staged(output: &str) -> PathBuf {
     let p = PathBuf::from(output);
     let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    p.with_file_name(format!("{name}.facet-part"))
+    // The marker goes *before* the extension, not after it.
+    //
+    // `holiday.mp4.facet-part` reads better and was what this did until
+    // 2026-09-15, but ffmpeg picks its muxer from the last extension it sees
+    // and there is no muxer called `facet-part`. Every staged encode died on
+    // "Unable to choose an output format", which is to say every export in the
+    // app: both the re-encode path and the stream copy, video and audio alike.
+    // No test caught it because every test in this file hands `args_for` a
+    // destination it made up, ending in `.mp4`, rather than the one `run_job`
+    // actually passes.
+    //
+    // Naming it `holiday.facet-part.mp4` keeps the extension where ffmpeg
+    // looks, keeps the file beside its destination so the rename into place
+    // stays atomic, and still contains `.facet-part`, which is what the front
+    // end matches on when it tells the user what a failed job left behind.
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => p.with_file_name(format!("{stem}.facet-part.{ext}")),
+        // No extension to protect. ffmpeg cannot mux to this either way, and
+        // that is the caller's error to hear, not something to paper over.
+        _ => p.with_file_name(format!("{name}.facet-part")),
+    }
 }
 
 /// Start a job. Returns immediately with its id; everything else arrives as
@@ -1109,6 +1129,72 @@ pub fn run_job(app: tauri::AppHandle, job: Job) -> Result<u64, String> {
     };
 
     start(app, args_for(&job, source, &part), part, job.output, total, copied, cwd)
+}
+
+/// Run a job to completion on the calling thread and return the output path.
+///
+/// `run_job` is the window's version: it returns an id immediately and reports
+/// the rest as `ffmpeg-progress` and `ffmpeg-done` events, because a UI that
+/// blocks for the length of an export is not a UI. The MCP server has no
+/// window and no event bus — its caller asked one question and is waiting for
+/// one answer — so it wants the opposite shape, and building it on `start`
+/// would mean inventing an `AppHandle` that has nowhere to emit to.
+///
+/// Everything that decides *what* ffmpeg does is shared: `args_for` is the
+/// same pure builder, `staged` picks the same temporary name. What is
+/// duplicated here is only the waiting, and it is the short half.
+pub fn run_job_blocking(job: Job) -> Result<String, String> {
+    if job.inputs.is_empty() {
+        return Err("nothing to encode".into());
+    }
+    let source = probe_media(job.inputs[0].clone()).map(|m| m.duration).unwrap_or(0.0);
+    let part = staged(&job.output);
+
+    // Same rule as `run_job`: the subtitle file is written next to the output
+    // under a name we chose, and ffmpeg is run from that directory so the
+    // filename never has to survive filtergraph escaping.
+    let cwd = match &job.subtitles {
+        Some(s) => {
+            let at = s.staged_at(&job.output);
+            std::fs::write(&at, &s.text)
+                .map_err(|e| format!("the subtitles could not be prepared ({e})"))?;
+            Some(temp_subs())
+        }
+        None => None,
+    };
+
+    let mut spawn = cmd("ffmpeg");
+    if let Some(dir) = cwd {
+        spawn.current_dir(dir);
+    }
+    let out = spawn
+        .args(args_for(&job, source, &part))
+        .output()
+        .map_err(|e| format!("ffmpeg could not be started ({e}) — is it on PATH?"))?;
+
+    if !out.status.success() {
+        // ffmpeg explains itself on stderr and nowhere else. The last
+        // non-empty line is the complaint; everything above it is the banner
+        // and the stream dump, which tell the caller nothing they asked.
+        let why = String::from_utf8_lossy(&out.stderr);
+        let last = why
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("ffmpeg failed")
+            .to_string();
+        // A half-written file is worse than none: the caller would have no way
+        // to tell it from a good one.
+        let _ = std::fs::remove_file(&part);
+        return Err(last);
+    }
+
+    // Same directory, so the rename is atomic and cannot fail for crossing a
+    // volume. Only on success — see `start`.
+    std::fs::rename(&part, &job.output)
+        .map_err(|e| format!("encoded, but could not be moved into place: {e}"))?;
+    crate::media::scan(std::slice::from_ref(&job.output));
+    Ok(job.output)
 }
 
 /// Spawn ffmpeg and watch it — the half of a job that has nothing to do with
@@ -1708,7 +1794,7 @@ mod tests {
     }
 
     fn line(j: &Job, source: f64) -> String {
-        args_for(j, source, Path::new("out.mp4.facet-part")).join(" ")
+        args_for(j, source, Path::new("out.facet-part.mp4")).join(" ")
     }
 
     #[test]
@@ -1946,9 +2032,52 @@ mod tests {
     #[test]
     fn output_is_staged_beside_its_destination() {
         let p = staged("D:/clips/holiday.mp4");
-        assert_eq!(p.file_name().unwrap(), "holiday.mp4.facet-part");
+        assert_eq!(p.file_name().unwrap(), "holiday.facet-part.mp4");
         // Same directory, so the rename into place is atomic.
         assert_eq!(p.parent(), Path::new("D:/clips/holiday.mp4").parent());
+        // The front end reports leftovers by matching this substring.
+        assert!(p.to_string_lossy().contains(".facet-part"));
+    }
+
+    #[test]
+    fn a_staged_name_keeps_the_extension_ffmpeg_chooses_its_muxer_from() {
+        for (out, want) in [
+            ("D:/a/holiday.mp4", "holiday.facet-part.mp4"),
+            ("D:/a/talk.mp3", "talk.facet-part.mp3"),
+            ("D:/a/my.holiday.2026.mkv", "my.holiday.2026.facet-part.mkv"),
+            // Nothing to protect; the marker simply goes on the end.
+            ("D:/a/noext", "noext.facet-part"),
+        ] {
+            assert_eq!(staged(out).file_name().unwrap(), want, "staging {out}");
+        }
+    }
+
+    #[test]
+    fn ffmpeg_can_actually_write_to_the_staged_name() {
+        // The test that was missing for the whole of 0.1.x. Everything else
+        // here hands `args_for` a tidy `.mp4` destination that `run_job` never
+        // uses, so a staged name ffmpeg could not mux to sailed straight
+        // through a green suite and broke every export in the app.
+        let dest = std::env::temp_dir().join("facet-staged-check.mp4");
+        let part = staged(&dest.to_string_lossy());
+        let _ = std::fs::remove_file(&part);
+
+        let mut j = job(&["in.mp4"]);
+        j.inputs = vec![fixture().to_string_lossy().into_owned()];
+        j.output = dest.to_string_lossy().into_owned();
+        j.spans = vec![Span { start: 1.0, end: 2.0 }];
+        j.precise = true;
+
+        let out = cmd("ffmpeg").args(args_for(&j, 10.0, &part)).output().expect("ffmpeg on PATH");
+        assert!(
+            out.status.success(),
+            "ffmpeg could not write to the staged name {}:
+{}",
+            part.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(probe_media(part.to_string_lossy().into_owned()).is_ok(), "the staged file is not playable");
+        let _ = std::fs::remove_file(&part);
     }
 
     /// Ten seconds of colour bars and a 440 Hz tone, built once per run.
@@ -2207,7 +2336,7 @@ mod tests {
     }
 
     fn aline(j: &AudioJob, source: f64) -> String {
-        audio_args_for(j, source, Path::new("out.facet-part")).join(" ")
+        audio_args_for(j, source, Path::new("out.facet-part.mp3")).join(" ")
     }
 
     #[test]

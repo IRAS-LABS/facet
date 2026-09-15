@@ -32,6 +32,11 @@ mod cli;
 mod pip;
 #[cfg(desktop)]
 mod pip_layout;
+// Desktop only: FACET as an MCP server, so a model can drive the same engine
+// over stdio that the window drives over IPC. Reached by `facet mcp` in `run()`
+// below, before any window exists.
+#[cfg(desktop)]
+mod mcp;
 
 /// The `--req N` of a command line that failed to parse, so the error can
 /// still be reported against the number the caller is waiting for.
@@ -59,6 +64,19 @@ fn handle_args<R: tauri::Runtime>(app: &tauri::AppHandle<R>, args: &[String], cw
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // `facet mcp` is not the app. It is this same binary answering JSON-RPC on
+    // stdin, and it has to be caught here — before the builder, before the
+    // single-instance plugin — or a running FACET would swallow the launch and
+    // hand the arguments to a window, leaving the client waiting on a stdout
+    // that nothing will ever write to.
+    #[cfg(desktop)]
+    {
+        let mut args = std::env::args().skip(1);
+        if args.next().as_deref() == Some("mcp") {
+            std::process::exit(mcp::serve());
+        }
+    }
+
     let builder = tauri::Builder::default();
 
     // First, before anything else can open a window: a second `facet.exe`
