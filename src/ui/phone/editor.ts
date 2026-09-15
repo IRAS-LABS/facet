@@ -99,6 +99,9 @@ const SWATCHES: ReadonlyArray<readonly [string, string]> = [
   ["Purple", "#7a4fd0"],
 ];
 
+/** Caption line height, as a multiple of the font size. */
+const CAPTION_LINE = 1.2;
+
 /** Output-size rungs, as a fraction of the crop. */
 const SCALES = [0.1, 0.25, 0.33, 0.5, 0.66, 0.75, 1, 1.5, 2];
 
@@ -169,6 +172,35 @@ const LIGHT_FIELD: Readonly<Record<string, keyof Adjust>> = {
 };
 
 /** Crop ratios. `null` is free; 0 is "the original frame's own ratio". */
+/** What a layer is called in the list — the chip's own word, not the engine's. */
+const SHAPE_NAMES: Partial<Record<ShapeKind, string>> = {
+  rect: "Rectangle", ellipse: "Oval", polygon: "Lasso", brush: "Brush",
+  linear: "Band", radial: "Spotlight", full: "Everything",
+};
+
+/** Options row size: the default single row, hidden, or a wrapped height in CSS px. */
+type StripSize = "row" | "hidden" | number;
+const STRIP_KEY = "facet.phe.strip";
+
+function loadStripSize(): StripSize {
+  try {
+    const v = localStorage.getItem(STRIP_KEY);
+    if (v === "hidden") return "hidden";
+    const n = Number(v);
+    return v !== null && Number.isFinite(n) && n > 0 ? Math.round(n) : "row";
+  } catch {
+    return "row";
+  }
+}
+
+function saveStripSize(size: StripSize): void {
+  try {
+    localStorage.setItem(STRIP_KEY, String(size));
+  } catch {
+    // Private mode or storage blocked: the size just is not remembered.
+  }
+}
+
 const RATIOS: ReadonlyArray<readonly [string, number | null]> = [
   ["Free", null],
   ["Original", 0],
@@ -299,6 +331,14 @@ export class PhoneEditor {
   /** Categories ticked in the Auto-blur sheet for this run; null = "as configured". */
   private autoPick: Set<AutoCategory> | null = null;
   private autoBusy = false;
+  /** The see-through warning has been shown in this edit. */
+  private warnedSeeThrough = false;
+  /** Cancels the auto-blur run in flight. */
+  private autoAbort: AbortController | null = null;
+  /** Progress over the dock while a detector runs: bar, step, Cancel. */
+  private busyEl: HTMLElement;
+  private busyBar: HTMLElement;
+  private busyText: HTMLElement;
   /** The OCR engine, made on the first run that reads text and kept for the session. */
   private ocr: Tesseract | null = null;
 
@@ -351,7 +391,7 @@ export class PhoneEditor {
     this.compareBtn = this.iconBtn("compare", "Hold to compare with the original", () => {});
     this.wireCompare(this.compareBtn);
     const save = el<"button">("button.phe-save", { type: "button", text: "Save", "aria-pressed": "false" });
-    save.addEventListener("click", () => this.open("share"));
+    save.addEventListener("click", () => { this.revealStrip(); this.open("share"); });
     this.saveBtn = save;
 
     this.top = el("div.phe-top", { hidden: true, role: "toolbar", "aria-label": "Editor" },
@@ -360,9 +400,137 @@ export class PhoneEditor {
 
     this.strip = el("div.phe-strip", { role: "group", "aria-label": "Tool options" });
     this.rail = el("nav.phe-rail", { "aria-label": "Tools" });
-    this.el = el("div.phe-dock", { hidden: true }, this.strip, this.rail);
+    const grab = el<"button">("button.phe-grab", {
+      type: "button",
+      title: "Drag to show more or fewer tools — tap to cycle",
+      "aria-label": "Tool panel size. Drag up for more tools, down for a bigger picture",
+    });
+    this.busyBar = el("span.phe-busy-bar");
+    this.busyText = el("span.phe-busy-text");
+    const stop = el<"button">("button.phe-busy-stop", { type: "button", text: "Cancel" });
+    stop.addEventListener("click", () => this.autoAbort?.abort());
+    this.busyEl = el("div.phe-busy", { hidden: true, role: "status", "aria-live": "polite" },
+      el("span.phe-busy-track", {}, this.busyBar), this.busyText, stop,
+    );
+    this.el = el("div.phe-dock", { hidden: true }, grab, this.strip, this.rail, this.busyEl);
     this.buildRail();
     this.wireScrollHints();
+    this.wireStripSize(grab);
+  }
+
+  // ── Tool panel size ─────────────────────────────────────────────────────
+
+  /**
+   * The dock's handle. Drag it down and the options row goes away, leaving
+   * just the rail and the most picture; drag it up past one row and the
+   * options wrap into as many rows as you pulled, so every chip in a group
+   * is on screen at once instead of behind a sideways scroll. A tap cycles
+   * one row → tall → hidden. The choice is remembered for the next edit.
+   *
+   * The tap is handled on `click`, not `pointerup`: resizing on pointerup
+   * moved a chip under the finger before the WebView sent its click, so
+   * tapping the handle also opened whatever option landed there.
+   */
+  private wireStripSize(grab: HTMLElement): void {
+    this.applyStripSize(loadStripSize());
+    let startY = 0;
+    let startH = 0;
+    let moved = false;
+    let id = -1;
+    const rowH = (): number => (window.innerHeight <= 500 ? 46 : 60);
+    const most = (): number => {
+      const room = this.el.parentElement?.clientHeight || window.innerHeight;
+      return Math.max(rowH(), Math.round(room * 0.55) - this.rail.offsetHeight);
+    };
+    grab.addEventListener("pointerdown", (ev) => {
+      id = ev.pointerId;
+      startY = ev.clientY;
+      startH = this.strip.getBoundingClientRect().height;
+      moved = false;
+      grab.setPointerCapture(ev.pointerId);
+    });
+    grab.addEventListener("pointermove", (ev) => {
+      if (ev.pointerId !== id) return;
+      const dy = startY - ev.clientY;
+      if (!moved && Math.abs(dy) < 6) return;
+      moved = true;
+      const h = Math.max(0, Math.min(most(), startH + dy));
+      this.el.classList.add("phe-dragging");
+      this.el.classList.toggle("phe-tall", h > rowH() + 8);
+      this.el.classList.remove("phe-nostrip");
+      this.setStripVar(`${Math.round(h)}px`);
+    });
+    const end = (ev: PointerEvent): void => {
+      if (ev.pointerId !== id) return;
+      id = -1;
+      this.el.classList.remove("phe-dragging");
+      if (!moved) return;
+      const h = this.strip.getBoundingClientRect().height;
+      const next: StripSize = h < rowH() * 0.5 ? "hidden" : h < rowH() * 1.6 ? "row" : Math.round(h);
+      this.applyStripSize(next);
+      saveStripSize(next);
+    };
+    grab.addEventListener("pointerup", end);
+    grab.addEventListener("pointercancel", end);
+    grab.addEventListener("click", () => {
+      if (moved) {
+        moved = false;
+        return;
+      }
+      const next: StripSize = this.stripSize === "row" ? Math.min(most(), rowH() * 3 + 16)
+        : this.stripSize === "hidden" ? "row" : "hidden";
+      this.applyStripSize(next);
+      saveStripSize(next);
+    });
+  }
+
+  private stripSize: StripSize = "row";
+
+  private applyStripSize(size: StripSize): void {
+    this.stripSize = size;
+    this.el.classList.toggle("phe-nostrip", size === "hidden");
+    this.el.classList.toggle("phe-tall", typeof size === "number");
+    this.syncStripVar();
+    this.hintScroll(this.strip);
+  }
+
+  /**
+   * A tall panel is only as tall as what is in it. One slider, a layer list
+   * with one layer, a row of swatches: each used to sit at the top of the
+   * size you last dragged to with the rest of the dock empty, and the picture
+   * paid for the empty part. The saved size is a ceiling, and comes back as
+   * soon as a group with more chips opens.
+   */
+  private syncStripVar(): void {
+    const size = this.stripSize;
+    if (size === "hidden") return this.setStripVar("0px");
+    if (size === "row" || this.el.classList.contains("phe-single")) return this.setStripVar(null);
+    const last = this.strip.lastElementChild;
+    let fit = size;
+    if (last) {
+      const rowH = window.innerHeight <= 500 ? 46 : 60;
+      const top = this.strip.getBoundingClientRect().top - this.strip.scrollTop;
+      const need = Math.ceil(last.getBoundingClientRect().bottom - top) + 6;
+      fit = Math.max(rowH, Math.min(size, need));
+    }
+    this.setStripVar(`${fit}px`);
+  }
+
+  /** On the dock for its own grid, and on the editor root for the toast. */
+  private setStripVar(v: string | null): void {
+    for (const node of [this.el, this.el.parentElement]) {
+      if (!node) continue;
+      if (v === null) node.style.removeProperty("--phe-strip-h");
+      else node.style.setProperty("--phe-strip-h", v);
+    }
+  }
+
+  /** A tool tapped while the options row is hidden brings the row back. */
+  private revealStrip(): void {
+    if (this.stripSize === "hidden") {
+      this.applyStripSize("row");
+      saveStripSize("row");
+    }
   }
 
   // ── Scroll hints ────────────────────────────────────────────────────────
@@ -395,6 +563,10 @@ export class PhoneEditor {
   }
 
   private hintScroll(row: HTMLElement): void {
+    if (row === this.strip && this.el.classList.contains("phe-tall")) {
+      delete row.dataset.more;
+      return;
+    }
     // Measure to the last real child, not `scrollWidth`: each row ends in an
     // `::after` spacer that keeps the final button clear of the edge-gesture
     // zone, and a fade that only covers the spacer would say "more" over a
@@ -418,6 +590,7 @@ export class PhoneEditor {
     this.source = source;
     this.canvas = canvas;
     this.kind = kind;
+    this.warnedSeeThrough = false;
     this.regions = [];
     this.selected = null;
     this.markerId = null;
@@ -446,6 +619,7 @@ export class PhoneEditor {
   }
 
   end(): void {
+    this.autoAbort?.abort();
     this.source = null;
     this.canvas = null;
     this.regions = [];
@@ -510,7 +684,7 @@ export class PhoneEditor {
     }
     const n = this.history.length;
     this.confirmRow(
-      `Discard ${n === 1 ? "this edit" : `${n} edits`}?`,
+      `Discard ${n === 1 ? "this edit" : n >= HISTORY_CAP ? "all edits" : `${n} edits`}?`,
       "Discard",
       () => this.host.leave(),
       "Keep editing",
@@ -660,15 +834,11 @@ export class PhoneEditor {
     const down = (ev: Event): void => {
       ev.preventDefault();
       if (this.comparing) return;
-      this.comparing = true;
-      b.setAttribute("aria-pressed", "true");
-      this.draw();
+      this.compare(true);
     };
     const up = (): void => {
       if (!this.comparing) return;
-      this.comparing = false;
-      b.setAttribute("aria-pressed", "false");
-      this.draw();
+      this.compare(false);
     };
     b.setAttribute("aria-pressed", "false");
     b.addEventListener("pointerdown", down);
@@ -693,12 +863,17 @@ export class PhoneEditor {
     if (on === this.comparing) return;
     this.comparing = on;
     this.compareBtn.setAttribute("aria-pressed", String(on));
+    // The stage says which picture it is: a held original that looks like
+    // the edit reads as "the edit did nothing".
+    this.el.parentElement?.classList.toggle("phe-comparing", on);
     this.draw();
   }
 
   private paintHistory(): void {
     const n = this.history.length;
-    this.editsEl.textContent = n === 0 ? "No edits" : n === 1 ? "1 edit" : `${n} edits`;
+    // The stack keeps the last HISTORY_CAP steps, so at the cap the real
+    // count is unknown; "40 edits" that never moves looked like a stuck counter.
+    this.editsEl.textContent = n === 0 ? "No edits" : n === 1 ? "1 edit" : n >= HISTORY_CAP ? `${n}+ edits` : `${n} edits`;
     this.undoBtn.disabled = n === 0;
     this.redoBtn.disabled = this.future.length === 0;
   }
@@ -718,7 +893,7 @@ export class PhoneEditor {
         el("span.phe-rail-icon", { "aria-hidden": true }, icon(glyph)),
         el("span.phe-rail-label", { text: label }),
       );
-      b.addEventListener("click", () => this.open(id));
+      b.addEventListener("click", () => { this.revealStrip(); this.open(id); });
       frag.append(b);
     }
     fill(this.rail, frag);
@@ -807,6 +982,7 @@ export class PhoneEditor {
 
   /** Where the chip strip is scrolled to, carried across every rebuild. */
   private stripLeft = 0;
+  private stripTop = 0;
 
   /**
    * Set by `open` to make the next rebuild start at the left.
@@ -839,15 +1015,23 @@ export class PhoneEditor {
     // and returning to the chips went through exactly that path.
     if (this.stripReset) {
       this.stripLeft = 0;
+      this.stripTop = 0;
       this.stripReset = false;
-    } else if (this.strip.scrollWidth - this.strip.clientWidth > 2) {
-      this.stripLeft = this.strip.scrollLeft;
+    } else {
+      if (this.strip.scrollWidth - this.strip.clientWidth > 2) this.stripLeft = this.strip.scrollLeft;
+      // Same rule for the tall panel, which scrolls the other way.
+      if (this.strip.scrollHeight - this.strip.clientHeight > 2) this.stripTop = this.strip.scrollTop;
     }
     fill(this.strip, ...kids);
+    const single = kids.length === 1 && kids[0] instanceof HTMLElement && kids[0].classList.contains("phe-slider");
+    this.el.classList.toggle("phe-single", single);
+    if (!this.el.classList.contains("phe-dragging")) this.syncStripVar();
     // Reading scrollWidth forces the layout the restore needs: assigning
     // scrollLeft before the new chips have been measured clamps it to 0.
     void this.strip.scrollWidth;
     this.strip.scrollLeft = this.stripLeft;
+    // Tall panel: the chips wrap and scroll vertically instead.
+    if (this.el.classList.contains("phe-tall")) this.strip.scrollTop = this.stripTop;
     this.hintScroll(this.strip);
     // The rail's active button may just have been scrolled into view.
     this.hintScroll(this.rail);
@@ -884,6 +1068,13 @@ export class PhoneEditor {
     let before: Snap | null = null;
     /** Where the last settled drag left the control. */
     let start = o.value;
+    // The track fills up to the thumb, so the value reads at a glance.
+    const fillTo = (v: number): void => {
+      const span = o.max - o.min;
+      const pct = span > 0 ? ((v - o.min) / span) * 100 : 0;
+      range.style.setProperty("--fill", `${Math.max(0, Math.min(100, pct)).toFixed(1)}%`);
+    };
+    fillTo(o.value);
 
     const arm = (): void => {
       if (before) return;
@@ -907,6 +1098,7 @@ export class PhoneEditor {
       if (!before) arm();
       const v = Number(range.value);
       readout.textContent = o.format(v);
+      fillTo(v);
       o.onInput(v);
       this.drawSoon();
     });
@@ -934,6 +1126,7 @@ export class PhoneEditor {
         o.onInput(o.reset);
         range.value = String(o.reset);
         readout.textContent = o.format(o.reset);
+        fillTo(o.reset);
         before = null;
         this.endPreview();
         if (start !== o.reset) this.commit(was);
@@ -1119,7 +1312,7 @@ export class PhoneEditor {
       icon: "straighten",
       ...((this.geom.tilt ?? 0) !== 0 ? { value: `${this.geom.tilt}°` } : {}),
     }));
-    const px = this.outPx();
+    const px = this.pendingPx();
     frag.append(this.chip("Size", () => this.sizeSlider(), {
       icon: "resize", tool: "tf.resize", value: `${px.w}×${px.h}`,
     }));
@@ -1163,7 +1356,9 @@ export class PhoneEditor {
   private turn(): void {
     const was = this.snap("Rotate");
     this.geom = rotate(this.geom, 1);
-    this.cropRect = { x: 0, y: 0, w: 1, h: 1 };
+    // Keep the picked ratio: the chip stays lit, so the box has to match it in
+    // the new orientation rather than silently going back to the whole picture.
+    this.cropRect = this.cropRatio === null ? { x: 0, y: 0, w: 1, h: 1 } : this.fitRect(this.ratioValue(this.cropRatio));
     this.commit(was);
     this.showCrop();
   }
@@ -1217,7 +1412,7 @@ export class PhoneEditor {
       max: SCALES.length - 1,
       step: 1,
       format: (i) => {
-        const px = this.outPx();
+        const px = this.pendingPx();
         return `${Math.round((SCALES[i] ?? 1) * 100)}% · ${px.w}×${px.h}`;
       },
       onInput: (i) => { this.geom = { ...this.geom, scale: SCALES[i] ?? 1 }; },
@@ -1245,7 +1440,7 @@ export class PhoneEditor {
     const have = { native: this.host.native, ffmpeg: this.host.ffmpeg };
 
     frag.append(this.caption("Where"));
-    for (const { tool, enabled, why } of groupTools("shape", this.kind, have)) {
+    for (const { tool, enabled, why } of groupTools("shape", this.kind, have).filter((g) => g.applies)) {
       const id = tool.id.slice(11) as ShapeKind;
       frag.append(this.chip(tool.label, () => this.setShape(id), {
         icon: tool.icon, tool: tool.id, on: this.shape === id, disabled: !enabled, why,
@@ -1253,7 +1448,7 @@ export class PhoneEditor {
     }
     frag.append(this.divider());
     frag.append(this.caption("Look"));
-    for (const { tool, enabled, why } of groupTools("blur", this.kind, have)) {
+    for (const { tool, enabled, why } of groupTools("blur", this.kind, have).filter((g) => g.applies)) {
       if (!tool.id.startsWith("blur.kind.")) continue;
       const id = tool.id.slice(10) as BlurKind;
       frag.append(this.chip(tool.label, () => this.setStyle(id), {
@@ -1266,38 +1461,60 @@ export class PhoneEditor {
     const t = this.blurTarget();
     const val = (f: "amount" | "feather" | "opacity" | "corners" | "angle"): number =>
       t ? t[f] : this.arm[f];
-    frag.append(this.chip("Size", () => this.brushSlider(), {
+    // Only the controls the current shape and look actually use. A Corners or
+    // Angle chip that changes nothing reads as broken.
+    const shape = t ? t.shape : this.shape;
+    const look = t ? t.kind : this.style;
+    if (this.shape === "brush" || shape === "brush") frag.append(this.chip("Size", () => this.brushSlider(), {
       icon: "brush", tool: "adj.brush", value: this.brushLabel(this.arm.brush),
     }));
-    frag.append(this.chip("Strength", () => this.regionSlider("Strength", "amount", 0, 0.25, 0.005,
-      (v) => `${Math.round(v * 400)}%`), { icon: "gauge", tool: "adj.amount", value: `${Math.round(val("amount") * 400)}%` }));
-    frag.append(this.chip("Feather", () => this.regionSlider("Feather", "feather", 0, 0.1, 0.002,
-      (v) => `${Math.round(v * 1000)}`), { icon: "feather", tool: "adj.feather", value: `${Math.round(val("feather") * 1000)}` }));
-    frag.append(this.chip("Opacity", () => this.regionSlider("Opacity", "opacity", 0, 1, 0.02, plainPct),
-      { icon: "opacity", tool: "adj.opacity", value: plainPct(val("opacity")) }));
-    frag.append(this.chip("Corners", () => this.regionSlider("Corners", "corners", 0, 0.5, 0.01,
-      (v) => `${Math.round(v * 200)}%`), { icon: "corners", tool: "adj.corners" }));
-    frag.append(this.chip("Angle", () => this.regionSlider("Angle", "angle", 0, Math.PI * 2, 0.05,
-      (v) => `${Math.round((v * 180) / Math.PI)}°`), { icon: "angle", tool: "adj.angle" }));
-    frag.append(this.chip("Tint", () => this.showSwatches("blur"), { icon: "tint", tool: "adj.color" }));
+    // Redact has no dials, and is not offered any. Strength, Feather and
+    // Opacity all *weaken* a cover, and `renderBlur` pins them shut for this
+    // look whatever a slider or a restored session says -- so showing them
+    // would be showing three controls that silently do nothing. Worse than
+    // that, it would be showing an Opacity slider beside a redaction bar,
+    // which is an invitation to make one you can read straight through.
+    if (look !== "redact") {
+      frag.append(this.chip("Strength", () => this.regionSlider("Strength", "amount", 0, 0.25, 0.005,
+        (v) => `${Math.round(v * 400)}%`), { icon: "gauge", tool: "adj.amount", value: `${Math.round(val("amount") * 400)}%` }));
+      frag.append(this.chip("Feather", () => this.regionSlider("Feather", "feather", 0, 0.1, 0.002,
+        (v) => `${Math.round(v * 1000)}`), { icon: "feather", tool: "adj.feather", value: `${Math.round(val("feather") * 1000)}` }));
+      frag.append(this.chip("Opacity", () => this.regionSlider("Opacity", "opacity", 0, 1, 0.02, plainPct),
+        { icon: "opacity", tool: "adj.opacity", value: plainPct(val("opacity")) }));
+    }
+    if (shape === "rect" || this.shape === "rect") frag.append(this.chip("Corners", () => this.regionSlider("Corners", "corners", 0, 0.5, 0.01,
+      (v) => `${Math.round(v * 200)}%`), { icon: "corners", tool: "adj.corners", value: `${Math.round(val("corners") * 200)}%` }));
+    if (look === "motion" || this.style === "motion" || shape === "linear" || this.shape === "linear") frag.append(this.chip("Angle", () => this.regionSlider("Angle", "angle", 0, 360, 1,
+      (v) => `${Math.round(v)}°`), { icon: "angle", tool: "adj.angle", value: `${Math.round(val("angle"))}°` }));
+    frag.append(this.chip("Tint", () => this.showSwatches("blur"), {
+      icon: "tint", tool: "adj.color",
+      value: (t ? t.colorAmount : this.arm.colorAmount) > 0 ? plainPct(t ? t.colorAmount : this.arm.colorAmount) : "Off",
+    }));
     frag.append(this.divider());
     frag.append(this.caption("Find it for me"));
     frag.append(this.chip("Faces", () => void this.blurFaces(), { icon: "face", tool: "ai.faces" }));
     frag.append(this.chip("Everything", () => this.showAutoSheet(), { icon: "sparkles", tool: "ai.auto" }));
+    frag.append(this.divider());
+    frag.append(this.caption("Layers"));
     frag.append(this.chip("Invert", () => this.patch("Invert", (r) => { r.invert = !r.invert; }), {
       icon: "invert", tool: "blur.invert", on: !!t?.invert, disabled: !t,
     }));
+    // Drawing lives in the same list but is not a blur: neither counted here
+    // nor listed under Layers nor removed by Clear.
+    const blurs = this.regions.filter((r) => !this.isPen(r)).length;
     frag.append(this.chip("Layers", () => this.showLayers(), {
-      icon: "layers", tool: "blur.layers", value: String(this.regions.length),
+      icon: "layers", tool: "blur.layers", value: String(blurs),
     }));
     frag.append(this.chip("Clear", () => this.clearAll(), {
-      icon: "clear", tool: "blur.clear", disabled: this.regions.length === 0,
+      icon: "clear", tool: "blur.clear", disabled: blurs === 0,
     }));
     // The clip tools (blur at a moment, follow, layers) live in the video
-    // editor's workspace; here they are doors to it, greyed for a still.
-    frag.append(this.divider());
-    for (const { tool, enabled, why } of groupTools("blur", this.kind, have)) {
-      if (tool.id.startsWith("blur.video.")) frag.append(this.toolChip(tool, enabled, why));
+    // editor's workspace. On a still they can never be used, and a row of
+    // greyed chips — one a second "Layers" — only read as broken.
+    const clip = groupTools("blur", this.kind, have).filter((g) => g.tool.id.startsWith("blur.video.") && g.enabled);
+    if (clip.length > 0) {
+      frag.append(this.divider());
+      for (const { tool, enabled, why } of clip) frag.append(this.toolChip(tool, enabled, why));
     }
     this.setStrip(frag);
   }
@@ -1327,10 +1544,14 @@ export class PhoneEditor {
    * off; choosing anything else puts the soft edge back. Both are written to
    * the armed defaults as well as to the selected region, so the next box you
    * draw behaves the same way as this one.
+   *
+   * For `redact` this is belt and braces only -- `renderBlur` hardens the
+   * region as it draws, so a feather that survived here would change nothing
+   * on the picture. It is done anyway so the panel and the pixels agree.
    */
   private setStyle(kind: BlurKind): void {
     this.style = kind;
-    const hard = kind === "solid";
+    const hard = kind === "redact" || kind === "solid";
     const feather = hard ? 0 : Math.max(this.arm.feather, DEFAULT_FEATHER);
     this.arm = { ...this.arm, feather };
     const t = this.blurTarget();
@@ -1353,6 +1574,12 @@ export class PhoneEditor {
       onInput: (v) => {
         this.arm[field] = v;
         if (t) t[field] = v;
+        // Every look here is for hiding something. Below full opacity the
+        // original shows through, which is easy to miss on a phone screen.
+        if (field === "opacity" && v < 1 && !this.warnedSeeThrough) {
+          this.warnedSeeThrough = true;
+          this.host.say("Below 100% the original shows through — keep it at 100% to hide something");
+        }
       },
       commit: label,
       back: () => this.showBlur(),
@@ -1432,11 +1659,13 @@ export class PhoneEditor {
       case "blur": {
         const t = this.blurTarget();
         const was = this.snap("Tint");
+        // Half strength on first pick: a tint you can see through. Full is a
+        // flat fill, which Black bar already is, and is one slider away.
         this.arm.color = hex;
-        if (this.arm.colorAmount === 0) this.arm.colorAmount = 1;
+        if (this.arm.colorAmount === 0) this.arm.colorAmount = 0.5;
         if (t) {
           t.color = hex;
-          if (t.colorAmount === 0) t.colorAmount = 1;
+          if (t.colorAmount === 0) t.colorAmount = 0.5;
           this.commit(was);
         }
         break;
@@ -1472,16 +1701,32 @@ export class PhoneEditor {
     const back = this.iconBtn("chevron-left", "Back to options", () => this.showBlur());
     const frag = document.createDocumentFragment();
     frag.append(back);
-    if (this.regions.length === 0) {
+    if (!this.regions.some((r) => !this.isPen(r))) {
       frag.append(el("span.phe-question", { text: "Nothing added yet — draw on the picture" }));
     }
     for (const r of [...this.regions].reverse()) {
-      if (r.id === this.markerId) continue;
-      const b = this.chip(r.label, () => {
+      if (this.isPen(r)) continue;
+      // Detector labels are lower case ("plate 2"); the list reads as names.
+      const b = this.chip(r.label.charAt(0).toUpperCase() + r.label.slice(1), () => {
         this.selected = r.id;
         this.showLayers();
         this.draw();
-      }, { icon: r.enabled ? "eye" : "eye-off", on: r.id === this.selected });
+      }, { on: r.id === this.selected });
+      // The eye is its own button. On the chip it only ever selected, so a
+      // tap on "hide" left the blur exactly where it was.
+      const eye = el<"button">("button.phe-chip-x.phe-chip-eye", {
+        type: "button",
+        "aria-label": r.enabled ? `Hide ${r.label}` : `Show ${r.label}`,
+        "aria-pressed": String(!r.enabled),
+      });
+      eye.append(icon(r.enabled ? "eye" : "eye-off"));
+      eye.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const was = this.snap(r.enabled ? `Hide ${r.label}` : `Show ${r.label}`);
+        r.enabled = !r.enabled;
+        this.commit(was);
+        this.showLayers();
+      });
       const x = el<"button">("button.phe-chip-x", { type: "button", "aria-label": `Remove ${r.label}` });
       x.append(icon("x"));
       x.addEventListener("click", (ev) => {
@@ -1492,13 +1737,13 @@ export class PhoneEditor {
         this.commit(was);
         this.showLayers();
       });
-      frag.append(el("span.phe-layer", {}, b, x));
+      frag.append(el("span.phe-layer", {}, b, eye, x));
     }
     this.setStrip(frag);
   }
 
   private clearAll(): void {
-    const keep = this.regions.filter((r) => r.id === this.markerId);
+    const keep = this.regions.filter((r) => this.isPen(r));
     if (keep.length === this.regions.length) return;
     const was = this.snap("Clear blurs");
     this.regions = keep;
@@ -1567,7 +1812,7 @@ export class PhoneEditor {
       else for (const c of AUTO_CATEGORIES) pick.add(c);
       this.syncAutoSheet();
     }, {
-      icon: "fill-all", tool: "ai.auto.all", on: pick.size === AUTO_CATEGORIES.length,
+      icon: "check-all", tool: "ai.auto.all", on: pick.size === AUTO_CATEGORIES.length,
     }));
     frag.append(this.divider());
     for (const c of AUTO_CATEGORIES) {
@@ -1616,9 +1861,11 @@ export class PhoneEditor {
       return;
     }
     this.autoBusy = true;
+    const abort = new AbortController();
+    this.autoAbort = abort;
     const cfg = autoBlurStore().get();
     const names = categories.map((c) => CATEGORY_NAMES[c].many).join(", ");
-    this.host.say(`Looking for ${names}…`);
+    this.setBusy(0, `Looking for ${names}…`);
     await new Promise((r) => setTimeout(r, 0));
     try {
       if (!this.source) return;
@@ -1633,11 +1880,20 @@ export class PhoneEditor {
       });
       perf(`autoblur start ${categories.join("+")} ${input.width}x${input.height}`);
       const t0 = performance.now();
-      const result = await detectAll(input, categories, {
-        runner: getRunner(),
-        config: cfg,
-        onProgress: (_f, m) => this.host.say(m),
+      // Text recognition is one long step the detector cannot break into, so
+      // Cancel stops waiting for it rather than waiting for it to notice.
+      const stopped = new Promise<never>((_, reject) => {
+        abort.signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
       });
+      const result = await Promise.race([
+        detectAll(input, categories, {
+          runner: getRunner(),
+          config: cfg,
+          signal: abort.signal,
+          onProgress: (f, m) => this.setBusy(f, m),
+        }),
+        stopped,
+      ]);
       const ms = Object.entries(result.ms).map(([k, v]) => `${k}=${Math.round(v)}`).join(" ");
       perf(`autoblur done ${Math.round(performance.now() - t0)}ms ${result.detections.length} hits faces=${result.faceEngine} ${ms}`);
       if (!this.source) return;
@@ -1655,12 +1911,28 @@ export class PhoneEditor {
       this.commit(was);
       this.host.say(`${summarise(result.detections)} — blurred${result.notes.length ? ` · ${result.notes[0]}` : ""}`);
     } catch (e) {
+      if (abort.signal.aborted) {
+        perf("autoblur cancelled");
+        if (this.source) this.host.say("Stopped — nothing added");
+        return;
+      }
       perf(`autoblur failed ${String(e).slice(0, 80)}`);
       this.host.say(`Auto-blur failed — ${String(e).slice(0, 60)}`);
     } finally {
       this.autoBusy = false;
+      if (this.autoAbort === abort) this.autoAbort = null;
+      this.setBusy(null);
       if (this.group === "blur") this.showBlur();
     }
+  }
+
+  /** Show the run's step and how far through it is; null hides the bar. */
+  private setBusy(fraction: number | null, message = ""): void {
+    this.busyEl.hidden = fraction === null;
+    if (fraction === null) return;
+    // Never quite empty: a bar at 0 looks like nothing is happening.
+    this.busyBar.style.width = `${Math.round(8 + Math.max(0, Math.min(1, fraction)) * 88)}%`;
+    this.busyText.textContent = message;
   }
 
   /** `ai.plates` → ["plates"], `ai.auto` → everything switched on in Settings, else null. */
@@ -1704,11 +1976,7 @@ export class PhoneEditor {
       label: "Pen opacity",
       value: this.pen.opacity,
       min: 0.1, max: 1, step: 0.05, format: plainPct,
-      onInput: (v) => {
-        this.pen.opacity = v;
-        const m = this.marker(false);
-        if (m) m.opacity = v;
-      },
+      onInput: (v) => { this.pen.opacity = v; },
       commit: "Pen opacity",
       back: () => this.showDraw(),
       preview: false,
@@ -1717,22 +1985,32 @@ export class PhoneEditor {
       icon: "clear", on: this.pen.erase,
     }));
     frag.append(this.divider());
+    const drawn = this.regions.some((r) => this.isPen(r));
     frag.append(this.chip("Clear", () => {
-      const m = this.marker(false);
-      if (!m) return;
+      if (!this.regions.some((r) => this.isPen(r))) return;
       const was = this.snap("Clear drawing");
-      this.regions = this.regions.filter((r) => r.id !== m.id);
+      this.regions = this.regions.filter((r) => !this.isPen(r));
       this.markerId = null;
       this.commit(was);
       this.showDraw();
-    }, { icon: "trash", disabled: !this.marker(false) }));
+    }, { icon: "trash", disabled: !drawn }));
     this.setStrip(frag);
   }
 
-  /** The marker region, created on first use. */
+  /** Marker layers carry a "pen" id; blur tools and Layers leave them alone. */
+  private isPen(r: BlurRegion): boolean {
+    return r.id.startsWith("pen");
+  }
+
+  /**
+   * The marker layer new strokes go into. Colour and opacity belong to the
+   * whole layer, so a different pen starts a fresh layer — otherwise picking
+   * blue would repaint every red line already on the picture.
+   */
   private marker(create: boolean): BlurRegion | undefined {
     const have = this.regions.find((r) => r.id === this.markerId);
-    if (have || !create) return have;
+    if (!create) return have;
+    if (have && have.color === this.pen.color && have.opacity === this.pen.opacity) return have;
     const r = newRegion("brush", `pen${this.nextId++}`);
     r.kind = "solid";
     r.label = "Drawing";
@@ -1800,7 +2078,11 @@ export class PhoneEditor {
     frag.append(this.divider());
     for (const item of this.texts) {
       frag.append(this.chip(item.text.length > 12 ? `${item.text.slice(0, 12)}…` : item.text, () => {
-        this.selectedText = item.id;
+        // Toggling, not just selecting: the chip is lit while its caption is
+        // the live one, and a lit control that cannot be turned off is a
+        // dead end -- here it was the dead end that made a second caption
+        // impossible to add without leaving the group and coming back.
+        this.selectedText = item.id === this.selectedText ? null : item.id;
         this.showText();
         this.draw();
       }, { on: item.id === this.selectedText }));
@@ -1827,31 +2109,77 @@ export class PhoneEditor {
     if (!ctx) return;
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const short = Math.min(w, h);
     ctx.save();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const t of this.texts) {
-      const px = Math.max(8, t.size * short);
-      ctx.font = `700 ${px}px system-ui, sans-serif`;
+      const lay = this.captionLayout(ctx, t);
+      ctx.font = `700 ${lay.px}px system-ui, sans-serif`;
       ctx.shadowColor = "rgba(0,0,0,0.55)";
-      ctx.shadowBlur = px * 0.12;
+      ctx.shadowBlur = lay.px * 0.12;
       ctx.fillStyle = t.color;
-      ctx.fillText(t.text, t.x * w, t.y * h);
+      const lh = lay.px * CAPTION_LINE;
+      const top = lay.cy * h - (lay.lines.length * lh) / 2;
+      lay.lines.forEach((line, i) => ctx.fillText(line, lay.cx * w, top + lh * (i + 0.5)));
     }
     ctx.restore();
   }
 
-  /** Approximate box of a caption in output coordinates, for hit-tests and the outline. */
+  /**
+   * How a caption sits on the picture: wrapped to the picture's width, shrunk
+   * if one word is still too wide, and its centre held far enough in that the
+   * whole block stays on the picture. Draw, hit-test and the outline all use
+   * this, so what you can grab is exactly what you can see.
+   */
+  private captionLayout(ctx: CanvasRenderingContext2D, t: TextItem): {
+    px: number; lines: string[]; bw: number; bh: number; cx: number; cy: number;
+  } {
+    const w = this.canvas?.width ?? 1;
+    const h = this.canvas?.height ?? 1;
+    const max = w * 0.92;
+    let px = Math.max(8, t.size * Math.min(w, h));
+    ctx.font = `700 ${px}px system-ui, sans-serif`;
+    const lines: string[] = [];
+    for (const para of t.text.split("\n")) {
+      let line = "";
+      for (const word of para.split(/\s+/).filter(Boolean)) {
+        const next = line ? `${line} ${word}` : word;
+        if (line && ctx.measureText(next).width > max) {
+          lines.push(line);
+          line = word;
+        } else line = next;
+      }
+      lines.push(line);
+    }
+    let widest = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+    if (widest > max) {
+      px = Math.max(8, px * (max / widest));
+      ctx.font = `700 ${px}px system-ui, sans-serif`;
+      widest = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+    }
+    // Cap the block at the picture's height too: a long paragraph at a big
+    // size shrinks rather than running off the top and bottom.
+    const tall = lines.length * px * CAPTION_LINE;
+    if (tall > h * 0.92) {
+      const k = (h * 0.92) / tall;
+      px = Math.max(8, px * k);
+      widest *= k;
+    }
+    const bw = Math.min(1, widest / w);
+    const bh = Math.min(1, (lines.length * px * CAPTION_LINE) / h);
+    const cx = Math.max(bw / 2, Math.min(1 - bw / 2, t.x));
+    const cy = Math.max(bh / 2, Math.min(1 - bh / 2, t.y));
+    return { px, lines, bw, bh, cx, cy };
+  }
+
+  /** Box of a caption in output coordinates, for hit-tests and the outline. */
   private textBox(t: TextItem): { x: number; y: number; w: number; h: number } {
-    if (!this.canvas) return { x: t.x, y: t.y, w: 0, h: 0 };
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    const short = Math.min(w, h);
-    const px = Math.max(8, t.size * short);
-    const bw = (px * 0.58 * Math.max(1, t.text.length)) / w;
-    const bh = (px * 1.25) / h;
-    return { x: t.x - bw / 2, y: t.y - bh / 2, w: bw, h: bh };
+    const ctx = this.canvas?.getContext("2d");
+    if (!ctx) return { x: t.x, y: t.y, w: 0, h: 0 };
+    ctx.save();
+    const lay = this.captionLayout(ctx, t);
+    ctx.restore();
+    return { x: lay.cx - lay.bw / 2, y: lay.cy - lay.bh / 2, w: lay.bw, h: lay.bh };
   }
 
   // ── Frame ───────────────────────────────────────────────────────────────
@@ -1893,11 +2221,16 @@ export class PhoneEditor {
 
   // ── Host-owned groups: Sign, Auto, Share, More ──────────────────────────
 
+  // Sheets here drop tools that cannot act on this kind of file (Transcribe,
+  // Burn subs on a photo). The catalogue keeps them greyed so the Tools sheet
+  // stays put across kinds; inside one editor the set is already fixed, and a
+  // row of dead chips only reads as broken.
+
   /** A group whose every tool is a panel the desktop owns. */
   private showHostGroup(group: ToolGroup): void {
     const frag = document.createDocumentFragment();
     const have = { native: this.host.native, ffmpeg: this.host.ffmpeg };
-    for (const { tool, enabled, why } of groupTools(group, this.kind, have)) {
+    for (const { tool, enabled, why } of groupTools(group, this.kind, have).filter((g) => g.applies)) {
       frag.append(this.toolChip(tool, enabled, why));
     }
     this.setStrip(frag);
@@ -1907,7 +2240,7 @@ export class PhoneEditor {
     const frag = document.createDocumentFragment();
     const have = { native: this.host.native, ffmpeg: this.host.ffmpeg };
     frag.append(this.chip("Enhance", () => this.autoEnhance(), { icon: "sparkles" }));
-    for (const { tool, enabled, why } of groupTools("ai", this.kind, have)) {
+    for (const { tool, enabled, why } of groupTools("ai", this.kind, have).filter((g) => g.applies)) {
       if (tool.id === "ai.faces") {
         frag.append(this.chip("Blur faces", () => void this.blurFaces(), { icon: tool.icon, tool: tool.id }));
         continue;
@@ -1966,7 +2299,7 @@ export class PhoneEditor {
       }));
     }
     frag.append(this.divider());
-    for (const { tool, enabled, why } of groupTools("export", this.kind, have)) {
+    for (const { tool, enabled, why } of groupTools("export", this.kind, have).filter((g) => g.applies)) {
       if (tool.id === "out.save" || tool.id === "out.share" || tool.id === "out.quality" || tool.id === "out.frame") continue;
       frag.append(this.toolChip(tool, enabled, why));
     }
@@ -1981,7 +2314,7 @@ export class PhoneEditor {
     frag.append(this.chip("Redo", () => this.redo(), { icon: "redo", tool: "info.redo", disabled: this.future.length === 0 }));
     frag.append(this.divider());
     for (const group of ["adjust", "transform", "info"] as const) {
-      for (const { tool, enabled, why } of groupTools(group, this.kind, have)) {
+      for (const { tool, enabled, why } of groupTools(group, this.kind, have).filter((g) => g.applies)) {
         if (PLACED.has(tool.id)) continue;
         frag.append(this.toolChip(tool, enabled, why));
       }
@@ -2007,7 +2340,7 @@ export class PhoneEditor {
       go();
       return;
     }
-    this.confirmRow(`Leave the edit for ${tool.label}? Unsaved changes are lost.`, "Leave", go, "Stay");
+    this.confirmRow(`${tool.label} leaves the editor — unsaved edits are lost`, "Leave", go, "Stay");
   }
 
   // ── Save & share ────────────────────────────────────────────────────────
@@ -2096,18 +2429,29 @@ export class PhoneEditor {
       case "blur.clear": this.open("blur"); this.clearAll(); return true;
       case "ai.faces": this.open("blur"); void this.blurFaces(); return true;
       case "ai.auto": this.open("blur"); this.showAutoSheet(); return true;
-      case "ai.plates": case "ai.screens": case "ai.terminals": case "ai.cards": case "ai.codes": case "ai.text": {
-        const cats = this.autoCategoriesFor(id);
-        this.open("blur");
-        if (cats) void this.runAuto(cats, TOOLS.find((t) => t.id === id)?.label ?? "Auto-blur");
-        return true;
-      }
+      default: break;
+    }
+
+    // Every other `ai.` id is one auto-blur category run on its own, and asking
+    // `autoCategoriesFor` rather than listing them is the point: the list used
+    // to be spelled out here and windscreens had been left off it, so the
+    // catalogue offered "Blur windscreens" on the rail and in the command
+    // palette and the tap did nothing. A category added to `AUTO_CATEGORIES`
+    // now reaches this path the day it is added.
+    const auto = this.autoCategoriesFor(id);
+    if (auto) {
+      this.open("blur");
+      void this.runAuto(auto, TOOLS.find((t) => t.id === id)?.label ?? "Auto-blur");
+      return true;
+    }
+
+    switch (id) {
       case "adj.brush": this.open("blur"); this.brushSlider(); return true;
       case "adj.amount": this.open("blur"); this.regionSlider("Strength", "amount", 0, 0.25, 0.005, (v) => `${Math.round(v * 400)}%`); return true;
       case "adj.feather": this.open("blur"); this.regionSlider("Feather", "feather", 0, 0.1, 0.002, (v) => `${Math.round(v * 1000)}`); return true;
       case "adj.opacity": this.open("blur"); this.regionSlider("Opacity", "opacity", 0, 1, 0.02, plainPct); return true;
       case "adj.corners": this.open("blur"); this.regionSlider("Corners", "corners", 0, 0.5, 0.01, (v) => `${Math.round(v * 200)}%`); return true;
-      case "adj.angle": this.open("blur"); this.regionSlider("Angle", "angle", 0, Math.PI * 2, 0.05, (v) => `${Math.round((v * 180) / Math.PI)}°`); return true;
+      case "adj.angle": this.open("blur"); this.regionSlider("Angle", "angle", 0, 360, 1, (v) => `${Math.round(v)}°`); return true;
       case "adj.color": this.open("blur"); this.showSwatches("blur"); return true;
       case "tf.rotate": this.open("crop"); this.turn(); return true;
       case "tf.flip": this.open("crop"); this.flip("x"); return true;
@@ -2142,6 +2486,12 @@ export class PhoneEditor {
     };
   }
 
+  private sameState(a: Snap, b: Snap): boolean {
+    const { label: _a, ...x } = a;
+    const { label: _b, ...y } = b;
+    return JSON.stringify(x) === JSON.stringify(y);
+  }
+
   private restore(s: Snap): void {
     this.regions = s.regions.map((r) => structuredClone(r));
     this.geom = { ...s.geom, crop: { ...s.geom.crop } };
@@ -2160,6 +2510,12 @@ export class PhoneEditor {
    * exactly once.
    */
   private commit(before: Snap): void {
+    // A step that left the picture as it was (a slider dragged back to where
+    // it started, a tool setting that no layer uses) is not an edit.
+    if (this.sameState(before, this.snap(before.label))) {
+      this.draw();
+      return;
+    }
     this.history.push(before);
     if (this.history.length > HISTORY_CAP) this.history.shift();
     this.future = [];
@@ -2282,7 +2638,21 @@ export class PhoneEditor {
         const b = this.textBox(t);
         return ox >= b.x && ox <= b.x + b.w && oy >= b.y && oy <= b.y + b.h;
       });
-      if (!hit) return;
+      // A tap that lands on no caption clears the selection. Without this
+      // there was no way back to an empty selection at all: the chip for the
+      // live caption reads "Update", so typing new words and pressing it
+      // renamed that caption instead of adding a second one, and the field
+      // commits on blur, so even tapping away wrote the rename. Deselecting
+      // here is what makes the obvious gesture -- tap the picture, type, add --
+      // mean what it looks like it means.
+      if (!hit) {
+        if (this.selectedText !== null) {
+          this.selectedText = null;
+          this.showText();
+          this.draw();
+        }
+        return;
+      }
       this.selectedText = hit.id;
       this.origin = { x: ox - hit.x, y: oy - hit.y };
       this.pendingSnap = this.snap("Move text");
@@ -2294,12 +2664,21 @@ export class PhoneEditor {
     const { x, y } = this.fromScreen(ox, oy);
 
     if (this.group === "draw") {
-      this.pendingSnap = this.snap(this.pen.erase ? "Erase" : "Draw");
-      const m = this.marker(true);
-      if (!m) return;
-      m.color = this.pen.color;
-      this.stroke = { width: this.pen.width, points: [{ x, y }], erase: this.pen.erase };
-      m.strokes.push(this.stroke);
+      const stroke = { width: this.pen.width, points: [{ x, y }], erase: this.pen.erase };
+      if (this.pen.erase) {
+        // The eraser cuts through every colour, so the one stroke goes into
+        // each marker layer; points added while dragging reach them all.
+        const pens = this.regions.filter((r) => this.isPen(r));
+        if (pens.length === 0) return;
+        this.pendingSnap = this.snap("Erase");
+        for (const r of pens) r.strokes.push(stroke);
+      } else {
+        this.pendingSnap = this.snap("Draw");
+        const m = this.marker(true);
+        if (!m) return;
+        m.strokes.push(stroke);
+      }
+      this.stroke = stroke;
       this.gesture = "paint";
       this.draw();
       return;
@@ -2315,7 +2694,7 @@ export class PhoneEditor {
       return;
     }
 
-    const hit = regionAt(this.regions.filter((r) => r.id !== this.markerId), { x, y });
+    const hit = regionAt(this.regions.filter((r) => !this.isPen(r)), { x, y });
     if (hit && hit.shape !== "full") {
       this.pendingSnap = this.snap("Move");
       this.selected = hit.id;
@@ -2324,11 +2703,12 @@ export class PhoneEditor {
       return;
     }
 
-    this.pendingSnap = this.snap(`Add ${this.shape}`);
+    const name = SHAPE_NAMES[this.shape] ?? this.shape;
+    this.pendingSnap = this.snap(`Add ${name.toLowerCase()}`);
     const r = newRegion(this.shape, `r${this.nextId++}`);
     r.kind = this.style;
     this.dress(r);
-    r.label = `${this.shape} ${this.regions.length + 1}`;
+    r.label = `${name} ${this.regions.length + 1}`;
     r.rect = { x, y, w: 0, h: 0 };
     this.regions.push(r);
     this.selected = r.id;
@@ -2376,8 +2756,11 @@ export class PhoneEditor {
       case "text-move": {
         const t = this.textTarget();
         if (!t) return;
-        t.x = Math.max(0, Math.min(1, ox - this.origin.x));
-        t.y = Math.max(0, Math.min(1, oy - this.origin.y));
+        // Held to where the whole caption stays on the picture, so dragging
+        // back from an edge moves it straight away rather than after a gap.
+        const b = this.textBox(t);
+        t.x = Math.max(b.w / 2, Math.min(1 - b.w / 2, ox - this.origin.x));
+        t.y = Math.max(b.h / 2, Math.min(1 - b.h / 2, oy - this.origin.y));
         this.drawSoon();
         return;
       }
@@ -2468,13 +2851,13 @@ export class PhoneEditor {
 
   /** The blur region a setting applies to: the selected one, else the newest. */
   private blurTarget(): BlurRegion | undefined {
-    if (this.selected && this.selected !== this.markerId) {
+    if (this.selected) {
       const found = this.regions.find((r) => r.id === this.selected);
-      if (found) return found;
+      if (found && !this.isPen(found)) return found;
     }
     for (let i = this.regions.length - 1; i >= 0; i--) {
       const r = this.regions[i];
-      if (r && r.id !== this.markerId) return r;
+      if (r && !this.isPen(r)) return r;
     }
     return undefined;
   }
@@ -2522,6 +2905,17 @@ export class PhoneEditor {
   private outPx(): { w: number; h: number } {
     if (!this.source) return { w: 0, h: 0 };
     return outSize(this.geom, this.source.width, this.source.height);
+  }
+
+  /**
+   * What Save would write if the crop box on screen were applied now. The Size
+   * chip and slider read this, so dragging the box changes the number under it
+   * instead of showing the whole picture's size until Done.
+   */
+  private pendingPx(): { w: number; h: number } {
+    const c = this.cropRect;
+    if (!this.source || !c || !this.cropPending()) return this.outPx();
+    return outSize(cropTo(this.geom, this.source.width, this.source.height, c), this.source.width, this.source.height);
   }
 
   // ── Overlays ────────────────────────────────────────────────────────────

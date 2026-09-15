@@ -72,6 +72,21 @@
         "handoff",
         "sheet",
         "files",
+        "scan",
+        "pip",
+        "redact",
+        "read",
+        // The phonemiser, sentence by sentence — the checks that would have
+        // caught a reader that pronounced every word right and still sounded
+        // like a foreign student.
+        "say",
+        // Needs the two arXiv PDFs in dev/papers/, which are not in the repo.
+        // Without them it honestly reports 0 passed, 0 failed rather than a
+        // green it did not earn; see src/dev/papercheck.ts for the two curls.
+        "paper",
+        // Needs devfixtures/clipcheck.mp4, a build artefact — same honesty
+        // rule as "paper": without it every check reports as skipped.
+        "clip",
       ];
 
       const rows = document.getElementById("rows");

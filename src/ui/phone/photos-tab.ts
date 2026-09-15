@@ -203,6 +203,7 @@ export class PhotosTab implements PhoneTab {
   private fling = new FlingModel(window.devicePixelRatio || 1);
   private aimed = 0;
   private statAt = 0;
+  private statSig = "";
   private scrolls = 0;
   private heartbeat = 0;
   /** What the last reconcile found under the viewport, for the stats line. */
@@ -320,6 +321,10 @@ export class PhotosTab implements PhoneTab {
     // about how the gallery works.
     return [
       iconBtn("📷", "Camera", () => this.shell.openCamera()),
+      // Next to the camera rather than over on Files, because "point the phone
+      // at a thing" is the same gesture and this is where a hand goes looking
+      // for it. What comes out is a document, but the way in is a camera.
+      iconBtn("file-text", "Scan", () => this.shell.openScan()),
       iconBtn("🗑", "Trash", () => this.shell.openTrash()),
       iconBtn("☰", "Select photos", () => this.beginSelect()),
     ];
@@ -992,6 +997,12 @@ export class PhotosTab implements PhoneTab {
     if (this.hidden) return;
     const now = performance.now();
     if (now - this.statAt < 2000) return;
+    // Nothing moved since the last line (a photo open in the editor over the
+    // grid, say): one line every 30 s still proves the heartbeat is alive,
+    // without two DOM walks and a forced layout of the whole roll every 2 s.
+    const sig = `${this.drawn}/${this.mounted.size}/${this.scrolls}/${this.evicted}/${this.refilled}/${this.aimed}/${this.vpNote}`;
+    if (document.hidden || (sig === this.statSig && now - this.statAt < 30_000)) return;
+    this.statSig = sig;
     this.statAt = now;
     const live = this.stream.querySelectorAll(".ph-cell").length;
     const grids = this.stream.querySelectorAll(".ph-grid").length;

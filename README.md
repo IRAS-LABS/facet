@@ -241,6 +241,29 @@ run against a real photograph, and Android home-screen widgets are not started.
   Reads both SubRip and WebVTT. Balanced line wrapping, and the invariant that
   every word said appears once, in order, while it is being said.
 
+- **Read aloud** — opens over a PDF, a text or Markdown file, HTML, CSV, JSON,
+  a log, an RTF, or a photo of a page (that one goes through OCR first), and
+  reads it out with the sentence being spoken marked where it sits. Move by
+  sentence, paragraph or page, drag the scrubber, or tap any word on the page
+  to start from there. Speed runs 0.5x to 4x.
+
+  A research PDF read literally says the running head on every page, the page
+  number, the line numbers down the margin and then forty minutes of
+  bibliography. Facet skips that, lists everything it skipped and why, and
+  puts any of it back with one press. Two-column papers are read down each
+  column rather than straight across; where it gets a layout wrong you can fix
+  the order by hand and the fix is remembered for that document.
+
+  Two kinds of voice. **System voices** are your operating system's own — on
+  Android that is Google's neural speech — and they are instant and cost
+  nothing. **Natural voices** are Kokoro, 54 of them, running inside the app:
+  a one-time 88 MB download you have to press a button for, then 523 kB per
+  extra voice, and nothing after that. Either way no text leaves the machine.
+  Pronunciation for the natural voices is done by espeak-ng compiled to
+  WebAssembly, which is what the model was trained against — **see the licence
+  note at the end of this file, because it changes the licence of a build you
+  redistribute**.
+
 ### Capture
 
 *Desktop, with two of the three on Android as well: the camera sits in the
@@ -306,6 +329,10 @@ interface — it is not a remote control for the desktop.
   and mirror, saving into `DCIM/Facet`.
 - **Voice memo** in the Files header — countdown, level meter, pause and
   resume, written to disk as it records, into `Music/Facet`.
+- **Read aloud**, the same reader as the desktop, on the same files. It uses
+  Android's own neural speech (Google Speech Services) out of the box; the
+  88 MB natural-voice pack is offered on the phone too but is not the sensible
+  default there.
 - **Trash sheet**, audio dock, and the OS share sheet.
 
 **What the Android app does not have.** The phone interface is a different
@@ -618,6 +645,7 @@ registries, both of them reached only when you use the feature that needs one:
 | host | what for | when |
 |---|---|---|
 | `huggingface.co` | the Whisper speech model, and the two speaker models if speaker labelling is on | first time you transcribe at a given quality |
+| `huggingface.co` | the Kokoro natural-voice pack for read-aloud (88 MB, then 523 kB a voice) | only when you press the button that says so |
 | `cdn.jsdelivr.net` | Tesseract `.traineddata` for one language | first time you OCR in that language |
 
 Nothing is sent to either one but the request for the file. Your audio and your
@@ -654,7 +682,16 @@ See `SECURITY.md` for the trust model and how to report a problem.
 MIT — see `LICENSE`. Third-party components and their licenses are listed
 in `THIRD-PARTY-NOTICES.md`.
 
-One thing worth reading before you redistribute a build: the Android FFmpeg
-binaries are GPL. They are not in this repository, so the source is MIT and
-stays MIT — but an APK you ship with those binaries inside it carries the
-GPL's terms, not the MIT license's.
+Two things worth reading before you redistribute a build.
+
+The Android FFmpeg binaries are GPL. They are not in this repository, so the
+source is MIT and stays MIT — but an APK you ship with those binaries inside it
+carries the GPL's terms, not the MIT license's.
+
+Read-aloud pulls in espeak-ng, compiled to WebAssembly, through the npm package
+`phonemizer` — which declares Apache-2.0 and is wrong about itself; espeak-ng is
+GPL-3.0. Unlike FFmpeg it is compiled *into* the app rather than run beside it,
+so **a built FACET is GPL-3.0**. The repository stays MIT and espeak-ng is not
+in it; the binary you hand someone is the combined work. Details and the source
+offer are in `THIRD-PARTY-NOTICES.md`. Removing the `phonemizer` dependency
+avoids all of it and costs you the good pronunciation.

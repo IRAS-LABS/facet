@@ -85,7 +85,7 @@
  * File names wrap.
  *
  * A single ellipsised line is where a file grid stops being useful: real names
- * differ at the end — IMG_20240817_193044, take_04_final_v2 — so cutting the
+ * differ at the end — IMG_20200101_120000, take_04_final_v2 — so cutting the
  * tail cuts exactly the part you were reading. The name gets a line budget and
  * breaks anywhere, including mid-token, because these names have no spaces to
  * break at. Hovering or selecting a card lifts the budget entirely.

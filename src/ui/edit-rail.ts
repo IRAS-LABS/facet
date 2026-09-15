@@ -145,7 +145,7 @@ export class EditRail {
     for (const [group, heading] of GROUP_ORDER) {
       // See the third note in the file header: an empty category is a button
       // that leads nowhere useful.
-      if (!this.entriesFor(group).some((e) => this.host.routes(e.tool))) continue;
+      if (!this.entriesFor(group).some((e) => e.applies && this.host.routes(e.tool))) continue;
       this.bar.append(this.button(group, heading));
     }
     this.paint();
@@ -167,7 +167,9 @@ export class EditRail {
    * would be a distinction the shell cannot actually make here, and guessing
    * `true` in a browser tab would offer a Save that has nowhere to write.
    */
-  private entriesFor(group: ToolGroup): Array<{ tool: PhoneTool; enabled: boolean; why: string }> {
+  private entriesFor(
+    group: ToolGroup,
+  ): Array<{ tool: PhoneTool; enabled: boolean; why: string; applies: boolean }> {
     return groupTools(group, this.host.kind(), { native: IS_NATIVE, ffmpeg: mediaReady() });
   }
 
@@ -213,7 +215,19 @@ export class EditRail {
     const commands: RunnableCommand[] = [];
     const off = new Set<string>();
 
-    for (const { tool, enabled, why } of this.entriesFor(group)) {
+    for (const { tool, enabled, why, applies } of this.entriesFor(group)) {
+      /*
+       * Rule 3 -- keep every tool on screen, greyed, so the sheet can be
+       * learned -- is about state, not about kind. State changes under you
+       * (nothing selected yet, ffmpeg still loading) and a row that vanishes
+       * and comes back is the thing rule 3 forbids. Kind does not change while
+       * a file is open, so a tool the catalogue will never offer this file is
+       * not a row you could ever learn the position of -- it is only in the
+       * way. Observed on a test phone: Automatic over a seven-second voice recording
+       * listed nine `unavailable` blur rows and pushed Transcribe, the one
+       * thing it could do, under the navigation bar.
+       */
+      if (!applies) continue;
       // The catalogue's verdict wins when it is "no": it knows about file kinds
       // and about builds without ffmpeg, and the host has no better answer for
       // either. Only when the catalogue says yes is the host asked whether this
@@ -245,6 +259,7 @@ export class EditRail {
     this.menu.open({
       x: Math.round(box.left),
       y: Math.round(box.bottom + 4),
+      above: Math.round(box.top - 4),
       line: commands.map((c) => c.id).join(","),
       commands,
     });

@@ -59,8 +59,14 @@
   background: #000;
   min-height: 0;
 }
+/* `touch-action` matters only while cropping, and it is the whole reason the
+   crop rectangle worked on a mouse and not on a phone: without it the browser
+   claims the second touch-move as a scroll, fires `pointercancel`, and the
+   rectangle freezes one frame after it appears. Scoped to `.cropping` so an
+   ordinary pinch or drag on the preview is still the browser's to handle. */
 .vedit-stage.cropping {
   cursor: crosshair;
+  touch-action: none;
 }
 /* Sized in JS rather than with max-width/max-height, for two reasons that only
    showed up on screen: a clip smaller than the stage stayed postage-stamp sized
@@ -179,6 +185,19 @@
   background: var(--fct-surface-overlay);
   border-color: var(--fct-border-strong);
 }
+/* The icon rides beside the desktop wording rather than replacing it: at a
+   desk there is room for both, and the pair is what makes the same control
+   recognisable after you have only ever seen it as a chip on the phone. */
+.vedit-btn:has(.vedit-ico) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fct-sp-1);
+}
+.vedit-ico {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
 .vedit-btn:disabled {
   opacity: 0.45;
   cursor: default;
@@ -281,8 +300,14 @@
    Scoped to `body.fct-phone` like everything in phone-panels.css. The stage
    takes the whole viewport under the header; the sheet floats over its bottom
    edge and the grabber cycles it open → slim (timeline + export only) → stub
-   (grabber alone, whole video visible) → open. The stage never resizes, so
-   `fit()` in vedit.ts needs no re-run when the sheet moves. */
+   (grabber alone, whole video visible) → open.
+
+   The stage keeps its full height under the sheet — the sheet floats, it does
+   not push. That is why `fit()` in vedit.ts measures the overlap and sizes the
+   preview to what is left instead of to the stage: a clip centred in the whole
+   stage sits behind the sheet, and with the sheet open over 62% of the screen
+   a 16:9 clip disappeared completely. The grabber re-runs `fit()` for the same
+   reason. */
 
 body.fct-phone .vedit {
   grid-template-rows: auto minmax(0, 1fr);
@@ -329,12 +354,10 @@ body.fct-phone .vedit-grab:active::before {
   background: var(--fct-accent);
 }
 
-/* Slim keeps what you scrub and what you press to finish; stub keeps only the
-   way back up. The timeline and export bar carry their own backgrounds on the
-   desktop — on the sheet they go transparent so the blur reads through. */
-body.fct-phone .vedit-sheet[data-state="slim"] .vedit-controls {
-  display: none;
-}
+/* Slim drops the export row and keeps the rail -- see the note beside the
+   `slim` rule further down. Stub keeps only the way back up. The timeline and
+   export bar carry their own backgrounds on the desktop — on the sheet they go
+   transparent so the blur reads through. */
 body.fct-phone .vedit-sheet[data-state="stub"] > :not(.vedit-grab) {
   display: none;
 }
@@ -343,4 +366,304 @@ body.fct-phone .vedit-sheet .vedit-timeline,
 body.fct-phone .vedit-sheet .vedit-controls,
 body.fct-phone .vedit-sheet .vedit-foot {
   background: transparent;
+}
+
+/* The clock is hard right on the desktop, where it lines up with the export
+   bar under a wide timeline. On a phone the sheet is only as wide as the
+   screen and that put the last word against the edge, where the rounded
+   corner clips it. */
+body.fct-phone .vedit-time {
+  justify-content: center;
+  padding-inline: var(--fct-sp-2);
+}
+body.fct-phone .vedit-clock {
+  white-space: nowrap;
+}
+
+/* See the note beside `preload` in `vedit.ts`: the element is transparent over
+   a black stage until a frame has decoded, so the WebView's own full-size play
+   placeholder never gets a chance to be the first thing on screen. */
+.vedit-video {
+  background: #000;
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+.vedit-video.ready {
+  opacity: 1;
+}
+
+/* ── Phone: the control rail ────────────────────────────────────────────────
+   What was here: a grid, one cell per control, all three groups stacked. It
+   was an improvement on the wrapped flex row it replaced -- the columns lined
+   up and nothing was orphaned -- but it kept the premise that every control is
+   on screen at once, and that premise is what made the sheet 529px tall with
+   892px of content in it. Measured on a test phone: 22 controls, 20 of them an
+   identical 84x44 grey rectangle, 363px of them below the fold, and a stage
+   that gave 726px to a 212px-tall video because the sheet was sitting over
+   most of it.
+
+   A rail instead. One group at a time (the mode switch above picks which),
+   laid out left to right, scrolling sideways if it runs long. A control is an
+   icon over one word, not a word in a box: the box is what made twenty of them
+   look alike, and the icon is what lets you find the one you want without
+   reading all eight. The numbers come from `.vb` in `phone-vedit.css`, which
+   is the same idea already shipping one screen away -- 56px cells, 20px icon,
+   10px label, transparent until pressed.
+
+   What the sheet costs now: grabber 28 + timeline + modes 36 + rail 60 + the
+   export row. The controls went from 363px below the fold to none, and the
+   picture gets back the difference. */
+
+body.fct-phone .vedit-controls {
+  display: block;
+  padding: 0;
+}
+
+/* Only the chosen group. The others stay in the DOM -- their buttons hold
+   state (`Blurring 3 regions`, the speed readout) that is wrong to rebuild on
+   a tab press, and panel-fit has already measured them. */
+body.fct-phone .vedit-controls > .vedit-group { display: none; }
+body.fct-phone .vedit-controls[data-mode="cut"] > [data-mode="cut"],
+body.fct-phone .vedit-controls[data-mode="frame"] > [data-mode="frame"],
+body.fct-phone .vedit-controls[data-mode="out"] > [data-mode="out"] {
+  display: flex;
+}
+
+body.fct-phone .vedit-group {
+  align-items: center;
+  gap: 2px;
+  height: 60px;
+  padding: 0 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+body.fct-phone .vedit-group::-webkit-scrollbar { display: none; }
+
+/* The group name is the mode switch's job now. */
+body.fct-phone .vedit-group-label { display: none; }
+
+/* ── The chip ───────────────────────────────────────────────────────────────
+   56px wide is the smallest cell that fits `Frame-exact`'s short form and a
+   20px icon with air around them, and it is two thumb-widths short of the 44px
+   minimum only in the horizontal -- the target is 52px tall, and the rail has
+   nothing above or below it to mis-hit. Transparent by default: a row of eight
+   filled rectangles is the thing that read as cheap, and the fill is worth
+   more as the "this one is on" signal than as decoration. */
+body.fct-phone .vedit-btn {
+  flex: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 56px;
+  width: auto;
+  height: 52px;
+  min-height: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fct-text);
+  font-size: 10px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: visible;
+}
+body.fct-phone .vedit-btn .vedit-ico {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+/* The desktop wording is the long one; the chip shows the short one. Both are
+   in the DOM so `label()` can keep them in step without either shell owning a
+   second copy of the button. */
+body.fct-phone .vedit-btn .vedit-text { display: none; }
+.vedit-btn .vedit-lab { display: none; }
+body.fct-phone .vedit-btn .vedit-lab {
+  display: block;
+  max-width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fct-text-muted);
+}
+
+body.fct-phone .vedit-btn:active { transform: scale(0.94); }
+body.fct-phone .vedit-btn:disabled { opacity: 0.34; }
+body.fct-phone .vedit-btn.on,
+body.fct-phone .vedit-btn[aria-pressed="true"] {
+  color: var(--fct-accent);
+  background: color-mix(in srgb, var(--fct-accent) 16%, transparent);
+}
+body.fct-phone .vedit-btn.on .vedit-lab,
+body.fct-phone .vedit-btn[aria-pressed="true"] .vedit-lab {
+  color: inherit;
+}
+
+/* Slower / 1x / Faster is one control. Keeping the readout inline between its
+   two steppers is the whole reason it is legible -- split across a wrap it was
+   a number with no obvious owner. */
+body.fct-phone .vedit-speed {
+  flex: none;
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  height: 52px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fct-text-muted);
+}
+
+/* ── The mode switch ────────────────────────────────────────────────────────
+   Three words, equal thirds, the chosen one filled. Words rather than icons:
+   `Cut`, `Frame` and `Output` are categories and an unlabelled category is a
+   guess. 36px because it is a switch, not a target you hunt for -- it sits
+   directly under the timeline where the thumb already is. */
+body.fct-phone .vedit-modes {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  height: 36px;
+  margin: 4px 8px 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fct-text) 7%, transparent);
+}
+body.fct-phone .vedit-mode {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+body.fct-phone .vedit-mode.on {
+  background: var(--fct-surface);
+  color: var(--fct-text);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+/* The desktop stacks all three groups, so there is nothing to switch between. */
+.vedit-modes { display: none; }
+
+/* Slim now means "the rail, without the export row" rather than "no controls
+   at all" -- the rail is 60px, which is worth keeping when the point of slim
+   is to see more of the picture while still being able to work. */
+body.fct-phone .vedit-sheet[data-state="slim"] .vedit-foot { display: none; }
+
+/* The export row is a name field and a button, and a phone has room for one of
+   them per line. */
+body.fct-phone .vedit-foot {
+  flex-wrap: wrap;
+  row-gap: var(--fct-sp-2);
+  padding-bottom: max(var(--fct-sp-2), env(safe-area-inset-bottom, 0px));
+}
+body.fct-phone .vedit-name {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+body.fct-phone .vedit-foot .vedit-go {
+  flex: 1 1 auto;
+}
+
+/* ── Phone: more picture ─────────────────────────────────────────────────────
+   Measured on a test phone (Edge skin): the header took two rows -- the name, then
+   the "720×1280 · 0:51 · h264" line on a row of its own -- the rail wrapped
+   onto a second line that the 60px rail then clipped (Reset, Faster and the
+   Quality chip were unreachable), and the export row was a name field and a
+   button on two lines. All of that came out of the picture. */
+
+/* One header row: the name over a one-line status, Close beside them. A note
+   that is an error still wraps, because that sentence is the only thing that
+   says why an export failed. */
+.vedit-names { display: contents; }
+body.fct-phone .fct-phone-panel .vedit-bar {
+  flex-wrap: nowrap;
+  row-gap: 0;
+  padding: 2px 4px 2px 12px;
+}
+body.fct-phone .vedit-names {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+body.fct-phone .vedit-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 15px;
+  line-height: 1.25;
+}
+body.fct-phone .fct-phone-panel .vedit-note {
+  flex: none;
+  order: 0;
+  font-size: 11.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.fct-phone .fct-phone-panel .vedit-note.bad {
+  white-space: normal;
+}
+
+/* The rail scrolls sideways; it never wraps. phone-panels.css wraps every
+   `-group` in a phone panel, which is right for toolbars written for a desktop
+   and wrong for a rail sized to exactly one row. */
+body.fct-phone .fct-phone-panel .vedit-group {
+  flex-wrap: nowrap;
+}
+
+/* Sized by dragging the grabber (see `wireSheetSize`). Only while fully open:
+   slim and stub are their own, content-sized states. */
+body.fct-phone .vedit-sheet.vedit-sized[data-state="open"] {
+  height: var(--vedit-sheet-h);
+  max-height: none;
+}
+body.fct-phone .vedit-sheet.vedit-dragging {
+  transition: none;
+}
+body.fct-phone .vedit-grab {
+  height: 30px;
+  touch-action: none;
+}
+body.fct-phone .vedit-grab::before {
+  width: 44px;
+  height: 5px;
+}
+
+/* One export row: the name takes what is left and the button keeps its word.
+   The button is a `.vedit-btn` too, and the rail's transparent-chip rule was
+   out-ranking `.vedit-go` -- Export rendered as bare text with no fill. */
+body.fct-phone .fct-phone-panel .vedit-foot {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+body.fct-phone .fct-phone-panel .vedit-foot .vedit-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+}
+body.fct-phone .fct-phone-panel .vedit-foot .vedit-progress {
+  flex: 1 1 auto;
+}
+body.fct-phone .vedit-foot .vedit-btn {
+  flex: none;
+  flex-direction: row;
+  height: 44px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 12px;
+}
+body.fct-phone .vedit-foot .vedit-btn.vedit-go {
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
 }

@@ -82,27 +82,35 @@ const VIDEO: readonly FileKind[] = ["video"];
 const AUDIO: readonly FileKind[] = ["audio"];
 
 /**
- * The eight blur kinds from `@core/edit/blur`.
+ * The blur kinds from `@core/edit/blur` that are worth offering.
  *
- * Typed against `BlurKind` rather than loose strings so that adding a ninth
- * kind to the engine and forgetting it here is a compile error, not a tool that
- * silently never appears on the phone.
+ * Typed against `BlurKind` rather than loose strings so that adding a kind to
+ * the engine and forgetting it here is a compile error, not a tool that
+ * silently never appears on the phone. `solid` is the one deliberate
+ * omission: it is a cosmetic flat fill that looks exactly like Redact and is
+ * not one, which is precisely the confusion this list must not create. It
+ * stays in the engine so sessions saved before Redact existed still open.
  *
  * None of them is called "Blur". They are all blurs -- the strip they live in
  * is the blur strip -- so the name has to say which one, and "Blur" next to
  * "Blur all", "Box" next to "Box blur" and "Blur faces" read as the same word
  * four times rather than as four different things. Gaussian and box are named
  * Soft and Hard, for the only difference anyone can see between them.
+ *
+ * Redact is first, and every other description now ends by saying it can be
+ * undone. That is not hedging: a soft blur over a phone number can be read
+ * back by anyone who cares to, and a tool that offers eight ways to hide
+ * something owes the person choosing which one actually hides it.
  */
 const BLUR_KINDS: ReadonlyArray<readonly [BlurKind, string, string, string]> = [
-  ["gaussian", "Soft", "🌫", "Ordinary soft blur — what most people mean by blur"],
-  ["pixelate", "Pixelate", "▦", "Big hard squares. Reads as deliberate censorship"],
-  ["solid", "Black bar", "▬", "A flat fill. The redaction bar — no pixels survive"],
-  ["mosaic", "Mosaic", "◈", "Pixelate on a diamond lattice. Softer, less clinical"],
-  ["motion", "Motion", "≡", "Directional smear along an angle you set"],
-  ["radial", "Spin", "◎", "Zoom or spin smear radiating from the centre"],
-  ["frosted", "Frosted", "❄", "Blur plus fine noise — frosted glass, not out-of-focus"],
-  ["box", "Hard", "▢", "Cheap square-kernel blur. Blockier and harsher than Soft"],
+  ["redact", "Redact", "▬", "Solid bar. The only one nobody can undo — use this to hide anything private"],
+  ["gaussian", "Soft", "🌫", "Ordinary soft blur. Looks tidy, but can be undone — not for private things"],
+  ["pixelate", "Pixelate", "▦", "Big hard squares. Looks censored, but can be undone — not for private things"],
+  ["mosaic", "Mosaic", "◈", "Diamond lattice. Softer than Pixelate, and just as undoable — not for private things"],
+  ["motion", "Motion", "≡", "Directional smear along an angle you set. Cosmetic"],
+  ["radial", "Spin", "◎", "Spin smear around the centre. Cosmetic"],
+  ["frosted", "Frosted", "❄", "Blur plus fine noise — frosted glass, not out-of-focus. Cosmetic"],
+  ["box", "Hard", "▢", "Cheap square-kernel blur. Blockier and harsher than Soft. Cosmetic"],
 ];
 
 /**
@@ -343,6 +351,10 @@ const REST: readonly PhoneTool[] = [
     need: "none", hint: "Find every number plate and blur it. Stills and video",
   },
   {
+    id: "ai.windshields", label: "Blur windscreens", icon: "car", group: "ai", kinds: VISUAL,
+    need: "none", hint: "A band across the glass of every car — the VIN plate, tax disc, permits and toll tags",
+  },
+  {
     id: "ai.screens", label: "Blur screens", icon: "monitor", group: "ai", kinds: VISUAL,
     need: "none", hint: "Monitors, laptops and phones — every screen in the picture",
   },
@@ -359,8 +371,8 @@ const REST: readonly PhoneTool[] = [
     need: "none", hint: "QR codes and barcodes",
   },
   {
-    id: "ai.text", label: "Blur text", icon: "type", group: "ai", kinds: IMAGE,
-    need: "none", hint: "Emails, phone numbers, links, card numbers and your own keywords",
+    id: "ai.text", label: "Private text", icon: "type", group: "ai", kinds: IMAGE,
+    need: "none", hint: "Emails, phone numbers, links, card numbers, VINs, registrations and your own keywords",
   },
   {
     id: "ai.auto", label: "Auto-blur", icon: "sparkles", group: "ai", kinds: VISUAL,
@@ -373,6 +385,15 @@ const REST: readonly PhoneTool[] = [
     // sheet reads to decide what to grey out.
     id: "ai.ocr", label: "Read text", icon: "🔤", group: "ai", kinds: SIGNABLE,
     need: "none", hint: "Pull searchable text out of a scan or a photo",
+  },
+  {
+    // Next to OCR because they are the same door onto the words in a file, and
+    // for a photograph they are the same machinery: the reader OCRs it first
+    // and then speaks it. It lived only on the phone's quick-look card until
+    // now, which meant a tool the desktop genuinely had was missing from the
+    // one list both shells build their tool bars from.
+    id: "ai.read", label: "Read aloud", icon: "🔊", group: "ai", kinds: SIGNABLE,
+    need: "none", hint: "Speak the text in this file, with the sentence highlighted",
   },
   {
     id: "ai.transcribe", label: "Transcribe", icon: "🗣", group: "ai", kinds: AV,
@@ -483,18 +504,18 @@ export function groupTools(
   group: ToolGroup,
   kind: FileKind,
   have: { native: boolean; ffmpeg: boolean },
-): Array<{ tool: PhoneTool; enabled: boolean; why: string }> {
+): Array<{ tool: PhoneTool; enabled: boolean; why: string; applies: boolean }> {
   return TOOLS.filter((t) => t.group === group).map((tool) => {
     if (!appliesTo(tool, kind)) {
-      return { tool, enabled: false, why: `Not available for ${kind} files` };
+      return { tool, enabled: false, why: `Not available for ${kind} files`, applies: false };
     }
     if (tool.need === "native" && !have.native) {
-      return { tool, enabled: false, why: "Needs the app, not a browser tab" };
+      return { tool, enabled: false, why: "Needs the app, not a browser tab", applies: true };
     }
     if (tool.need === "ffmpeg" && !have.ffmpeg) {
-      return { tool, enabled: false, why: "Media tools are unavailable on this build" };
+      return { tool, enabled: false, why: "Media tools are unavailable on this build", applies: true };
     }
-    return { tool, enabled: true, why: tool.hint };
+    return { tool, enabled: true, why: tool.hint, applies: true };
   });
 }
 

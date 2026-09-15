@@ -171,7 +171,7 @@
 .vb-playhead {
   position: absolute;
   top: 0;
-  bottom: calc(-1 * var(--vb-row-h) * var(--vb-rows-max));
+  bottom: calc(-1 * var(--vb-row-h) * min(var(--vb-rows-max), var(--vb-rows-n, 1)));
   width: 2px;
   margin-left: -1px;
   background: var(--fct-accent, #4af);

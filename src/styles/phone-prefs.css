@@ -99,8 +99,11 @@
 .fct-prefs .ph-set-head {
   background: color-mix(in srgb, var(--fct-bg) calc((1 - var(--fct-glass) * 0.6) * 100%), transparent);
 }
+/* The dock is text you read over a scrolling list of high-contrast thumbnails,
+   so it keeps far more body than the other sheets: at half glass the thumbnails
+   showed through the file name on a test phone. At most 15% see-through. */
 .fct-prefs .ph-dock {
-  background: color-mix(in srgb, var(--fct-surface-raised) calc((1 - var(--fct-glass) * 0.5) * 100%), transparent);
+  background: color-mix(in srgb, var(--fct-surface-raised) calc((1 - var(--fct-glass) * 0.15) * 100%), transparent);
   box-shadow: none;
   border-top-color: color-mix(in srgb, var(--fct-border) 70%, transparent);
 }
@@ -172,7 +175,13 @@
   border-bottom: 1px solid color-mix(in srgb, var(--fct-border) 60%, transparent);
 }
 .fct-chips-segmented .ph-chip {
-  flex: 1 1 0;
+  /* `1 1 0` -- equal columns regardless of the word -- is what a segmented
+     control usually wants, and here it cut `Installs` and `Archives` to
+     `INSTAL...` and `ARCHIV...` while `All` sat in 60px it did not need. The
+     six labels want 333px of a 360px row, so they fit as written; sized from
+     their content and then sharing what is left, every tab says its own name
+     and the row is still full width. */
+  flex: 1 1 auto;
   min-height: 40px;
   padding: 0 var(--fct-sp-1);
   border: none;

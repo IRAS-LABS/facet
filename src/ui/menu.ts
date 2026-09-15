@@ -37,6 +37,8 @@ export interface MenuOptions {
   /** Where the pointer was, in client coordinates. */
   x: number;
   y: number;
+  /** Top edge of the opener. When it is low on screen the menu opens over it. */
+  above?: number;
   /** The stored line of ids. */
   line: string;
   /** Everything on offer for what is selected right now. */
@@ -118,7 +120,7 @@ export class ContextMenu {
     }
 
     this.root.hidden = false;
-    placePopup(this.root, opts.x, opts.y);
+    placePopup(this.root, opts.x, opts.y, opts.above === undefined ? {} : { above: opts.above });
     // Focus the container rather than the first row: arrowing down to the first
     // row is the expected way in, and a menu that arrives with something already
     // highlighted invites an Enter that runs the wrong thing.

@@ -31,6 +31,12 @@ const ICONS: Record<string, string> = {
   "ratio": '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 12h18M12 5v14" stroke-dasharray="2 2"/>',
   "pen": '<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>',
   "more": '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
+  // Trim handles. The bracket is the cut edge and the block is the part that
+  // survives it, so the two read as a pair and as opposites at 20px -- which
+  // the typographic "[" and "]" they replace did not: at chip size both were
+  // a thin vertical tick and nobody could tell which end they were setting.
+  "trim-in": '<path d="M8 4v16"/><path d="M8 4h4M8 20h4"/><rect x="13" y="7" width="7" height="10" rx="1" fill="currentColor" stroke="none" opacity=".55"/>',
+  "trim-out": '<path d="M16 4v16"/><path d="M16 4h-4M16 20h-4"/><rect x="4" y="7" width="7" height="10" rx="1" fill="currentColor" stroke="none" opacity=".55"/>',
   "frame": '<rect x="3" y="3" width="18" height="18" rx="1"/><rect x="7" y="7" width="10" height="10"/>',
   // ── Navigation & chrome ──────────────────────────────────────────────────
   "arrow-left": '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
@@ -79,6 +85,7 @@ const ICONS: Record<string, string> = {
   "box-blur": '<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="8" y="8" width="8" height="8" stroke-dasharray="2 2"/>',
 
   // ── Blur shapes ──────────────────────────────────────────────────────────
+  "check-all": '<path d="M2 12.5l5 5L17.5 7"/><path d="M11.5 16.5l1 1L23 7"/>',
   "fill-all": '<rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor" fill-opacity="0.25"/><rect x="3" y="3" width="18" height="18" rx="2"/>',
   "brush": '<path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L14 13l-4 1 1-4z"/><path d="M9.5 14.5c-2.2.3-3.5 1.7-4 4.2-.2 1.2-1 2-2.5 2.3 1.6 1.6 6.6 2 8.5-.5 1-1.4.8-3.6-.5-4.8z"/>',
   "rect-shape": '<rect x="4" y="6" width="16" height="12" rx="1"/>',
@@ -106,6 +113,10 @@ const ICONS: Record<string, string> = {
   "rotate": '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
   "flip": '<path d="M4 7l5 5-5 5z" fill="currentColor" stroke="none"/><path d="M20 7l-5 5 5 5z"/><line x1="12" y1="3" x2="12" y2="21" stroke-dasharray="3 3"/>',
   "crop": '<path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/>',
+  // A shut padlock, body filled. The filled body is deliberate: this marks the
+  // save that cannot be undone, and an outline lock at 20px is easy to mistake
+  // for the open one two pixels away from it.
+  "lock": '<rect x="4" y="10" width="16" height="11" rx="2" fill="currentColor" stroke="none"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
   "resize": '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>',
   "scissors": '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="9.88" x2="12" y2="13.76"/>',
   "speed": '<polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/>',
@@ -119,6 +130,10 @@ const ICONS: Record<string, string> = {
   "sliders": '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   "sparkles": '<path d="M12 3l1.8 4.8 4.8 1.8-4.8 1.8L12 16.2l-1.8-4.8-4.8-1.8 4.8-1.8z"/><path d="M19 14l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/>',
   "convert": '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  // A car seen from the side, with the glass drawn as its own shape. The
+  // windscreen is the whole point of the category this marks, so it is the
+  // part of the outline that has to survive at 20px.
+  "car": '<path d="M3 17v-4.2l2.1-4.6A2 2 0 0 1 6.9 7h10.2a2 2 0 0 1 1.8 1.2L21 12.8V17"/><path d="M5.5 8.4 7 12.4h10l1.5-4"/><line x1="3" y1="14" x2="21" y2="14"/><circle cx="7.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/>',
   "camera": '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
   "quality": '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
   "batch": '<line x1="11" y1="12" x2="3" y2="12"/><line x1="16" y1="6" x2="3" y2="6"/><line x1="11" y1="18" x2="3" y2="18"/><line x1="18" y1="9" x2="18" y2="15"/><line x1="15" y1="12" x2="21" y2="12"/>',
@@ -199,6 +214,10 @@ const GLYPH_TO_NAME: Record<string, string> = {
   // The two header buttons on the phone. ❍ and 🗣 already reach the same
   // two drawings; these are the glyphs anybody writing the call would type.
   "📷": "camera", "🎤": "mic",
+  // The scan button in the Photos header. Unmapped, it fell through to the
+  // text fallback and Android drew the full-colour emoji beside three
+  // monochrome strokes.
+  "📄": "file-text",
   // Quick Look's action bar. "■" is the black bar a redaction leaves
   // behind, which is what `bar` already draws.
   "✍": "signature", "✍️": "signature", "■": "bar",

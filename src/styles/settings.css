@@ -51,7 +51,7 @@
 
 .prefs-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 26px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--fct-sp-3);
 }
@@ -470,7 +470,7 @@
   .prefs-head {
     /* Title above, search and close below: three across is what forces the
        search box -- the primary control -- down to a few characters. */
-    grid-template-columns: minmax(0, 1fr) 26px;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "title  x"
       "search search";

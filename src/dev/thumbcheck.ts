@@ -528,7 +528,17 @@ async function checkHeaders(): Promise<void> {
   const max = () => body.scrollHeight - body.clientHeight;
   const priv = tab as unknown as { drawn: number; days: unknown[]; totalItems(): number; sentinelNear(): boolean; hidden: boolean; scrolls: number };
   const dbg = () => ({ drawn: priv.drawn, days: priv.days.length, total: priv.totalItems(), near: priv.sentinelNear(), hidden: priv.hidden, scrolls: priv.scrolls, st: body.scrollTop, sh: body.scrollHeight, ch: body.clientHeight });
-  for (let y = 0; y < 60_000 && y < max(); y += 2_500) await scrollTo(y);
+  // The roll only grows once its end is within 1,200 px, and a 2,500 px stride
+  // can land short of that and then step past the bottom — so at the bottom,
+  // wait for the fill timer to add more before going on, and stop only when
+  // the end has stopped moving.
+  for (let y = 0, stalls = 0; y < 60_000 && stalls < 5;) {
+    const m = max();
+    await scrollTo(Math.min(y, m));
+    if (y < m) { y += 2_500; continue; }
+    await sleep(160);
+    stalls = max() > m ? 0 : stalls + 1;
+  }
   await sleep(200);
   const deep = Math.min(body.scrollTop, max());
   ok("headers: the roll is deep enough for the test to mean something", deep > 20_000,

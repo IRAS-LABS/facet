@@ -225,19 +225,37 @@ async function archiveThumb(fs: RangedReads, path: string, px: number): Promise<
  * SVG blob. An `<img>` does not refuse: the WebView has a full SVG renderer
  * and this is the one line that reaches it.
  *
- * Loaded from the file URL rather than from bytes, so a document that
- * references its own assets can still find them.
+ * Drawn from a blob URL rather than from the file URL, because the canvas
+ * below is read back with `toBlob`. On Android the file URL is a different
+ * origin from the page, which taints the canvas and makes that read throw --
+ * the thumbnail came out empty for every vector on the phone. An `<img>`
+ * renders SVG in secure static mode and fetches nothing external either way,
+ * so serving the same bytes from a blob costs the document nothing. The file
+ * URL is still the fallback, for the case where the fetch itself fails.
  */
 async function svgThumb(fs: RangedReads, path: string, px: number): Promise<Blob | null> {
   const url = await fs.fileUrl(path);
+  let blobUrl = "";
+  try {
+    // The type is forced rather than taken from the response: an asset server
+    // that labels `.svg` as `application/octet-stream` would give a blob the
+    // <img> refuses outright, which is a worse failure than the one being
+    // fixed here.
+    const bytes = await (await fetch(url)).arrayBuffer();
+    blobUrl = URL.createObjectURL(new Blob([bytes], { type: "image/svg+xml" }));
+  } catch {
+    blobUrl = "";
+  }
   const img = new Image();
   img.decoding = "async";
-  img.src = url;
+  img.src = blobUrl || url;
   try {
     await img.decode();
   } catch {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
     return null;
   }
+  if (blobUrl) URL.revokeObjectURL(blobUrl);
   // A vector with no width/height attribute has no intrinsic size, and an
   // image of zero by zero draws nothing at all. The viewBox square is the
   // conventional stand-in.
@@ -585,14 +603,25 @@ export function cardThumb(ext: string, px: number): Promise<Blob | null> {
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, w, h);
 
-  // Ruled lines, fading out, so the card reads as a page of something.
   const pad = Math.round(px * 0.11);
-  const rule = Math.max(1, Math.round(px * 0.012));
-  for (let i = 0; i < 6; i++) {
-    ctx.fillStyle = `hsl(${hue} 12% 84% / ${(1 - i * 0.14).toFixed(2)})`;
-    const y = pad + i * Math.round(px * 0.075);
-    const long = i === 0 ? 0.62 : i % 3 === 2 ? 0.5 : 0.78;
-    ctx.fillRect(pad, y, (w - pad * 2) * long, rule);
+  if (AUDIO_EXT.has(ext)) {
+    // A sound file is not a page of anything, and ruled lines said it was.
+    // Observed in Files > Audio on a test phone: the app's own voice recordings --
+    // which reach this card because a bare WebM carries no cover art -- sat
+    // next to mp3s wearing the music-note chip looking like text documents,
+    // two drawings of the same category in one list. Bars instead: the same
+    // paper and the same extension band, but a shape that reads as sound at
+    // 100 px, so a cover-less recording is recognisably audio at a glance.
+    drawBars(ctx, w, px, pad, hue);
+  } else {
+    // Ruled lines, fading out, so the card reads as a page of something.
+    const rule = Math.max(1, Math.round(px * 0.012));
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = `hsl(${hue} 12% 84% / ${(1 - i * 0.14).toFixed(2)})`;
+      const y = pad + i * Math.round(px * 0.075);
+      const long = i === 0 ? 0.62 : i % 3 === 2 ? 0.5 : 0.78;
+      ctx.fillRect(pad, y, (w - pad * 2) * long, rule);
+    }
   }
 
   // The extension, on a band across the lower half -- where a document's label
@@ -619,12 +648,42 @@ export function cardThumb(ext: string, px: number): Promise<Blob | null> {
   return encode(c);
 }
 
+/**
+ * A little waveform for the audio card: fixed, not sampled.
+ *
+ * Decoding a file to draw its real envelope would mean pulling the whole thing
+ * through an AudioContext for a 100 px tile -- minutes of audio and tens of
+ * megabytes to decide the height of twelve bars. The pattern below is stable
+ * per position, so every audio card looks like the same family rather than
+ * like twelve random heights, which is what a category glyph is for.
+ */
+function drawBars(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  px: number,
+  pad: number,
+  hue: number,
+): void {
+  const n = 12;
+  const gap = Math.max(1, Math.round(px * 0.018));
+  const span = w - pad * 2;
+  const bw = Math.max(1, Math.round((span - gap * (n - 1)) / n));
+  const mid = pad + Math.round(px * 0.17);
+  const tall = Math.round(px * 0.13);
+  const shape = [0.30, 0.62, 0.95, 0.55, 0.80, 0.38, 0.70, 1.0, 0.48, 0.85, 0.42, 0.26];
+  ctx.fillStyle = `hsl(${hue} 22% 78%)`;
+  for (let i = 0; i < n; i++) {
+    const hgt = Math.max(2, Math.round(tall * (shape[i] ?? 0.5)));
+    ctx.fillRect(pad + i * (bw + gap), mid - hgt, bw, hgt * 2);
+  }
+}
+
 /** Extension → a hue, by what kind of thing it is. */
 function hueFor(ext: string): number {
   const groups: readonly [number, readonly string[]][] = [
     [265, ["exe", "msi", "dmg", "deb", "rpm", "appimage", "bin", "iso", "img"]],
     [190, ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "zst", "tgz", "cab"]],
-    [150, ["mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "wma", "aiff", "amr", "mid"]],
+    [150, ["mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "wma", "aiff", "amr", "mid", "weba"]],
     [15, ["mp4", "mkv", "mov", "webm", "avi", "m4v", "3gp", "wmv", "flv"]],
     [205, ["doc", "docx", "odt", "rtf", "pages", "pdf", "epub", "mobi", "azw3"]],
     [95, ["xls", "xlsx", "ods", "csv", "tsv", "numbers"]],
@@ -663,7 +722,7 @@ export const ZIP_EXT = new Set([
 export const FONT_EXT = new Set(["ttf", "otf", "woff", "woff2", "ttc"]);
 export const AUDIO_EXT = new Set([
   "mp3", "flac", "m4a", "m4b", "aac", "mp4a", "wav", "ogg", "oga", "opus",
-  "wma", "aiff", "aif", "amr", "3ga", "mid", "midi", "mka", "ape", "wv", "au",
+  "wma", "aiff", "aif", "amr", "3ga", "mid", "midi", "mka", "ape", "wv", "au", "weba",
 ]);
 export const MODEL_EXT = new Set(["stl", "obj", "ply", "glb", "gltf"]);
 

@@ -153,6 +153,16 @@ const CMDS: KeyCommand[] = [
     keywords: ["send", "sheet", "export"],
   },
   {
+    id: KEY_ID.popOut,
+    label: "Pop out into a floating window",
+    group: "Files",
+    default: "Ctrl+Shift+P",
+    // Over a surface too: "float this clip while I keep working" is asked
+    // from inside the player far more than from the grid.
+    scope: "always",
+    keywords: ["pip", "picture in picture", "float", "on top", "window", "detach", "mini player"],
+  },
+  {
     id: KEY_ID.edit,
     label: "Edit what I am looking at",
     group: "Files",
@@ -208,6 +218,17 @@ const CMDS: KeyCommand[] = [
     default: "R",
     scope: "always",
     keywords: ["ocr", "scan", "text", "recognise", "recognize", "searchable pdf", "tesseract"],
+  },
+  {
+    id: KEY_ID.read,
+    label: "Read this aloud",
+    group: "Tools",
+    // A for aloud, next to R for read. The pair is deliberate: R gets you the
+    // text of a page, A gets you the same page spoken, and they take the same
+    // kinds of file.
+    default: "A",
+    scope: "always",
+    keywords: ["read aloud", "speak", "tts", "text to speech", "voice", "listen", "narrate"],
   },
   {
     id: KEY_ID.sign,

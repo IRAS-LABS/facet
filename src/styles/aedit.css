@@ -131,6 +131,44 @@
   opacity: 0.45;
   cursor: default;
 }
+.aedit-icon {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+.aedit-icon .fct-icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* Phone: a finger needs 44 px, and the icon grows with the target so the
+   button does not read as an empty box with a speck in it. */
+body.fct-phone .aedit-btn {
+  min-width: 44px;
+  height: 44px;
+}
+body.fct-phone .aedit-icon .fct-icon {
+  width: 20px;
+  height: 20px;
+}
+body.fct-phone .aedit-check {
+  min-height: 44px;
+}
+body.fct-phone .aedit-check input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+}
+body.fct-phone .aedit-check select,
+body.fct-phone .aedit-name {
+  min-height: 40px;
+}
+body.fct-phone .aedit-hint {
+  max-width: none;
+  flex: 1 0 100%;
+}
+body.fct-phone .aedit-stage {
+  min-height: 140px;
+}
 /* Fixed width, monospace: a readout that resizes as the number changes drags
    the buttons either side of it out from under the cursor, which is exactly
    what you do not want on a control you press repeatedly. */

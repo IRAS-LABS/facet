@@ -12,10 +12,20 @@
 //! queue in Kotlin is that buffer. The frontend asks at mount and on every
 //! wake, which is exactly when an intent can have arrived.
 //!
-//! Everywhere else this answers an empty list. A desktop opens files with
-//! command-line arguments and a single-instance plugin, which is a different
-//! mechanism with different lifetimes, and pretending one command covers both
-//! would mean a Windows build that quietly did nothing.
+//! On a desktop the queue is here instead. Paths arrive on the command line —
+//! of this process, or of a second `facet.exe` the single-instance plugin
+//! turned away — and `cli.rs` has already resolved and checked them. The
+//! explorer drains the queue at mount and whenever it is told `facet-open`,
+//! the same poll-at-wake shape as the phone.
+
+#[cfg(not(target_os = "android"))]
+static DESKTOP: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Hand paths to the explorer's next `open_pending`.
+#[cfg(not(target_os = "android"))]
+pub fn queue_desktop(paths: Vec<String>) {
+    DESKTOP.lock().unwrap_or_else(|e| e.into_inner()).extend(paths);
+}
 
 /// Paths handed to FACET since the last call. Empty is the normal answer.
 #[tauri::command]
@@ -33,7 +43,7 @@ fn platform_pending() -> Vec<String> {
     }
     #[cfg(not(target_os = "android"))]
     {
-        Vec::new()
+        std::mem::take(&mut *DESKTOP.lock().unwrap_or_else(|e| e.into_inner()))
     }
 }
 
@@ -168,7 +178,14 @@ mod tests {
     }
 
     #[test]
-    fn a_desktop_has_nothing_pending() {
+    fn a_desktop_queue_drains_once() {
+        // One test owns the static queue, so parallel tests cannot interleave.
         assert!(platform_pending().is_empty());
+        #[cfg(not(target_os = "android"))]
+        {
+            queue_desktop(vec!["C:/a.mp4".into(), "C:/b.glb".into()]);
+            assert_eq!(platform_pending(), vec!["C:/a.mp4".to_string(), "C:/b.glb".to_string()]);
+            assert!(platform_pending().is_empty());
+        }
     }
 }

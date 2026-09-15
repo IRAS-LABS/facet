@@ -132,8 +132,23 @@
   align-items: center;
   gap: var(--fct-sp-1);
   padding: max(var(--fct-sp-2), var(--fct-inset-top, env(safe-area-inset-top, 0px))) var(--fct-sp-2) var(--fct-sp-4);
-  background: linear-gradient(to bottom, rgb(0 0 0 / 0.62), transparent);
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0.8), rgb(0 0 0 / 0.55) 65%, transparent);
   transition: opacity var(--fct-t-med), transform var(--fct-t-med);
+}
+/* The gradient alone let a screenshot's own heading sit right under the file
+   name, two lines of white text on top of each other. A frosted layer behind
+   the bar, faded out at its lower edge, blurs what is underneath into a wash
+   the name reads over, and still lets the picture run edge to edge. */
+.phv-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
 }
 
 .phv-namewrap {

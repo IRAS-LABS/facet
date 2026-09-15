@@ -223,18 +223,23 @@ async function main(): Promise<void> {
     const phv = frame(390, 844, editor, canvas);
     editor.begin(src, canvas, "image");
 
-    ok("the catalogue is intact (76 ids: 8 blur kinds, 7 shapes, 61 others)", TOOLS.length === TOOL_COUNT && TOOLS.length >= 59, String(TOOLS.length));
+    ok("the catalogue is intact (77 ids: 8 blur kinds, 7 shapes, 62 others)", TOOLS.length === TOOL_COUNT && TOOLS.length >= 59, String(TOOLS.length));
     ok("the rail has eleven groups", RAIL.length === 11);
     ok("every rail group but Share has a button", editor.el.querySelectorAll(".phe-rail-btn").length === RAIL.length - 1);
     ok("Share is not in the rail — Save is its door", editor.el.querySelector('.phe-rail-btn[data-rail="share"]') === null);
 
     let missing: string[] = [];
     for (const tool of TOOLS) {
+      // A photo's sheets leave out video- and audio-only tools altogether.
+      if (tool.kinds !== "any" && !tool.kinds.includes("image")) continue;
+      // Brush size and angle only show for a brush / a motion or band blur;
+      // runById below still reaches them.
+      if (tool.id === "adj.brush" || tool.id === "adj.angle") continue;
       const home = railFor(tool.id);
       editor.open(home);
       if (!chipFor(editor, tool.id)) missing.push(`${tool.id}→${home}`);
     }
-    ok("every tool id has a chip in its rail group", missing.length === 0, missing.join(", "));
+    ok("every photo tool id has a chip in its rail group", missing.length === 0, missing.join(", "));
 
     // And by id, from outside (the tiles and the shell call this).
     missing = [];
@@ -700,7 +705,8 @@ async function main(): Promise<void> {
       fs, home: "/", native: false, openPanel() {},
       runTool: (_e: unknown, id: string) => { runs.push(id); return takes; },
     } as unknown as PhoneHost;
-    const viewer = new PhoneViewer(host, {} as unknown as MediaStore, {} as unknown as Thumbs);
+    const thumbs = { get: async () => null, retain() {}, release() {} } as unknown as Thumbs;
+    const viewer = new PhoneViewer(host, {} as unknown as MediaStore, thumbs);
     document.body.append(viewer.el);
 
     const entry = {
@@ -759,6 +765,122 @@ async function main(): Promise<void> {
     const bytes = await editor.encode("image/png");
     ok("an edit encodes to bytes", !!bytes && bytes.length > 1000);
     editor.end();
+  }
+
+  // ── Round 7: no-op steps, captions, busy card, sheets, swatches ─────────
+  {
+    const host = mockHost(true);
+    const editor = new PhoneEditor(host);
+    const canvas = el<"canvas">("canvas");
+    const phv = frame(390, 844, editor, canvas);
+    editor.begin(src, canvas, "image");
+    const inner = editor as unknown as {
+      texts: Array<{ id: string; text: string; x: number; y: number; size: number; color: string }>;
+      snap(label: string): unknown;
+      commit(before: unknown): void;
+      textBox(t: unknown): { x: number; y: number; w: number; h: number };
+      busyEl: HTMLElement;
+    };
+
+    // A step that changes nothing is not an edit.
+    const before = editor.edits;
+    inner.commit(inner.snap("Nothing"));
+    ok("a step that leaves the picture alone adds no undo entry", editor.edits === before && !editor.dirty,
+      `${before} → ${editor.edits}`);
+
+    // A long caption is wrapped and kept inside the frame, even at the edge.
+    const long = {
+      id: "tlong", text: "This is a very long caption that would run straight off both sides of the picture",
+      x: 0.98, y: 0.99, size: 0.12, color: "#ffffff",
+    };
+    inner.texts.push(long);
+    const box = inner.textBox(long);
+    ok("a long caption's box fits the frame",
+      box.x >= -0.001 && box.y >= -0.001 && box.x + box.w <= 1.001 && box.y + box.h <= 1.001,
+      JSON.stringify(box));
+    ok("...by wrapping, not by one huge line", box.w <= 0.93, String(box.w));
+    inner.texts.pop();
+
+    ok("the progress card is hidden until something runs", inner.busyEl.hidden === true);
+
+    // F52: a second caption has to be addable with the obvious gesture.
+    //
+    // The chip for the live caption says "Update", so while one stays selected
+    // the only thing the Add button can do is rename it -- and the text field
+    // commits on blur, so the rename landed even if the user only tapped away.
+    // Two ways out, both tested here: tap the picture where no caption is, or
+    // tap the lit chip again.
+    {
+      const ed = editor as unknown as {
+        group: string;
+        selectedText: string | null;
+        texts: Array<{ id: string; text: string; x: number; y: number; size: number; color: string }>;
+        dragStart(x: number, y: number): void;
+      };
+      editor.open("text");
+      ed.texts.push({ id: "t1", text: "first", x: 0.1, y: 0.1, size: 0.08, color: "#ffffff" });
+      ed.selectedText = "t1";
+
+      // Somewhere the one caption's box cannot reach.
+      const r = rect(canvas);
+      ed.dragStart(r.left + r.width * 0.9, r.top + r.height * 0.9);
+      ok("tapping the picture away from every caption deselects", ed.selectedText === null,
+        String(ed.selectedText));
+
+      // And the chip toggles rather than only selecting.
+      const chipOf = (label: string) =>
+        [...editor.el.querySelectorAll<HTMLElement>(".phe-strip button")]
+          .find((b) => (b.textContent ?? "").trim().startsWith(label));
+      chipOf("first")?.click();
+      ok("...tapping a caption's chip selects it", ed.selectedText === "t1", String(ed.selectedText));
+      chipOf("first")?.click();
+      ok("...and tapping the lit chip again deselects it", ed.selectedText === null,
+        String(ed.selectedText));
+
+      ed.texts.length = 0;
+      ed.selectedText = null;
+    }
+
+    // Sheets on a photo list only tools a photo can use.
+    const strays: string[] = [];
+    for (const [id] of RAIL) {
+      editor.open(id);
+      for (const chip of editor.el.querySelectorAll<HTMLElement>(".phe-strip [data-tool]")) {
+        const tool = TOOLS.find((t) => t.id === chip.dataset.tool);
+        // "Thin" frame and "Normal" quality carry a video tool's id only so
+        // runById("out.frame" / "out.quality") lands on the photo's own sheet.
+        if (chip.dataset.tool === "out.frame" || chip.dataset.tool === "out.quality") continue;
+        if (tool && tool.kinds !== "any" && !tool.kinds.includes("image")) strays.push(`${id}:${tool.id}`);
+      }
+    }
+    ok("no sheet on a photo shows a video- or audio-only tool", strays.length === 0, strays.join(", "));
+
+    // Colour swatches sit in one row at phone width.
+    editor.open("draw");
+    const swatches = [...editor.el.querySelectorAll<HTMLElement>(".phe-swatch")];
+    // The picked swatch is scaled up a little, so compare centres with slack.
+    const mids = swatches.map((s) => { const r = rect(s); return (r.top + r.bottom) / 2; });
+    ok("pen colours are offered", swatches.length > 0);
+    ok("...in a single row at 390 px", mids.length > 0 && Math.max(...mids) - Math.min(...mids) < 4,
+      mids.map(Math.round).join(","));
+
+    // F30: the Size chip counts the crop box that is on screen, not the whole picture.
+    editor.open("crop");
+    const sizeValue = (): string =>
+      editor.el.querySelector<HTMLElement>('.phe-strip [data-tool="tf.resize"]')?.textContent ?? "";
+    const full = sizeValue();
+    const crop = editor as unknown as { cropRect: { x: number; y: number; w: number; h: number } | null; showCrop(): void };
+    crop.cropRect = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 };
+    crop.showCrop();
+    const half = sizeValue();
+    const dims = (s: string): number[] => (s.match(/(\d+)×(\d+)/)?.slice(1) ?? []).map(Number);
+    const [fw = 0, fh = 0] = dims(full);
+    const [hw = 0, hh = 0] = dims(half);
+    ok("the crop Size chip follows the pending crop box",
+      fw > 0 && Math.abs(hw - fw / 2) <= 1 && Math.abs(hh - fh / 2) <= 1, `${full} → ${half}`);
+
+    editor.end();
+    phv.remove();
   }
 
   const line = `pedit: ${pass} passed, ${fail} failed`;

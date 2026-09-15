@@ -32,7 +32,8 @@ import { getRunner } from "@core/vision/onnx-runner";
 import { autoBlurStore } from "@core/phone/autoblur-prefs";
 import type { BlurLayer } from "@core/edit/blur";
 import { VideoBlur } from "./phone/video-editor";
-import { formatTime } from "./media";
+import { icon } from "./phone/icons";
+import { formatTime, primeVideo } from "./media";
 
 export type { Span };
 
@@ -165,6 +166,13 @@ export class VideoEditor {
   private readonly root = document.createElement("div");
   private readonly video = document.createElement("video");
   private readonly stage = document.createElement("div");
+  /**
+   * The controls. On a phone it floats *over* the stage rather than taking
+   * layout space, which is why `fit` has to know about it: the stage's box
+   * runs on underneath it, and a preview centred in that box is centred
+   * behind the controls.
+   */
+  private readonly sheet = document.createElement("div");
   private readonly cropBox = document.createElement("div");
   private readonly strip = document.createElement("div");
   private readonly track = document.createElement("div");
@@ -201,6 +209,11 @@ export class VideoEditor {
   private cropping = false;
 
   private job: number | null = null;
+  private playBtn!: HTMLButtonElement;
+  /** Set between a grabber drag's pointerup and the click that follows it. */
+  private sizedByDrag = false;
+  /** The remembered sheet height, as a share of the editor's height. */
+  private savedSheet = 0;
   private raf = 0;
   private stripToken = 0;
 
@@ -235,11 +248,32 @@ export class VideoEditor {
     const title = document.createElement("div");
     title.className = "vedit-title";
     this.note.className = "vedit-note";
-    head.append(title, this.note, this.btn("✕", "Close  (Esc)", () => this.close()));
+    // Title and status share one block, so on a phone they stack inside a
+    // single header row instead of the note taking a second full-width row of
+    // its own above the picture. On the desktop the block is `display:
+    // contents` and the row is what it always was.
+    const names = document.createElement("div");
+    names.className = "vedit-names";
+    names.append(title, this.note);
+    head.append(names, this.btn("✕", "Close  (Esc)", () => this.close()));
 
     this.stage.className = "vedit-stage";
     this.video.className = "vedit-video";
     this.video.playsInline = true;
+    /*
+     * Held invisible until a frame exists, and asked to fetch one up front.
+     *
+     * A `<video>` on Android that has a source and no painted frame is drawn by
+     * the WebView itself: a grey field with an enormous play triangle scaled to
+     * the element, which on a phone is most of the screen. It is not a control
+     * — tapping it does nothing here — and it is what the editor showed on
+     * opening every clip, over a strip of real thumbnails proving the frames
+     * were there for the taking. Same placeholder, and the same fix, as the
+     * scanner's camera preview.
+     */
+    this.video.preload = "auto";
+    this.video.playsInline = true;
+    this.video.addEventListener("loadeddata", () => this.video.classList.add("ready"));
     this.cropBox.className = "vedit-crop";
     this.cropBox.hidden = true;
     this.stage.append(this.video, this.cropBox);
@@ -257,16 +291,17 @@ export class VideoEditor {
     this.clock.className = "vedit-clock";
 
     // ── Controls ────────────────────────────────────────────────────────────
+    this.playBtn = this.btn("▶", "Play / pause  (space)", () => this.toggle(), "Play", "play");
     const cuts = this.group("Cut", [
-      this.btn("▶", "Play / pause  (space)", () => this.toggle(), "Play"),
-      this.btn("[", "Trim the start to here  (I)", () => this.mark("in"), "Start"),
-      this.btn("]", "Trim the end to here  (O)", () => this.mark("out"), "End"),
-      this.btn("✂", "Split here  (S)", () => this.split(), "Split"),
-      this.btn("⌫", "Drop the piece under the playhead  (Del)", () => this.drop(), "Drop"),
-      this.btn("⟲", "Undo  (ctrl+Z)", () => this.undo(), "Undo"),
-      this.btn("⟳", "Redo  (ctrl+shift+Z)", () => this.redo(), "Redo"),
-      this.btn("⤢", "Keep all of it again", () => this.resetSpans(), "Reset"),
-    ]);
+      this.playBtn,
+      this.btn("[", "Trim the start to here  (I)", () => this.mark("in"), "Start", "trim-in"),
+      this.btn("]", "Trim the end to here  (O)", () => this.mark("out"), "End", "trim-out"),
+      this.btn("✂", "Split here  (S)", () => this.split(), "Split", "scissors"),
+      this.btn("⌫", "Drop the piece under the playhead  (Del)", () => this.drop(), "Drop", "trash"),
+      this.btn("⟲", "Undo  (ctrl+Z)", () => this.undo(), "Undo", "undo"),
+      this.btn("⟳", "Redo  (ctrl+shift+Z)", () => this.redo(), "Redo", "redo"),
+      this.btn("⤢", "Keep all of it again", () => this.resetSpans(), "Reset", "history"),
+    ], "cut");
 
     this.speedOut.className = "vedit-speed";
     this.smoothBtn = this.btn(
@@ -274,18 +309,26 @@ export class VideoEditor {
       "Smooth slow motion",
       () => this.toggleSmooth(),
       "Smooth",
+      "motion",
     );
     const geom = this.group("Frame", [
-      this.btn("⟳90", "Turn a quarter clockwise  (R)", () => this.turn(90), "Right"),
-      this.btn("⟲90", "Turn a quarter the other way", () => this.turn(-90), "Left"),
-      this.btn("↔", "Mirror left to right", () => { this.flipH = !this.flipH; this.paint(); }, "Mirror"),
-      this.btn("↕", "Flip top to bottom", () => { this.flipV = !this.flipV; this.paint(); }, "Flip"),
-      this.btn("⬚", "Crop — drag a rectangle on the video  (C)", () => this.toggleCrop(), "Crop"),
-      this.btn("−", "Slower", () => this.stepSpeed(-1), "Slower"),
+      this.btn("⟳90", "Turn a quarter clockwise  (R)", () => this.turn(90), "Right", "rotate"),
+      this.btn("⟲90", "Turn a quarter the other way", () => this.turn(-90), "Left", "rotate-ccw"),
+      this.btn("↔", "Mirror left to right", () => { this.flipH = !this.flipH; this.paint(); }, "Mirror", "flip"),
+      this.btn("↕", "Flip top to bottom", () => { this.flipV = !this.flipV; this.paint(); }, "Flip", "flip-v"),
+      // Slower, the reading, and Faster are one control and have to sit on one
+      // row. In DOM order they did not: the readout is full-width, so the grid
+      // put Crop and Slower on a row, `1x` alone on the next, and Faster and
+      // Smooth on a third -- the two halves of a stepper separated by the
+      // number they step. Observed on a test phone. The trio leads its own row now
+      // (the readout spans the two middle columns), and Crop and Smooth, which
+      // are each their own switch, follow.
+      this.btn("−", "Slower", () => this.stepSpeed(-1), "Slower", "minus"),
       this.speedOut,
-      this.btn("+", "Faster", () => this.stepSpeed(1), "Faster"),
+      this.btn("+", "Faster", () => this.stepSpeed(1), "Faster", "plus"),
+      this.btn("⬚", "Crop — drag a rectangle on the video  (C)", () => this.toggleCrop(), "Crop", "crop"),
       this.smoothBtn,
-    ]);
+    ], "frame");
 
     // Faces live in Output, not Frame: nothing about them changes what is on
     // screen here, only what comes out of ffmpeg.
@@ -295,18 +338,24 @@ export class VideoEditor {
       // belongs to the export button, and the harness finds buttons by title.
       "Look through the video for faces and blur each one into the exported copy",
       () => void this.scanFaces(),
+      "Faces",
+      "face",
     );
-    this.facesClear = this.btn("✕", "Forget the faces that were found", () => this.clearFaces(), "Clear");
+    this.facesClear = this.btn("✕", "Forget the faces that were found", () => this.clearFaces(), "Clear", "clear");
     this.facesClear.hidden = true;
     this.autoBtn = this.btn(
       "Auto-blur",
       "Look through the video for plates, screens, terminals, codes — every category switched on in Auto-blur settings — and blur each one into the exported copy",
       () => void this.scanAuto(),
+      "Auto",
+      "sparkles",
     );
     this.blurBtn = this.btn(
       "Blur…",
       "Blur anything — draw a box on any frame and it follows what it covers",
       () => this.openBlur(),
+      "Regions",
+      "blur",
     );
 
     const outp = this.group("Output", [
@@ -314,17 +363,17 @@ export class VideoEditor {
       this.facesBtn,
       this.facesClear,
       this.autoBtn,
-      this.check("Mute", "Drop the audio entirely", (v) => { this.mute = v; this.paint(); }),
+      this.check("Mute", "Drop the audio entirely", (v) => { this.mute = v; this.paint(); }, "Mute", "mute"),
       this.check("Fade", "One second in and out", (v) => {
         this.fadeIn = this.fadeOut = v ? 1 : 0;
         this.paint();
-      }),
+      }, "Fade", "fade"),
       this.check("Frame-exact", "Cut on the exact frame — needs a re-encode", (v) => {
         this.precise = v;
         this.paint();
-      }),
+      }, "Exact", "frame"),
       this.quali(),
-    ]);
+    ], "out");
 
     this.nameIn.className = "vedit-name";
     this.nameIn.spellcheck = false;
@@ -351,33 +400,52 @@ export class VideoEditor {
     const rows = document.createElement("div");
     rows.className = "vedit-controls";
     rows.append(cuts, geom, outp);
+    const modes = this.modeBar(rows);
 
     // On the desktop the sheet is an inert wrapper — the three blocks stack
     // exactly as they did as siblings. On a phone it floats over a full-bleed
-    // stage, and the grabber cycles how much of it is on screen so the video
-    // itself never shrinks. The stage is `1fr` either way, so `fit()` never
-    // has to know which mode it is in.
-    const sheet = document.createElement("div");
+    // stage and the grabber cycles how much of it is on screen.
+    const sheet = this.sheet;
     sheet.className = "vedit-sheet";
     sheet.dataset["state"] = "open";
     const grab = document.createElement("button");
     grab.type = "button";
     grab.className = "vedit-grab";
-    grab.title = "Show more or less of the controls";
+    grab.title = "Drag to make the controls taller or shorter — tap to cycle";
     // Opt out of panel-fit's glyph labelling: a word inside the grab pill
     // would break the shape everyone reads as "drag me".
     grab.dataset["fctLabelled"] = "";
-    grab.addEventListener("click", () => {
+    this.wireSheetSize(grab);
+    grab.addEventListener("click", (ev) => {
+      if (this.sizedByDrag) { this.sizedByDrag = false; ev.preventDefault(); return; }
       const next = { open: "slim", slim: "stub", stub: "open" } as const;
       const cur = sheet.dataset["state"] as keyof typeof next | undefined;
       sheet.dataset["state"] = next[cur ?? "open"];
+      // How much of the stage is covered has just changed, so the preview has
+      // a different amount of room. Next frame, once the new height is real.
+      requestAnimationFrame(() => this.fit());
     });
-    sheet.append(grab, tl, rows, foot);
+    sheet.append(grab, tl, modes, rows, foot);
 
     this.root.append(head, this.stage, sheet, this.vb.root);
     document.body.appendChild(this.root);
 
     this.video.addEventListener("timeupdate", () => this.tick());
+    // The Play chip said "Play" all the way through playback. It says what a
+    // tap will do now.
+    const playing = (): void => {
+      const on = !this.video.paused;
+      VideoEditor.label(this.playBtn, on ? "⏸" : "▶", on ? "Pause" : "Play");
+      const old = this.playBtn.querySelector(".vedit-ico");
+      if (old !== null) {
+        const g = icon(on ? "pause" : "play");
+        g.classList.add("vedit-ico");
+        old.replaceWith(g);
+      }
+    };
+    this.video.addEventListener("play", playing);
+    this.video.addEventListener("pause", playing);
+    this.video.addEventListener("emptied", playing);
     this.video.addEventListener("loadedmetadata", () => this.tick());
     // The preview is sized in pixels, so it has to be re-sized when the window
     // changes shape. Cheap enough to do on every resize event: two style writes
@@ -466,6 +534,9 @@ export class VideoEditor {
     }
     this.model.load(this.media.duration);
     this.video.src = await this.host.fileUrl(path);
+    // See `primeVideo`: on Android the decoded frame is not enough, the clip
+    // has to have been played for the WebView to stop drawing over it.
+    void primeVideo(this.video);
     const v = this.media.tracks.find((t) => t.kind === "video");
     this.say(
       `${this.media.width}×${this.media.height}  ·  ${formatTime(this.media.duration)}  ·  ` +
@@ -483,6 +554,8 @@ export class VideoEditor {
     this.pendingBlur = false;
     if (this.vb.isOpen) this.vb.close();
     this.video.pause();
+    this.video.classList.remove("ready");
+    delete this.video.dataset["fctPrimed"];
     this.video.removeAttribute("src");
     this.video.load();
     this.root.hidden = true;
@@ -607,7 +680,13 @@ export class VideoEditor {
   private speedLabel(): string {
     if (this.speed === 1) return "1×";
     if (this.speed > 1) return `${this.speed}×`;
-    return `1/${Math.round(1 / this.speed)}×`;
+    // Only when the reciprocal really is that whole number. Rounding blindly
+    // turned 0.75 into "1/1×" -- a label that says "normal speed" on a clip
+    // running at three quarters. Anything that is not close to a unit fraction
+    // is better read as the decimal it is.
+    const n = Math.round(1 / this.speed);
+    if (n >= 2 && Math.abs(1 / n - this.speed) < this.speed * 0.05) return `1/${n}×`;
+    return `${Number(this.speed.toFixed(3))}×`;
   }
 
   // ── Painting ──────────────────────────────────────────────────────────────
@@ -630,14 +709,6 @@ export class VideoEditor {
       this.track.insertBefore(bar, this.playhead);
     }
 
-    const t: string[] = [];
-    if (this.rotate) t.push(`rotate(${this.rotate}deg)`);
-    if (this.flipH) t.push("scaleX(-1)");
-    if (this.flipV) t.push("scaleY(-1)");
-    this.video.style.transform = t.join(" ");
-    // A quarter turn makes the frame's long axis vertical, and without this the
-    // preview overflows the stage sideways while claiming to fit.
-    this.video.classList.toggle("vedit-turned", this.rotate === 90 || this.rotate === 270);
     this.fit();
 
     this.speedOut.textContent = this.speedLabel();
@@ -651,30 +722,152 @@ export class VideoEditor {
       : this.smooth
         ? "Smooth: inventing the in-between frames. Slow to export."
         : "Smooth: off — each frame is simply held longer";
-    this.exportBtn.textContent = this.losslessLikely() ? "Export (no re-encode)" : "Export a copy";
+    VideoEditor.label(this.exportBtn, this.losslessLikely() ? "Export (no re-encode)" : "Export a copy");
     this.tick();
   }
 
   /**
-   * Give the preview the whole stage.
+   * Size and place the preview inside the part of the stage you can see.
    *
-   * CSS alone cannot do this. `max-width/max-height: 100%` shrinks a large clip
-   * to fit but will not grow a small one, so a 320×180 test clip sat
-   * postage-stamp sized in the middle of a black field — which is exactly what
-   * a screenshot showed and what none of the assertions could see. Handing the
-   * element the stage's box and letting `object-fit: contain` letterbox inside
-   * it scales both ways.
+   * CSS alone cannot do the sizing. `max-width/max-height: 100%` shrinks a
+   * large clip to fit but will not grow a small one, so a 320×180 test clip
+   * sat postage-stamp sized in the middle of a black field. Handing the
+   * element a box and letting `object-fit: contain` letterbox inside it
+   * scales both ways.
+   *
+   * The box is not the stage. On a phone the controls sheet floats over the
+   * stage's bottom edge instead of taking layout space, so the stage's box
+   * carries on underneath it — and a preview centred in *that* is centred
+   * behind the controls. With the sheet open over 62% of the screen, a 16:9
+   * clip ended up entirely hidden: the editor showed a black rectangle, the
+   * clip played, the clock advanced, and there was nothing to see. Which is
+   * what "opened the editor and it's messed up" was.
+   *
+   * So: measure the overlap, shrink the box by it, and shift the element up
+   * by half of it to re-centre in what is left. The shift rides in front of
+   * the rotation because it is a move in the stage's frame, not the clip's.
    *
    * The axes swap on a quarter turn, because the box is measured before the
-   * rotation is applied: a stage-shaped element rotated 90° is taller than the
-   * stage it is sitting in.
+   * rotation is applied: a box-shaped element rotated 90° is taller than the
+   * box it is sitting in.
    */
+  /**
+   * Drag the grabber to choose how much of the screen the controls get.
+   *
+   * Three fixed states (open, slim, stub) were a guess at what a person wants
+   * to see, and the guess was wrong both ways: open left a tall clip small,
+   * stub hid the rail you were using. Now the pill is a handle. Drag it and the
+   * sheet follows the finger, the preview re-fits every frame, and the height
+   * is remembered for the next clip. Dragged nearly shut it becomes the stub;
+   * a tap still cycles, for anyone who never discovers the drag.
+   */
+  private wireSheetSize(grab: HTMLButtonElement): void {
+    const KEY = "facet.vedit.sheet";
+    const sheet = this.sheet;
+    const room = (): number => this.root.getBoundingClientRect().height || window.innerHeight;
+    const apply = (px: number): void => {
+      sheet.style.setProperty("--vedit-sheet-h", `${Math.round(px)}px`);
+      sheet.classList.add("vedit-sized");
+    };
+    try {
+      const saved = Number(localStorage.getItem(KEY));
+      // Applied by `fit()`, not here: the editor has no height until it opens.
+      if (saved > 0 && saved < 1) this.savedSheet = saved;
+    } catch { /* no storage, default height */ }
+
+    let id: number | null = null;
+    let startY = 0;
+    let startH = 0;
+    let moved = false;
+    let frame = 0;
+    grab.style.touchAction = "none";
+    grab.addEventListener("pointerdown", (ev) => {
+      if (!ev.isPrimary) return;
+      id = ev.pointerId;
+      startY = ev.clientY;
+      startH = sheet.getBoundingClientRect().height;
+      moved = false;
+      try { grab.setPointerCapture(ev.pointerId); } catch { /* still works uncaptured */ }
+    });
+    grab.addEventListener("pointermove", (ev) => {
+      if (ev.pointerId !== id) return;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.abs(dy) < 6) return;
+      if (!moved) {
+        moved = true;
+        sheet.dataset["state"] = "open";
+        sheet.classList.add("vedit-dragging");
+      }
+      const max = room() - 160;
+      apply(Math.min(Math.max(grab.offsetHeight, startH - dy), Math.max(grab.offsetHeight, max)));
+      ev.preventDefault();
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => this.fit());
+    });
+    const end = (ev: PointerEvent): void => {
+      if (ev.pointerId !== id) return;
+      id = null;
+      sheet.classList.remove("vedit-dragging");
+      if (!moved) return;
+      this.sizedByDrag = true;
+      // The click that follows pointerup must not also cycle the state; if no
+      // click comes (pointercancel), clear the flag on the next frame.
+      setTimeout(() => { this.sizedByDrag = false; }, 350);
+      const h = sheet.getBoundingClientRect().height;
+      if (h < grab.offsetHeight + 48) {
+        sheet.classList.remove("vedit-sized");
+        sheet.dataset["state"] = "stub";
+      } else {
+        this.savedSheet = h / room();
+        try { localStorage.setItem(KEY, String(this.savedSheet)); } catch { /* not remembered */ }
+      }
+      requestAnimationFrame(() => this.fit());
+    };
+    grab.addEventListener("pointerup", end);
+    grab.addEventListener("pointercancel", end);
+  }
+
   private fit(): void {
     const r = this.stage.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return;
+
+    // A remembered sheet height comes back whenever the sheet is fully open
+    // and has not been sized yet -- first open, or a tap back up from the stub.
+    if (
+      this.savedSheet > 0 &&
+      document.body.classList.contains("fct-phone") &&
+      this.sheet.dataset["state"] === "open" &&
+      !this.sheet.classList.contains("vedit-sized")
+    ) {
+      const room = this.root.getBoundingClientRect().height;
+      this.sheet.style.setProperty("--vedit-sheet-h", `${Math.round(this.savedSheet * room)}px`);
+      this.sheet.classList.add("vedit-sized");
+    }
+
+    // Only the part of the sheet that is actually over the stage counts. On
+    // the desktop the sheet is a sibling below the stage and this is zero,
+    // which leaves the whole stage — the behaviour that was already right.
+    const s = this.sheet.getBoundingClientRect();
+    const covered = s.height > 0
+      ? Math.max(0, Math.min(r.bottom, s.bottom) - Math.max(r.top, s.top))
+      : 0;
+
+    // Never let the controls squeeze the preview out of existence: past this
+    // there is no preview worth having and you are better off seeing a strip
+    // of the clip than none of it.
+    const h = Math.max(64, r.height - covered);
+    const shift = -(r.height - h) / 2;
+
     const turned = this.rotate === 90 || this.rotate === 270;
-    this.video.style.width = `${turned ? r.height : r.width}px`;
-    this.video.style.height = `${turned ? r.width : r.height}px`;
+    this.video.style.width = `${turned ? h : r.width}px`;
+    this.video.style.height = `${turned ? r.width : h}px`;
+
+    const t: string[] = [];
+    if (shift !== 0) t.push(`translateY(${shift}px)`);
+    if (this.rotate) t.push(`rotate(${this.rotate}deg)`);
+    if (this.flipH) t.push("scaleX(-1)");
+    if (this.flipV) t.push("scaleY(-1)");
+    this.video.style.transform = t.join(" ");
   }
 
   /** Mirrors `Job::copyable` in Rust so the button can promise what it delivers. */
@@ -735,7 +928,14 @@ export class VideoEditor {
     this.cropping = !this.cropping;
     this.stage.classList.toggle("cropping", this.cropping);
     if (!this.cropping && !this.crop) this.cropBox.hidden = true;
-    this.say(this.cropping ? "Drag a rectangle on the video. Press C again to finish." : "");
+    this.say(
+      this.cropping
+        // The desktop hint named the keyboard shortcut. On a phone there is no
+        // C to press, and the sentence sent people looking for a key that is
+        // not there. Name the button, which exists on both.
+        ? "Drag a rectangle on the video, then tap Crop again to finish."
+        : "",
+    );
   }
 
   /**
@@ -832,8 +1032,78 @@ export class VideoEditor {
    * Pull frames, detect, link into tracks, and answer with one layer per
    * face. The note under the title says what happened either way, because a
    * silent "done" over an unblurred face is the failure that matters here.
+   *
+   * The neural model does the finding whenever it is on the machine. This used
+   * to be the cascade and only the cascade, which on a real 1280x720 clip
+   * whose faces were 56 px found nothing at all and said so politely — the
+   * cascade cannot see below a 45 px window in a 640 px frame, which is a 90 px
+   * face on that clip. The model finds the same faces in every sampled frame
+   * and takes 78 ms a frame doing it against the cascade's 228. It is better
+   * and it is faster; there is no trade here to think about.
+   *
+   * `scanClipAuto` is the same call the Auto-blur button makes, narrowed to
+   * faces, so this button and that one cannot drift apart. It already falls
+   * back to the cascade per frame if the model fails to load, and the cascade
+   * now runs at a width where it can actually see something.
    */
   private async findFaces(): Promise<BlurLayer[]> {
+    const media = this.media;
+    if (!media || this.scanning) return [];
+    const runner = getRunner();
+    if (runner) return this.findFacesNet(runner);
+    return this.findFacesCascade();
+  }
+
+  /** Faces by the neural model — the normal path. */
+  private async findFacesNet(runner: NonNullable<ReturnType<typeof getRunner>>): Promise<BlurLayer[]> {
+    const media = this.media;
+    if (!media) return [];
+    const token = ++this.scanToken;
+    this.scanning = true;
+    this.facesBtn.disabled = true;
+    const abort = new AbortController();
+    try {
+      const r = await scanClipAuto({
+        frameAt: (t, width) => this.host.frameAt(this.path, t, width),
+        media,
+        categories: ["faces"],
+        config: autoBlurStore().get(),
+        runner,
+        signal: abort.signal,
+        onProgress: (f) => {
+          if (token !== this.scanToken) abort.abort();
+          const pc = Math.round(f * 100);
+          VideoEditor.label(this.facesBtn, `Looking… ${pc}%`, `${pc}%`);
+        },
+      });
+      if (token !== this.scanToken) return [];
+      if (r.layers.length === 0) {
+        this.say(
+          r.failed > 0
+            ? `No faces found — and ${r.failed} frames would not decode.`
+            : `No faces found${r.notes.length ? ` — ${r.notes[0]}` : ""}. Nothing will be blurred.`,
+          true,
+        );
+      } else {
+        const who = r.layers.length === 1 ? "1 face" : `${r.layers.length} faces`;
+        const n = layerSpans(r.layers, media.width, media.height, media.duration).spans.length;
+        this.say(
+          `${who} · ${n} blur${n === 1 ? "" : "s"} in the export` +
+            (r.failed > 0 ? ` · ${r.failed} frames would not decode` : ""),
+        );
+      }
+      return r.layers;
+    } finally {
+      if (token === this.scanToken) {
+        this.scanning = false;
+        this.facesBtn.disabled = false;
+        this.paintFaces();
+      }
+    }
+  }
+
+  /** Faces by the cascade — only when the model is not on this machine. */
+  private async findFacesCascade(): Promise<BlurLayer[]> {
     const media = this.media;
     if (!media || this.scanning) return [];
     const token = ++this.scanToken;
@@ -847,7 +1117,7 @@ export class VideoEditor {
     try {
       for (let i = 0; i < times.length; i++) {
         const at = times[i]!;
-        this.facesBtn.textContent = `Looking… ${Math.round(((i + 1) / times.length) * 100)}%`;
+        VideoEditor.label(this.facesBtn, `Looking… ${Math.round(((i + 1) / times.length) * 100)}%`, `${Math.round(((i + 1) / times.length) * 100)}%`);
         try {
           const png = await this.host.frameAt(this.path, at, Math.min(media.width, VIDEO_WIDTH));
           if (token !== this.scanToken) return [];
@@ -933,7 +1203,7 @@ export class VideoEditor {
         signal: abort.signal,
         onProgress: (f) => {
           if (token !== this.scanToken) abort.abort();
-          this.autoBtn.textContent = `Looking… ${Math.round(f * 100)}%`;
+          VideoEditor.label(this.autoBtn, `Looking… ${Math.round(f * 100)}%`, `${Math.round(f * 100)}%`);
         },
       });
       if (token !== this.scanToken) return [];
@@ -955,7 +1225,7 @@ export class VideoEditor {
       if (token === this.scanToken) {
         this.scanning = false;
         this.autoBtn.disabled = false;
-        this.autoBtn.textContent = "Auto-blur";
+        VideoEditor.label(this.autoBtn, "Auto-blur", "Auto");
         this.paintFaces();
       }
     }
@@ -970,11 +1240,15 @@ export class VideoEditor {
 
   private paintFaces(): void {
     const n = this.vb.layers.filter((l) => l.enabled).length;
-    this.facesBtn.textContent = n > 0 ? `Blurring ${n} region${n === 1 ? "" : "s"}` : "Blur faces";
+    VideoEditor.label(
+      this.facesBtn,
+      n > 0 ? `Blurring ${n} region${n === 1 ? "" : "s"}` : "Blur faces",
+      n > 0 ? `${n} face${n === 1 ? "" : "s"}` : "Faces",
+    );
     this.facesBtn.classList.toggle("on", n > 0);
     this.facesClear.hidden = !this.vb.layers.some((l) => l.source === "face");
     this.blurBtn.classList.toggle("on", n > 0);
-    this.exportBtn.textContent = this.losslessLikely() ? "Export (no re-encode)" : "Export a copy";
+    VideoEditor.label(this.exportBtn, this.losslessLikely() ? "Export (no re-encode)" : "Export a copy");
   }
 
   /** What the export will burn in, as static boxes. */
@@ -1045,60 +1319,183 @@ export class VideoEditor {
    * One word, no punctuation, and different from every other short in the
    * same group.
    */
-  private btn(label: string, title: string, on: () => void, short?: string): HTMLButtonElement {
+  /**
+   * A control.
+   *
+   * `ico` is an icon name from the phone icon set. When it is given the button
+   * is built as icon + two labels rather than as a bare glyph: `.vedit-text`
+   * carries the desktop wording, `.vedit-lab` the one or two words that fit
+   * under an icon on a phone. The shell's stylesheet shows one and hides the
+   * other, so the same element is a labelled button at a desk and a chip in a
+   * thumb's reach without either shell owning a second DOM.
+   *
+   * The glyphs this replaces were never one family -- `[ ] * <- -> ^ v [] ~`
+   * came from four Unicode blocks and rendered at four different weights, and
+   * two of them (`<-` for redo, `^` for reset) collided with the meanings the
+   * icon set already had for those characters, so the legacy glyph map could
+   * not be pointed at this file. Naming the icon at the call site is the fix.
+   */
+  private btn(
+    label: string,
+    title: string,
+    on: () => void,
+    short?: string,
+    ico?: string,
+  ): HTMLButtonElement {
     const b = document.createElement("button");
     b.className = "vedit-btn";
     b.type = "button";
-    b.textContent = label;
     b.title = title;
     if (short !== undefined) b.dataset["fctShort"] = short;
+    if (ico !== undefined) {
+      const g = icon(ico);
+      g.classList.add("vedit-ico");
+      const text = document.createElement("span");
+      text.className = "vedit-text";
+      text.textContent = label;
+      const lab = document.createElement("span");
+      lab.className = "vedit-lab";
+      lab.textContent = short ?? label;
+      b.append(g, text, lab);
+      // Panel-fit swaps long words for `data-fct-short` on narrow shells. The
+      // chip already shows exactly that string, so let it alone.
+      b.dataset["fctLabelled"] = "";
+    } else {
+      b.textContent = label;
+    }
     b.addEventListener("click", on);
     return b;
   }
 
-  private check(label: string, title: string, on: (v: boolean) => void): HTMLElement {
-    const l = document.createElement("label");
-    l.className = "vedit-check";
-    l.title = title;
-    const i = document.createElement("input");
-    i.type = "checkbox";
-    i.addEventListener("change", () => on(i.checked));
-    l.append(i, document.createTextNode(label));
-    return l;
-  }
-
-  private quali(): HTMLElement {
-    const l = document.createElement("label");
-    l.className = "vedit-check";
-    l.title = "Lower is better and bigger. 18 is visually lossless; 28 is small.";
-    const s = document.createElement("select");
-    for (const [v, t] of [
-      [18, "Best"],
-      [20, "High"],
-      [23, "Normal"],
-      [28, "Small"],
-    ] as [number, string][]) {
-      const o = document.createElement("option");
-      o.value = String(v);
-      o.textContent = t;
-      if (v === this.quality) o.selected = true;
-      s.append(o);
+  /**
+   * Retitle a button that may or may not have been built with an icon.
+   *
+   * `textContent =` would throw away the icon and both label spans, which is
+   * what four call sites used to do to `Faces`, `Auto-blur` and `Export` while
+   * work was running. `long` is the desktop wording; `chip` is what fits under
+   * a 20px icon in a 56px cell -- a percentage rather than "Looking... 42%".
+   */
+  private static label(b: HTMLButtonElement, long: string, chip?: string): void {
+    const text = b.querySelector(".vedit-text");
+    if (text === null) {
+      b.textContent = long;
+      return;
     }
-    s.addEventListener("change", () => {
-      this.quality = Number(s.value);
-    });
-    l.append(document.createTextNode("Quality"), s);
-    return l;
+    text.textContent = long;
+    const lab = b.querySelector(".vedit-lab");
+    if (lab !== null) lab.textContent = chip ?? long;
   }
 
-  private group(label: string, kids: HTMLElement[]): HTMLElement {
+  /**
+   * An on/off control.
+   *
+   * This was a `<label>` wrapping a 16px checkbox. Three problems, all of them
+   * measured on a test phone: the label sized itself to the box and came out 24px
+   * tall against the 44px every other control in the sheet honours; it was
+   * wider than a button cell, so the grid had to give it a whole row each and
+   * three of them cost three rows; and it looked like a form, not like a tool,
+   * sitting among the buttons it shares a group with.
+   *
+   * A pressed-state button is the same control with none of that: one cell,
+   * the same 44px, the same icon treatment as its neighbours, and `aria-pressed`
+   * says what a checkbox's `checked` said.
+   */
+  private check(label: string, title: string, on: (v: boolean) => void, short?: string, ico?: string): HTMLElement {
+    let val = false;
+    const b = this.btn(label, title, () => {
+      val = !val;
+      b.setAttribute("aria-pressed", String(val));
+      b.classList.toggle("on", val);
+      on(val);
+    }, short ?? label, ico);
+    b.classList.add("vedit-toggle");
+    b.setAttribute("aria-pressed", "false");
+    return b;
+  }
+
+  /**
+   * How hard the encoder tries.
+   *
+   * A `<select>` inside a label inside a four-column grid left the dropdown
+   * about 80px wide and Android clipped `Normal` to `Norm...`. There are four
+   * values and they have an order, so a chip that steps through them shows the
+   * current one at full width in the space one cell already has. Lower CRF is
+   * better and bigger; the list runs best-first so stepping right means
+   * smaller, which is the direction the word says.
+   */
+  private quali(): HTMLElement {
+    const steps: [number, string][] = [[18, "Best"], [20, "High"], [23, "Normal"], [28, "Small"]];
+    const at = () => Math.max(0, steps.findIndex(([v]) => v === this.quality));
+    const b = this.btn("Quality", "", () => {
+      const next = steps[(at() + 1) % steps.length];
+      if (next === undefined) return;
+      this.quality = next[0];
+      show();
+    }, "Normal", "quality");
+    const show = (): void => {
+      const cur = steps[at()];
+      if (cur === undefined) return;
+      VideoEditor.label(b, `Quality: ${cur[1]}`, cur[1]);
+      b.title = `Quality is ${cur[1]}. Tap to step through Best, High, Normal, Small — lower quality is a smaller file.`;
+    };
+    show();
+    return b;
+  }
+
+  private group(label: string, kids: HTMLElement[], mode?: string): HTMLElement {
     const g = document.createElement("div");
     g.className = "vedit-group";
+    if (mode !== undefined) g.dataset["mode"] = mode;
     const h = document.createElement("span");
     h.className = "vedit-group-label";
     h.textContent = label;
     g.append(h, ...kids);
     return g;
+  }
+
+  /**
+   * The phone's way through the three groups.
+   *
+   * All three at once is twenty-two controls, and on a test phone the last three
+   * rows of them sat 363px below the fold of a sheet that was already eating
+   * 62% of the screen to show them. Twenty of the twenty-two were the same
+   * grey rectangle, so the eye had nothing to sort them by and every one of
+   * them had to be read.
+   *
+   * One group at a time is eight controls, one row, no scrolling down -- and
+   * the sheet shrinks to the height of a rail, which is where the picture gets
+   * its screen back. The switch is three words rather than icons because these
+   * are categories, not actions, and a category with no label is a guess.
+   *
+   * Desktop keeps all three stacked; the switch hides itself there.
+   */
+  private modeBar(rows: HTMLElement): HTMLElement {
+    const bar = document.createElement("div");
+    bar.className = "vedit-modes";
+    bar.setAttribute("role", "tablist");
+    const pick = (m: string): void => {
+      rows.dataset["mode"] = m;
+      for (const b of bar.children) {
+        const on = (b as HTMLElement).dataset["mode"] === m;
+        b.setAttribute("aria-selected", String(on));
+        b.classList.toggle("on", on);
+      }
+      requestAnimationFrame(() => this.fit());
+    };
+    for (const [m, text] of [["cut", "Cut"], ["frame", "Frame"], ["out", "Output"]] as [string, string][]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "vedit-mode";
+      b.dataset["mode"] = m;
+      b.dataset["fctLabelled"] = "";
+      b.textContent = text;
+      b.setAttribute("role", "tab");
+      b.title = `Show the ${text.toLowerCase()} controls`;
+      b.addEventListener("click", () => pick(m));
+      bar.append(b);
+    }
+    pick("cut");
+    return bar;
   }
 
   private wireTrack(): void {

@@ -34,6 +34,8 @@ import "./styles/recorder.css";
 import "./styles/transcribe.css";
 import "./styles/subtitles.css";
 import "./styles/ocr.css";
+import "./styles/read.css";
+import "./styles/scan.css";
 import "./styles/phone.css";
 import "./styles/phone-panels.css";
 import "./styles/phone-viewer.css";
@@ -41,6 +43,8 @@ import "./styles/phone-prefs.css";
 import "./styles/phone-editor.css";
 import "./styles/sign.css";
 import "./styles/sign-view.css";
+// Last on purpose: skin.css overrides tokens the sheets above set.
+import "./styles/skin.css";
 
 import { themes } from "@core/theme/theme-engine";
 import { MockFs } from "@core/explorer/mock-fs";
@@ -79,6 +83,7 @@ import {
 // them through `PREF` rather than through a string.
 import { PREF } from "@core/settings/registry";
 import { settings } from "@core/settings/store";
+import { applyLook as applyLookTo } from "@core/settings/look";
 import "@core/keys/commands";
 import { KEY_ID } from "@core/keys/ids";
 import { keys } from "@core/keys/map";
@@ -106,10 +111,12 @@ import { Palette, type Command } from "@ui/palette";
 import { QuickLook, type QuickAction } from "@ui/quicklook";
 import { SceneView } from "@ui/scene-view";
 import { CameraView } from "@ui/camera-view";
+import { ScanView } from "@ui/scan-view";
 import { RecorderView } from "@ui/recorder-view";
 import { TranscribeView } from "@ui/transcribe-view";
 import { SubtitleView, SUBTITLE_EXTS } from "@ui/subtitle-view";
 import { OcrView, OCR_EXTS } from "@ui/ocr-view";
+import { ReadView, READ_EXTS } from "@ui/read-view";
 import { SignView, SIGN_EXTS } from "@ui/sign-view";
 import { TableView } from "@ui/table";
 import { VideoEditor, type JobDone, type JobProgress, type Media } from "@ui/vedit";
@@ -280,6 +287,12 @@ const viewer = new Viewer({
   // The Sign category on the editor's bar. `signView` is declared further down
   // in this file and this only runs on a click, by which time it exists.
   sign: (path, mode) => void signView.open(path, mode),
+  // Same story as `sign`: `readAloud` is declared further down and this only
+  // runs on a click. Read aloud on a photograph is the OCR path with a voice
+  // on the end of it, which is why it belongs on the picture's own tool bar
+  // and not only on the phone's quick-look card, where it used to live alone.
+  read: (path) => void readAloud.open(path),
+  refresh: () => void navigate(cwd, false),
 });
 
 const player = new MediaPlayer({ fileUrl, openExternal });
@@ -368,6 +381,40 @@ const camera = new CameraView({
 });
 
 /**
+ * The document scanner.
+ *
+ * Same camera surface as the camera view, deliberately opened separately: two
+ * `getUserMedia` calls on one device is how a webcam starts answering
+ * `NotReadableError` to its own app, and the two are never on screen at once.
+ *
+ * `engine` is left off so the scanner builds its own Tesseract on the first
+ * searchable PDF and never at all otherwise -- the model is tens of megabytes
+ * and most scans do not want it.
+ */
+const scanView = new ScanView({
+  source: {
+    open: (c) =>
+      navigator.mediaDevices
+        ? navigator.mediaDevices.getUserMedia(c)
+        : Promise.reject(new Error("this build cannot reach the camera — it is not running in a secure context")),
+    devices: () => navigator.mediaDevices?.enumerateDevices() ?? Promise.resolve([]),
+  },
+  // Same reasoning as the camera's: `cwd` on a phone is whichever roll you
+  // last opened, and a scan of somebody's passport is not a thing to drop in
+  // Downloads because that is where they happened to be browsing.
+  folder: () => {
+    const set = settings.get<string>(PREF.scanFolder).trim();
+    if (set !== "") return set;
+    return IS_ANDROID ? "/sdcard/Documents/Facet" : cwd;
+  },
+  writeFile: (path, bytes, overwrite) =>
+    native
+      ? native.writeFile(path, bytes, overwrite)
+      : Promise.reject(new Error("saving needs the desktop app")),
+  refresh: () => void navigate(cwd, false),
+});
+
+/**
  * The recorder (item 29).
  *
  * `appendFile` is handed over only on the desktop, and that is not a detail:
@@ -404,6 +451,10 @@ const recorder = new RecorderView({
       ? native.writeFile(path, bytes, overwrite)
       : Promise.reject(new Error("saving needs the desktop app")),
   ...(native ? { appendFile: (path: string, bytes: Uint8Array) => native.appendFile(path, bytes) } : {}),
+  ...(native
+    ? { patchFile: (path: string, offset: number, bytes: Uint8Array) => native.patchFile(path, offset, bytes) }
+    : {}),
+  ...(native ? { scanPath: (path: string) => native.mediaScan([path]) } : {}),
   refresh: () => void navigate(cwd, false),
   platform: () => navigator.platform || navigator.userAgent,
   prefs: () => ({
@@ -558,6 +609,18 @@ const ocr = new OcrView({
  * on first open would mean the first document of every session waits on
  * localStorage for no reason anyone would be able to name.
  */
+/**
+ * Read aloud.
+ *
+ * One panel for the desktop and the phone rather than two. It is a full-screen
+ * overlay either way, the controls are already thumb-sized, and the phone
+ * shell closes any fixed body child at z-index 40 or above by sending it an
+ * Escape -- which this listens for. A second implementation for small screens
+ * would be a second set of bugs to find, and the reading, the cleanup and the
+ * reading-order fixes would have to be right in both.
+ */
+const readAloud = new ReadView({ fileUrl });
+
 const signView = new SignView({
   fileUrl,
   readAll: async (path, max) => new Uint8Array(await readHead(path, max)),
@@ -776,12 +839,59 @@ const table = new TableView({
     native ? native.readTail(path, len) : Promise.reject(new Error("needs the desktop app")),
 });
 
+/**
+ * Pop-outs (desktop only): each file floats in a borderless, always-on-top
+ * window of its own, built and placed by `pip.rs`.
+ *
+ * What gets popped out is what you are looking at — the file open in a
+ * surface — and otherwise the selection, folders left out. A pop-out cannot
+ * show a folder.
+ */
+function popOutTargets(): string[] {
+  const open = openSurface();
+  if (open) return [open.path];
+  return selection.filter((e) => e.kind !== "folder").map((e) => e.path);
+}
+
+function popOut(paths: readonly string[]): void {
+  if (native === null || IS_ANDROID || paths.length === 0) return;
+  void native
+    .popOut(paths)
+    .then((ids) => flash(ids.length === 1 ? "Popped out — drag it anywhere" : `Popped out ${ids.length} files`))
+    // The cap and a vanished file both come back as a sentence meant for
+    // people, so it is shown as it is.
+    .catch((e: unknown) => flash(String(e)));
+}
+
+/**
+ * "Show in FACET" from a pop-out, or `facet explore <paths>` from outside:
+ * go to the first file's folder and select what is there. Selected rather
+ * than opened, because the person asking already has it open in the pop-out.
+ */
+async function drainDesktopHandoff(): Promise<void> {
+  if (native === null || IS_ANDROID) return;
+  const paths = await native.openPending();
+  const first = paths[0];
+  if (first === undefined) return;
+  const cut = Math.max(first.lastIndexOf("/"), first.lastIndexOf("\\"));
+  const dir = cut > 0 ? first.slice(0, cut) : first;
+  // `C:` alone is the drive's current directory, not its root.
+  if (/^[A-Za-z]:$/.test(dir)) await navigate(`${dir}\\`);
+  else await navigate(dir);
+  const here = paths.filter((p) => {
+    const c = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+    return p.slice(0, c) === dir;
+  });
+  if (here.length > 0) browser.selectPaths(here);
+}
+
 /** True while any full-screen surface owns the keyboard. */
 const surfaceOpen = (): boolean =>
   viewer.isOpen || player.isOpen || scene.isOpen || quickLook.isOpen || metaPanel.isOpen ||
   inspector.isOpen || table.isOpen || vedit.isOpen || aedit.isOpen || prefs.isOpen ||
   camera.isOpen || recorder.isOpen || scribe.isOpen || subs.isOpen || ocr.isOpen ||
-  signView.isOpen();
+  readAloud.isOpen ||
+  scanView.isOpen || signView.isOpen();
 
 /**
  * The same question, answered with a name and a file rather than a boolean.
@@ -1278,6 +1388,11 @@ function applyPref(id: string): void {
     case PREF.density:
     case PREF.font:
     case PREF.reduceMotion:
+    case PREF.skin:
+    case PREF.outlines:
+    case PREF.corners:
+    case PREF.glow:
+    case PREF.backdrop:
       applyAppearance();
       return;
     case PREF.batchLanes:
@@ -1299,13 +1414,15 @@ function applyPref(id: string): void {
 }
 
 /**
- * The four appearance settings, written onto <html>.
+ * The appearance settings, written onto <html>.
  *
  * base.css has expressed every font size as `calc(N * --fct-ui-scale)` and
  * every gap, radius and bar height as `calc(N * --fct-density)` since the first
  * commit, with nothing to write them. So this function is the entire
- * implementation of "resize the whole interface", and it costs two property
- * writes rather than a re-render.
+ * implementation of "resize the whole interface", and it costs a handful of
+ * property writes rather than a re-render. The look settings work the same way:
+ * an attribute on <html> that skin.css keys off, and one number for the corner
+ * radius that every rounded thing in the app already multiplies by.
  */
 function applyAppearance(): void {
   const root = document.documentElement.style;
@@ -1328,6 +1445,13 @@ function applyAppearance(): void {
   if (settings.get<boolean>(PREF.reduceMotion)) motion["motion"] = "reduced";
   else if (settings.isSet(PREF.reduceMotion)) motion["motion"] = "full";
   else delete motion["motion"];
+
+  applyLook();
+}
+
+/** The look: skin, outlines, corners, glow, backdrop — shared with the pop-outs. */
+function applyLook(): void {
+  applyLookTo(document.documentElement, settings);
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────
@@ -1432,9 +1556,10 @@ function goBack(): void {
 const ICONS: Record<string, string> = {
   home: "⌂", image: "▦", video: "▶", audio: "◍", doc: "▤",
   clock: "◷", sparkle: "✦",
-  // Without this the drives fell through to the "•" fallback and the bottom of
-  // the rail was three identical dots.
-  drive: "▭",
+  // Drives do not get a glyph. The vertical rail hides its labels, so every
+  // drive drew as the same hollow rectangle and the bottom of the rail was four
+  // identical empty boxes -- see `renderRail`, which puts the letter here.
+  drive: "",
 };
 
 /**
@@ -1484,7 +1609,16 @@ function renderRail(): void {
     const icon = document.createElement("span");
     icon.className = "rail-icon";
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = ICONS[place.icon] ?? "•";
+    // A drive's icon is its letter. The vertical rail draws icons only, so a
+    // shared drive glyph makes C:, D:, E: and H: four identical blank boxes
+    // with nothing on screen telling them apart. The letter is the one thing
+    // that identifies the drive, so it goes where the eye already looks.
+    if (place.icon === "drive") {
+      icon.classList.add("is-drive");
+      icon.textContent = railLabel(place).replace(":", "");
+    } else {
+      icon.textContent = ICONS[place.icon] ?? "•";
+    }
 
     const label = document.createElement("span");
     label.className = "rail-label";
@@ -2210,6 +2344,20 @@ function ocrInSelection(): string | null {
 }
 
 /**
+ * What **A** would read out: the one selected file that has words in it.
+ *
+ * Wider than the OCR test, because reading covers text files and web pages as
+ * well as scans, and the same selection-only rule for the same reason: a key
+ * that starts talking about whatever is under the cursor is a key people learn
+ * not to press.
+ */
+function readInSelection(): string | null {
+  const one = selection[0];
+  if (selection.length !== 1 || !one) return null;
+  return READ_EXTS.includes(extOf(one.name) as (typeof READ_EXTS)[number]) ? one.path : null;
+}
+
+/**
  * What **Shift+S** would sign: the one document or picture that is selected.
  *
  * Deliberately the selection and not what is being previewed, for the same
@@ -2383,11 +2531,39 @@ function commands(): Command[] {
     });
   }
 
+  // Arranging the pop-outs already open. Offered whether or not any are, since
+  // asking the backend first would make the palette wait on a round trip; with
+  // none open each of these does nothing.
+  if (native !== null && !IS_ANDROID) {
+    const desktop = native;
+    const act = (p: Promise<void>): void => void p.catch((e: unknown) => flash(String(e)));
+    out.push(
+      { id: "popout.tile", title: "Tile the pop-outs", hint: "a grid on this screen", group: "Pop-outs", run: () => act(desktop.tilePopOuts("tile")) },
+      { id: "popout.cascade", title: "Cascade the pop-outs", group: "Pop-outs", run: () => act(desktop.tilePopOuts("cascade")) },
+      { id: "popout.corner", title: "Stack the pop-outs in a corner", group: "Pop-outs", run: () => act(desktop.tilePopOuts("corner")) },
+      { id: "popout.hide", title: "Hide the pop-outs", hint: "they keep playing", group: "Pop-outs", run: () => act(desktop.showPopOuts(false)) },
+      { id: "popout.show", title: "Show the pop-outs", group: "Pop-outs", run: () => act(desktop.showPopOuts(true)) },
+      { id: "popout.closeall", title: "Close every pop-out", group: "Pop-outs", run: () => act(desktop.closePopOuts()) },
+    );
+  }
+
   if (one) {
     out.push(
       { id: "file.open", title: `Open ${one.name}`, hint: keyHint(KEY_ID.open), group: "File", run: () => openEntry(one) },
       { id: "file.look", title: `Quick look at ${one.name}`, hint: keyHint(KEY_ID.quickLook), group: "File", run: () => void quickLook.show(one) },
     );
+    if (native !== null && !IS_ANDROID) {
+      const files = selection.filter((e) => e.kind !== "folder").map((e) => e.path);
+      if (files.length > 0) {
+        out.push({
+          id: "file.popout",
+          title: files.length > 1 ? `Pop out ${files.length} files` : `Pop out ${one.name}`,
+          hint: keyHint(KEY_ID.popOut, "floating, always on top"),
+          group: "File",
+          run: () => popOut(files),
+        });
+      }
+    }
     /*
      * Open with (item 40).
      *
@@ -2507,6 +2683,18 @@ function commands(): Command[] {
           run: () => {
             viewer.close();
             void ocr.open(one.path);
+          },
+        });
+      }
+      if (READ_EXTS.includes(extOf(one.name) as (typeof READ_EXTS)[number])) {
+        out.push({
+          id: "file.read",
+          title: `Read ${one.name} aloud`,
+          hint: keyHint(KEY_ID.read, "text to speech, with the sentence highlighted"),
+          group: "File",
+          run: () => {
+            viewer.close();
+            void readAloud.open(one.path);
           },
         });
       }
@@ -2848,6 +3036,16 @@ function commands(): Command[] {
       run: () => void camera.open(),
     },
     {
+      // "Scanner" is what it is called, but nobody with a phone in their hand
+      // is looking for a scanner -- they are looking for how to turn a sheet
+      // of paper into a PDF, so those are the words in the hint.
+      id: "scan.open",
+      title: "Scan",
+      hint: "document scanner — photograph pages, straighten them, one PDF out",
+      group: "Batch",
+      run: () => void scanView.open(),
+    },
+    {
       id: "recorder.open",
       title: "Record",
       // "Screen capture", "screen recorder" and "voice memo" are all things
@@ -2891,6 +3089,33 @@ function commands(): Command[] {
           viewer.close();
           void ocr.open(seen);
         } else flash("Select a picture or a PDF first.");
+      },
+    },
+    {
+      id: "read.open",
+      title: "Read this aloud",
+      hint: keyHint(KEY_ID.read, "text to speech; PDFs, pages, scans, notes"),
+      group: "Batch",
+      run: () => {
+        const target = readInSelection();
+        if (target) {
+          viewer.close();
+          void readAloud.open(target);
+        } else flash("Select something with words in it first.");
+      },
+    },
+    {
+      id: "read.selection",
+      title: "Read the selected text aloud",
+      hint: "whatever is highlighted on screen, spoken",
+      group: "Batch",
+      run: () => {
+        // Item 6. The window's own selection, so this works on a preview, a
+        // text file, a table cell or a search result without any of them
+        // having to know the reader exists.
+        const picked = (window.getSelection()?.toString() ?? "").trim();
+        if (picked) readAloud.read(picked, "Selected text");
+        else flash("Highlight some text first.");
       },
     },
     {
@@ -3390,6 +3615,16 @@ function reflow(): void {
   renderStatus(selection);
 }
 
+/**
+ * How far back an unsaved edit may be and still count as "what you had open".
+ *
+ * Not a guess at when the dead run started -- that is not recorded -- but a cap
+ * on how old a draft may be before mentioning it is misleading rather than
+ * helpful. Long enough to cover a session left alone over lunch, short enough
+ * that last week's scratch file never appears in the count.
+ */
+const RECENT_EDIT_MS = 6 * 60 * 60 * 1000;
+
 // ── Crash recovery ────────────────────────────────────────────────────────
 
 /**
@@ -3406,15 +3641,22 @@ function reflow(): void {
  * only ever allowed to decide whether to ask.
  *
  * `replaced` is the same abrupt ending with a known cause -- the app was
- * installed over while it was running. Nothing crashed, so nothing here says
- * so, and with no unsaved edits there is nothing to say at all: offering to
- * reopen the last file after a deliberate update is noise, and the folder is
- * already back.
+ * installed over while it was running -- and it says nothing at all. Updating
+ * is something the user just did on purpose; nothing crashed, nothing was
+ * lost, the folder is already back, and saved edits are still on disk and come
+ * back the moment their file is opened. A bar after an update is an
+ * interruption reporting a non-event.
  */
 async function offerRecovery(prior: SessionState, replaced: boolean): Promise<void> {
-  const edits = await savedEdits();
+  if (replaced) return;
   const surface = prior.surface;
-  if (edits.length === 0 && (!surface || replaced)) return;
+  // Only edits from the run that just ended. `all()` hands back every document
+  // the store is holding -- up to forty, of any age -- so counting them raw
+  // reads out "3 files have unsaved edits" for drafts from days ago that were
+  // never on screen. `prior.at` is when the dead run last wrote its position,
+  // which is as close to "when it stopped" as this record gets.
+  const edits = (await savedEdits()).filter((d) => prior.at - d.at < RECENT_EDIT_MS);
+  if (edits.length === 0 && !surface) return;
 
   const bar = document.createElement("div");
   bar.className = "recover";
@@ -3425,7 +3667,7 @@ async function offerRecovery(prior: SessionState, replaced: boolean): Promise<vo
 
   const text = document.createElement("span");
   text.className = "recover-text";
-  const how = replaced ? "FACET was updated." : "FACET closed unexpectedly.";
+  const how = "FACET closed unexpectedly.";
   text.textContent =
     edits.length > 0
       ? `${how} ${edits.length} file${edits.length === 1 ? " has" : "s have"} unsaved edits.`
@@ -3492,6 +3734,7 @@ function mountPhone(home: string): void {
       openWith(entry, panel as HandlerId, siblings.length > 0 ? [...siblings] : [entry]),
     runTool: phoneTool,
     openCamera: () => camera.open(),
+    openScan: () => void scanView.open(),
     // Microphone only. The other two sources do not exist on Android and the
     // panel hides them rather than offering a switch that cannot work.
     recordVoice: () => void recorder.open({ screen: false, system: false, mic: true }),
@@ -3571,6 +3814,9 @@ function docActions(entry: FileEntry): QuickAction[] {
     out.push(act("⛶", "Crop", tool("sign.crop")));
   }
   if (entry.ext === "pdf") out.push(act("🔤", "Text", tool("ai.ocr")));
+  if (READ_EXTS.includes(entry.ext as (typeof READ_EXTS)[number])) {
+    out.push(act("🔊", "Listen", tool("ai.read")));
+  }
   out.push(act("🗑", "Delete", tool("info.delete")));
   return out;
 }
@@ -3612,6 +3858,12 @@ function phoneTool(entry: FileEntry, tool: string): boolean {
     case "ai.ocr":
       viewer.close();
       void ocr.open(path);
+      return true;
+
+    case "ai.read":
+      if (!READ_EXTS.includes(entry.ext as (typeof READ_EXTS)[number])) return false;
+      viewer.close();
+      void readAloud.open(path);
       return true;
 
     case "ai.transcribe":
@@ -3778,6 +4030,12 @@ async function boot(): Promise<void> {
     // which after a restart is an ordinary thing for a saved path to have done.
     if (cwd !== want) await navigate(home, false);
     if (prior) browser.selectPaths(prior.state.selected);
+    // Launched by `facet explore <paths>`, or asked by a pop-out before this
+    // window existed: the paths are already queued.
+    if (native !== null && !IS_ANDROID) {
+      void native.onEvent("facet-open", () => void drainDesktopHandoff());
+      await drainDesktopHandoff();
+    }
     // The lifecycle was taken over up at `arm()`, before any of this ran. What
     // is left here is the position record, which needs a folder and so could not
     // be written until there was one.
@@ -3870,6 +4128,14 @@ async function boot(): Promise<void> {
         e.preventDefault();
         shareSelection();
         return;
+      case KEY_ID.popOut: {
+        const paths = popOutTargets();
+        if (paths.length > 0 && native !== null && !IS_ANDROID) {
+          e.preventDefault();
+          popOut(paths);
+        }
+        return;
+      }
       case KEY_ID.filter:
         e.preventDefault();
         filterBar.focus();
@@ -3938,6 +4204,17 @@ async function boot(): Promise<void> {
         e.preventDefault();
         viewer.close();
         void ocr.open(seen);
+        return;
+      }
+    }
+
+    // The same page, spoken instead of copied.
+    if (cmd === KEY_ID.read) {
+      const target = readInSelection();
+      if (target) {
+        e.preventDefault();
+        viewer.close();
+        void readAloud.open(target);
         return;
       }
     }

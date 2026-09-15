@@ -81,11 +81,15 @@ const BRUSH_MAX = 0.06;
 const BRUSH_DEFAULT = 0.4;
 const CORNER_PX = 16;
 
+// Redact first, and `solid` gone: see the same list in `tools.ts`. A moving
+// subject makes the distinction sharper, not softer -- a face that is only
+// soft-blurred for thirty frames gives an attacker thirty samples of the same
+// face to average, so a video blur leaks more than a photo one, not less.
 const KINDS: { kind: BlurKind; label: string; icon: string }[] = [
+  { kind: "redact", label: "Redact", icon: "bar" },
   { kind: "gaussian", label: "Soft", icon: "blur" },
   { kind: "pixelate", label: "Pixels", icon: "pixelate" },
   { kind: "mosaic", label: "Mosaic", icon: "mosaic" },
-  { kind: "solid", label: "Black bar", icon: "bar" },
   { kind: "box", label: "Box", icon: "box-blur" },
   { kind: "motion", label: "Motion", icon: "motion" },
   { kind: "radial", label: "Spin", icon: "spin" },
@@ -966,6 +970,13 @@ export class VideoBlur {
       row.append(bar);
       this.rows.append(row);
     }
+    // The playhead hangs below the ruler by however tall the row list is. It
+    // used to hang by however tall the row list is *allowed* to get, so with
+    // one layer -- or none -- the line carried on past the rows, straight
+    // through the hint text and the transport buttons underneath.
+    // The ceiling stays in CSS, where it varies with the screen; this is only
+    // how many rows there actually are, and the stylesheet takes the smaller.
+    this.timeline.style.setProperty("--vb-rows-n", String(Math.max(1, this.layers.length)));
     this.ruler.replaceChildren(this.playhead);
     if (d > 0) {
       const n = Math.min(12, Math.max(2, Math.floor(d)));
@@ -1201,7 +1212,7 @@ export class VideoBlur {
       go.dataset["tool"] = "ai.auto.go";
       go.disabled = this.scanning || pick.size === 0;
       kids.push(go);
-      const all = this.chip("fill-all", "Everything", () => {
+      const all = this.chip("check-all", "Everything", () => {
         if (pick.size === AUTO_CATEGORIES.length) pick.clear();
         else for (const c of AUTO_CATEGORIES) pick.add(c);
         this.syncAutoStrip();

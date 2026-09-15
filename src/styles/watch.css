@@ -39,7 +39,7 @@
 
 .wf-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 26px;
+  grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     "title x"
     "blurb x";

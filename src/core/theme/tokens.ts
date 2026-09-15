@@ -73,7 +73,22 @@ export interface Theme {
   tokens: ThemeTokens;
 }
 
-/** The CSS custom-property name for a token. */
+/**
+ * The name of the property a theme *writes*.
+ *
+ * Not the same as the one stylesheets *read*. A theme is written onto the
+ * element's inline style, and inline style beats every selector, so as long as
+ * the two names were the same no stylesheet could ever adjust a themed colour
+ * -- which is exactly what a skin has to do to turn opaque panels into glass.
+ * The theme writes `--fct-surface-raw`; base.css says `--fct-surface` is that
+ * raw value; and skin.css, being a stylesheet like any other, can now say
+ * otherwise. Nothing else changes: the 38 stylesheets still read `--fct-*`.
+ */
+export function cssVarRaw(token: keyof ThemeTokens): string {
+  return `${cssVar(token)}-raw`;
+}
+
+/** The CSS custom-property name stylesheets read for a token. */
 export function cssVar(token: keyof ThemeTokens): string {
   // camelCase -> kebab-case, namespaced to avoid collisions with anything
   // a future embedded module might define.

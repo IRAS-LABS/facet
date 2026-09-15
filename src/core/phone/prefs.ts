@@ -37,10 +37,43 @@ export type TextSizePref = "small" | "default" | "large";
 export type TabPref = "photos" | "all" | "albums" | "files" | "search";
 /** Column count for a roll, or "pinch" to leave it to the pinch gesture. */
 export type ColsPref = "pinch" | 2 | 3 | 4 | 5 | 6;
+/**
+ * The shape of the interface, as opposed to its colour.
+ *
+ * Classic is the filled-panel look the app shipped with. Glass makes surfaces
+ * translucent and blurs what is behind them. Edge removes the fills entirely,
+ * so nothing is drawn as a box and what separates one region from another is a
+ * hairline and some space. Neon darkens everything and lets the accent draw
+ * the structure. Defined here rather than in the theme because a palette and a
+ * shape are independent choices -- see `src/styles/skin.css`.
+ */
+export type SkinPref = "classic" | "glass" | "edge" | "neon";
+/** How present the hairlines between regions are. */
+export type OutlinesPref = "full" | "soft" | "none";
+/** The ambient layer behind everything. */
+export type BackdropPref = "none" | "grid" | "aurora" | "pulse";
 
 export interface PhonePrefs {
   /* Look */
   theme: ThemePref;
+  skin: SkinPref;
+  outlines: OutlinesPref;
+  backdrop: BackdropPref;
+  /**
+   * Corner roundness of panels, bars and controls as a multiplier on the
+   * standard radius, 0-200. Separate from `tileRadius`, which is only the
+   * photo grid, and from `glass`: a compact layout can still be soft and a
+   * roomy one can still be sharp.
+   */
+  corners: number;
+  /**
+   * How far the accent bleeds around whatever is live -- the focused field,
+   * the pressed button -- as 0-100. Distinct from `glow`, which is a narrower
+   * accent highlight on the tab bar and the settings switches; this one
+   * reaches every control in the app and is off by default because it is a
+   * strong look.
+   */
+  bloom: number;
   /** A CSS hex colour, or "" for the theme's own accent. */
   accent: string;
   /** Translucency of bars and sheets, 0–100. Never applied to the tile lists. */
@@ -85,6 +118,18 @@ export const STORAGE_KEY = "fct.phone.prefs.v1";
  */
 export const DEFAULTS: Readonly<PhonePrefs> = Object.freeze({
   theme: "dark",
+  /* Edge, not Classic. The filled-panel look is still one tap away and the
+     whole point of the axis is that it is a preference -- but a wall of boxes
+     is what the app was being judged on, and a default nobody changes is the
+     product. Soft outlines rather than none because Edge already takes the
+     fills away, and removing the hairlines as well leaves nothing at all to
+     tell one region from the next. Backdrop stays off: it is a per-frame
+     compositor cost on a phone and a strong look to hand someone unasked. */
+  skin: "edge",
+  outlines: "soft",
+  backdrop: "none",
+  corners: 100,
+  bloom: 0,
   accent: "",
   glass: 20,
   motion: true,
@@ -110,6 +155,9 @@ export const DEFAULTS: Readonly<PhonePrefs> = Object.freeze({
 });
 
 export const THEMES: readonly ThemePref[] = ["dark", "light", "system"];
+export const SKINS: readonly SkinPref[] = ["classic", "glass", "edge", "neon"];
+export const OUTLINES: readonly OutlinesPref[] = ["full", "soft", "none"];
+export const BACKDROPS: readonly BackdropPref[] = ["none", "grid", "aurora", "pulse"];
 export const CHIPS: readonly ChipsPref[] = ["hidden", "segmented", "bubbles"];
 export const ALBUM_STYLES: readonly AlbumStylePref[] = ["borderless", "boxed", "stack"];
 export const TEXT_SIZES: readonly TextSizePref[] = ["small", "default", "large"];
@@ -155,6 +203,11 @@ export function sanitize(raw: unknown): PhonePrefs {
   const d = DEFAULTS;
   return {
     theme: oneOf(THEMES, r["theme"], d.theme),
+    skin: oneOf(SKINS, r["skin"], d.skin),
+    outlines: oneOf(OUTLINES, r["outlines"], d.outlines),
+    backdrop: oneOf(BACKDROPS, r["backdrop"], d.backdrop),
+    corners: int(r["corners"], 0, 200, d.corners),
+    bloom: int(r["bloom"], 0, 100, d.bloom),
     accent: typeof r["accent"] === "string" && (r["accent"] === "" || HEX.test(r["accent"]))
       ? r["accent"].toLowerCase()
       : d.accent,
@@ -298,6 +351,20 @@ export function applyTo(target: HTMLElement, p: PhonePrefs): void {
   if (!p.motion) cls.add("fct-no-motion");
   if (!p.glow) cls.add("fct-no-glow");
   if (p.glass > 0) cls.add("fct-glass");
+
+  /* The shape axes. Attributes rather than classes because skin.css keys off
+     `[data-skin="glass"]` and friends, and an attribute carries the value --
+     which matters when someone sends a screenshot of the DOM asking why their
+     app looks like that. Written even when they are the default, for the same
+     reason. `data-glow` is the exception: it is *absent* below 1, because the
+     rules it gates set `box-shadow` outright and skin.css is imported last, so
+     leaving them live at zero would wipe the shadow every other stylesheet
+     puts on a pressed button. */
+  target.dataset["skin"] = p.skin;
+  target.dataset["outlines"] = p.outlines;
+  target.dataset["backdrop"] = p.backdrop;
+  if (p.bloom > 0) target.dataset["glow"] = String(p.bloom / 100);
+  else delete target.dataset["glow"];
   if (!p.labels) cls.add("fct-no-labels");
   if (!p.badges) cls.add("fct-no-badges");
   if (!p.dayCounts) cls.add("fct-no-day-counts");
@@ -315,6 +382,10 @@ export function applyTo(target: HTMLElement, p: PhonePrefs): void {
   s.setProperty("--fct-cols-all", String(p.colsAll === "pinch" ? 4 : p.colsAll));
   s.setProperty("--fct-cols-albums", String(p.colsAlbums));
   s.setProperty("--fct-ui-scale", TEXT_SCALE[p.textSize]);
+  // Both 0-100 in the record and 0-2 / 0-1 in the CSS, because a slider reads
+  // better in whole percent and `calc()` reads better as a plain multiplier.
+  s.setProperty("--fct-corner", String(p.corners / 100));
+  s.setProperty("--fct-glow", String(p.bloom / 100));
 
   target.dataset["prefsTheme"] = p.theme;
 }

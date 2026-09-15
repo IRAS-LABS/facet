@@ -21,9 +21,11 @@
  */
 
 import {
-  ACCENTS, ALBUM_STYLES, CHIPS, COLS, TABS, TEXT_SIZES, THEMES,
-  type AlbumStylePref, type ChipsPref, type ColsPref, type PhonePrefs,
-  type PhonePrefsStore, type TabPref, type TextSizePref, type ThemePref,
+  ACCENTS, ALBUM_STYLES, BACKDROPS, CHIPS, COLS, OUTLINES, SKINS, TABS,
+  TEXT_SIZES, THEMES,
+  type AlbumStylePref, type BackdropPref, type ChipsPref, type ColsPref,
+  type OutlinesPref, type PhonePrefs, type PhonePrefsStore, type SkinPref,
+  type TabPref, type TextSizePref, type ThemePref,
   haptic,
 } from "@core/phone/prefs";
 import { autoBlurStore, type AutoBlurStore } from "@core/phone/autoblur-prefs";
@@ -35,18 +37,25 @@ import { iconBtn } from "./photos-tab";
 
 /** Short names for the blur styles, in the order the Blur panel lists them. */
 const KIND_LABEL: Record<BlurKind, string> = {
-  gaussian: "Blur", pixelate: "Pixel", solid: "Bar", mosaic: "Mosaic",
+  redact: "Redact", gaussian: "Blur", pixelate: "Pixel", solid: "Bar", mosaic: "Mosaic",
   motion: "Motion", radial: "Spin", frosted: "Frost", box: "Box",
 };
-/** The four styles that fit a 360px segmented row; the other four are a tap away in the Blur panel. */
-const KIND_CHOICES: readonly BlurKind[] = ["gaussian", "pixelate", "solid", "mosaic"];
+/**
+ * The four styles that fit a 360px segmented row; the rest are a tap away in
+ * the Blur panel. Redact leads because this row sets what auto-blur does to
+ * things it finds *by itself*, unattended, on a picture the user may never
+ * look at closely -- which is the one place a reversible blur is least
+ * defensible.
+ */
+const KIND_CHOICES: readonly BlurKind[] = ["redact", "gaussian", "pixelate", "mosaic"];
 const CATEGORY_ICON: Record<AutoCategory, string> = {
-  faces: "face", plates: "rect-shape", screens: "monitor", terminals: "code",
+  faces: "face", plates: "rect-shape", windshields: "car", screens: "monitor", terminals: "code",
   cards: "file-text", codes: "grid", text: "type",
 };
 const CATEGORY_HINT: Record<AutoCategory, string> = {
   faces: "On-device face model, with the classic detector as a fallback.",
   plates: "Number plates, on vehicles or on their own.",
+  windshields: "A band across the glass of every car found, covering the VIN plate, the tax disc, permits and toll tags. None of those can be read by the text reader, so this is the only thing that hides them \u2014 and it is a big, obvious change to a photo, so it is off until you switch it on.",
   screens: "Monitors, laptops and TVs. Phones are a switch below.",
   terminals: "Only screens showing a terminal or code: dark, monospaced text. Needs the text reader.",
   cards: "Bank cards, IDs and documents: dense printed text in a card shape. Catches posters too, so it is off until you switch it on.",
@@ -61,6 +70,19 @@ const THEME_ICON: Record<ThemePref, string> = { dark: "moon", light: "sun", syst
 const CHIPS_LABEL: Record<ChipsPref, string> = { hidden: "Off", segmented: "Underline", bubbles: "Bubbles" };
 const ALBUM_LABEL: Record<AlbumStylePref, string> = { borderless: "Open", boxed: "Cards", stack: "Stack" };
 const TEXT_LABEL: Record<TextSizePref, string> = { small: "Small", default: "Default", large: "Large" };
+
+/* The shape axes. Short words on purpose: four of them have to fit one 360px
+   segmented row without any of them being cut to an ellipsis. */
+const SKIN_LABEL: Record<SkinPref, string> = {
+  classic: "Classic", glass: "Glass", edge: "Edge", neon: "Neon",
+};
+const SKIN_ICON: Record<SkinPref, string> = {
+  classic: "square", glass: "droplet", edge: "columns", neon: "zap",
+};
+const OUTLINES_LABEL: Record<OutlinesPref, string> = { full: "Full", soft: "Soft", none: "Off" };
+const BACKDROP_LABEL: Record<BackdropPref, string> = {
+  none: "None", grid: "Grid", aurora: "Aurora", pulse: "Pulse",
+};
 const TAB_LABEL: Record<TabPref, string> = {
   photos: "Photos", all: "All", albums: "Albums", files: "Files", search: "Search",
 };
@@ -144,6 +166,25 @@ export class SettingsSheet {
     const p = (): PhonePrefs => this.store.get();
 
     fill(this.body,
+      this.section("Style", "sparkles",
+        this.segmented("Interface", SKINS, (v) => SKIN_LABEL[v], () => p().skin,
+          (v) => this.store.set({ skin: v }), (v) => SKIN_ICON[v],
+          "Classic is filled panels with outlines. Glass makes them translucent and blurs what is behind. Edge takes the fills away entirely, leaving hairlines and space. Neon goes darker and lets the accent draw the structure."),
+        this.segmented("Outlines", OUTLINES, (v) => OUTLINES_LABEL[v], () => p().outlines,
+          (v) => this.store.set({ outlines: v }), undefined,
+          "Every divider in the app at once. Off keeps only the keyboard focus ring."),
+        this.slider("Corners", "square", 0, 200, 10, () => p().corners,
+          (v) => this.store.set({ corners: v }),
+          (v) => (v === 0 ? "Square" : v === 100 ? "Standard" : `${v}%`),
+          "Panels, bars and buttons. The photo tiles have their own under Roll."),
+        this.slider("Bloom", "glow", 0, 100, 5, () => p().bloom,
+          (v) => this.store.set({ bloom: v }), (v) => (v === 0 ? "Off" : `${v}%`),
+          "How far the accent bleeds around whatever is live -- the focused field, the pressed button. Off costs nothing."),
+        this.segmented("Backdrop", BACKDROPS, (v) => BACKDROP_LABEL[v], () => p().backdrop,
+          (v) => this.store.set({ backdrop: v }), undefined,
+          "An ambient layer behind everything. It sits below the whole app and cannot be tapped. Pulse breathes slowly; turning Motion off stops it."),
+      ),
+
       this.section("Look", "palette",
         this.segmented("Theme", THEMES, (v) => THEME_LABEL[v], () => p().theme,
           (v) => this.store.set({ theme: v }), (v) => THEME_ICON[v]),
@@ -153,8 +194,8 @@ export class SettingsSheet {
           "Bars and sheets only. Higher costs a little battery while scrolling under them."),
         this.toggle("Motion", "zap", () => p().motion, (v) => this.store.set({ motion: v }),
           "Short fades and slides. Off follows your system's reduce-motion setting too."),
-        this.toggle("Glow", "glow", () => p().glow, (v) => this.store.set({ glow: v }),
-          "A soft halo behind the accent colour on bars and buttons."),
+        this.toggle("Accent highlight", "glow", () => p().glow, (v) => this.store.set({ glow: v }),
+          "A soft halo on the selected tab and the switches here. Bloom, under Style, is the same idea applied to every control in the app."),
         this.segmented("Text size", TEXT_SIZES, (v) => TEXT_LABEL[v], () => p().textSize,
           (v) => this.store.set({ textSize: v })),
       ),
@@ -247,6 +288,10 @@ export class SettingsSheet {
       this.toggle("Text: links", "type", () => a().text.urls, (v) => this.auto.patch({ text: { urls: v } })),
       this.toggle("Text: card numbers", "type", () => a().text.cardNumbers, (v) => this.auto.patch({ text: { cardNumbers: v } }),
         "Sixteen digits that pass the card checksum."),
+      this.toggle("Text: VINs", "type", () => a().text.vins, (v) => this.auto.patch({ text: { vins: v } }),
+        "The 17-character vehicle number on a logbook, title or insurance card. It identifies one car for life, whoever owns it and whatever plate it wears."),
+      this.toggle("Text: registrations", "type", () => a().text.registrations, (v) => this.auto.patch({ text: { registrations: v } }),
+        "A plate written out after a label such as \u201cReg no\u201d. The label stays readable; only the number is covered."),
       this.keywords(),
       this.autoReset(),
     );

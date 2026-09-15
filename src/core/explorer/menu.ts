@@ -96,6 +96,8 @@ export const DEFAULT_MENU = [
   "video.edit",
   "audio.edit",
   "file.table",
+  // Desktop only; drops out on the phone and in the browser preview.
+  "file.popout",
   SEP,
   // Queue rows only exist when the selection qualifies for them, and "convert
   // these four" is a thing you want where your hand already is rather than in

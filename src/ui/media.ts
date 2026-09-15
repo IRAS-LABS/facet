@@ -591,3 +591,140 @@ export function formatTime(seconds: number): string {
   const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
   return `${h > 0 ? `${h}:` : ""}${mm}:${String(sec).padStart(2, "0")}`;
 }
+
+/**
+ * Make a streamed WebM report its real length.
+ *
+ * A file written by `MediaRecorder` -- which is every take FACET's own
+ * recorder makes -- has no duration in its header. It cannot: the header is
+ * written in the first millisecond and the length is not known until the last
+ * one. So `el.duration` comes back `Infinity`, and every reader of it says
+ * something wrong in its own way. Observed on a test phone over a 57-second voice
+ * recording: the dock's transport read `0:04 / 0:07`, and the transcription
+ * panel's estimate opened with `0:00 of audio`.
+ *
+ * The fix is the long-standing one: seek past the end. The browser has to walk
+ * the cluster index to find out where "the end" is, and having walked it, it
+ * knows the duration and fires `durationchange` with the real number. The seek
+ * is then undone, so nothing downstream sees the playhead move.
+ *
+ * Safe to call on anything: a file that already knows its length returns at
+ * once, and a file that never resolves is given up on after two seconds rather
+ * than holding a panel open.
+ */
+export function settleDuration(el: HTMLMediaElement): Promise<number> {
+  const known = (): boolean => Number.isFinite(el.duration) && el.duration > 0;
+  if (known()) return Promise.resolve(el.duration);
+
+  return new Promise((resolve) => {
+    let done = false;
+    const was = el.currentTime;
+    const finish = (value: number): void => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      el.removeEventListener("durationchange", onDuration);
+      el.removeEventListener("error", onError);
+      try {
+        // Only if the probe actually moved it. Seeking a live element back to
+        // a time it was already at is a needless decode.
+        if (el.currentTime !== was) el.currentTime = was;
+      } catch {
+        /* A seek on a element whose source has gone is not worth a throw. */
+      }
+      resolve(value);
+    };
+    const onDuration = (): void => {
+      if (known()) finish(el.duration);
+    };
+    const onError = (): void => finish(0);
+    const timer = window.setTimeout(() => finish(0), 2000);
+
+    el.addEventListener("durationchange", onDuration);
+    el.addEventListener("error", onError);
+
+    const probe = (): void => {
+      /*
+       * A file with a real header settles through `durationchange` before
+       * `loadedmetadata` runs this. Seeking then has nobody left to undo it, and
+       * the player opened parked at the end — `2:35 / 2:35` on a test phone.
+       */
+      if (done) return;
+      if (known()) return finish(el.duration);
+      try {
+        // Not `Infinity`: some builds throw on it. A number past any real
+        // media length does the same job and is always a valid time.
+        el.currentTime = 1e9;
+      } catch {
+        finish(0);
+      }
+    };
+    if (el.readyState >= 1) probe();
+    else el.addEventListener("loadedmetadata", probe, { once: true });
+  });
+}
+
+/**
+ * Make a `<video>` show its own first frame instead of Android's placeholder.
+ *
+ * Android's WebView draws a grey field with an enormous play triangle over any
+ * `<video>` that has never been played, and it does so *regardless of whether a
+ * frame is decoded*. Measured on a test phone with the editor open on a 12-second
+ * clip: `readyState 4`, `videoWidth 1280`, `opacity 1`, element 384x212 — every
+ * signal saying the picture was there — and the whole preview was still the
+ * grey triangle. Waiting for `loadeddata` and fading in, which is what this
+ * used to do, cannot fix it: the frame was already there and the overlay is
+ * painted on top of it.
+ *
+ * What does clear it, permanently, is playback actually having happened. So the
+ * element is played muted for one frame and paused again, and the mute flag and
+ * the playhead are put back exactly as they were. Anything that shows a video
+ * to someone before they press Play needs this; anything that autoplays does
+ * not, and calling it there is harmless.
+ */
+export async function primeVideo(el: HTMLVideoElement): Promise<void> {
+  if (el.dataset["fctPrimed"] !== undefined) return;
+  const start = (): Promise<void> =>
+    el.readyState >= 2
+      ? Promise.resolve()
+      : new Promise((r) => {
+          const done = (): void => r();
+          el.addEventListener("loadeddata", done, { once: true });
+          el.addEventListener("error", done, { once: true });
+          window.setTimeout(done, 4000);
+        });
+  await start();
+  if (el.readyState < 2) return;
+  const wasMuted = el.muted;
+  const wasTime = el.currentTime;
+  // The prime runs while the clip is already on screen, so someone can act
+  // inside it: the blur workspace pauses to draw a box, a scrub seeks. Putting
+  // the playhead back after that moved it out from under whatever they just did
+  // -- a box drawn at 0.05 s whose frame then showed 0 s. If anything else
+  // pauses or seeks meanwhile, the playhead is theirs and stays where it is.
+  let taken = false;
+  const yieldTo = (): void => { taken = true; };
+  el.addEventListener("pause", yieldTo);
+  el.addEventListener("seeking", yieldTo);
+  el.playsInline = true;
+  el.muted = true;
+  try {
+    await el.play();
+    // One frame is enough for the overlay to go; more is a flicker of picture
+    // and, on a clip with sound, a risk of the un-mute landing mid-playback.
+    await new Promise((r) => window.setTimeout(r, 60));
+  } catch {
+    // Autoplay refused. Nothing to undo beyond the flags below.
+  }
+  el.removeEventListener("pause", yieldTo);
+  el.removeEventListener("seeking", yieldTo);
+  el.pause();
+  el.muted = wasMuted;
+  el.dataset["fctPrimed"] = "";
+  if (taken) return;
+  try {
+    el.currentTime = wasTime;
+  } catch {
+    /* A source that cannot seek keeps whatever frame it reached. */
+  }
+}

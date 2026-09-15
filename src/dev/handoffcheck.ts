@@ -119,6 +119,7 @@ async function live(queued: readonly string[]): Promise<Live> {
     runTool: () => false,
     openCamera: () => {},
     recordVoice: () => {},
+    openScan: () => {},
     native: false,
   });
   // Queued *before* mount: this is a cold start from a file, where the intent

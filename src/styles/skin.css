@@ -1,0 +1,288 @@
+/*
+ * Skins — the shape of the interface, as opposed to its colour.
+ *
+ * A theme answers "what colour is a panel". A skin answers a different
+ * question: "is a panel a box at all". Those are independent — someone can
+ * want the Nord palette drawn as frameless glass, or the default palette drawn
+ * as a square-cornered instrument console — so they are two settings, not one
+ * list of twenty combinations.
+ *
+ * This file is imported last and touches only `--fct-*` custom properties plus
+ * a small number of structural rules. It never restyles a component by name if
+ * redefining a token would do, because a token reaches all 38 stylesheets and
+ * a class name reaches one. That is also why `classic` has no rules at all:
+ * the app's own stylesheets already are the classic skin.
+ *
+ * Three axes, all independent:
+ *   data-skin      classic | glass | edge | neon
+ *   data-outlines  full | soft | none      -- how present the hairlines are
+ *   data-backdrop  none | grid | aurora | pulse
+ */
+
+/* ── Glass ──────────────────────────────────────────────────────────────────
+   Panels stop being opaque rectangles sitting on the page and become sheets of
+   frosted material floating above it. The ground stays readable through them,
+   which is most of why it does not read as "a box": you can see that there is
+   something behind it. */
+
+:root[data-skin="glass"] {
+  --fct-surface: color-mix(in srgb, var(--fct-surface-raw) 62%, transparent);
+  --fct-surface-raised: color-mix(in srgb, var(--fct-surface-raised-raw) 58%, transparent);
+  --fct-surface-overlay: color-mix(in srgb, var(--fct-surface-overlay-raw) 78%, transparent);
+  --fct-card-bg: color-mix(in srgb, var(--fct-card-bg-raw) 55%, transparent);
+  --fct-border-skin: color-mix(in srgb, var(--fct-text-raw) 13%, transparent);
+  --fct-border-strong-skin: color-mix(in srgb, var(--fct-text-raw) 24%, transparent);
+  --fct-border: var(--fct-border-skin);
+  --fct-border-strong: var(--fct-border-strong-skin);
+  --fct-shadow: 0 8px 32px -8px rgb(0 0 0 / 45%);
+  --fct-blur: blur(22px) saturate(150%);
+}
+
+/* Everything that is meant to float. Listed rather than matched on a pattern
+   because blurring the wrong element — one that scrolls, or one that already
+   has a filter — costs real frames on a phone, and there is no way to take it
+   back once a pattern has caught it. */
+:root[data-skin="glass"] .fct-phone-panel,
+:root[data-skin="glass"] .fct-topbar,
+:root[data-skin="glass"] .fct-rail,
+:root[data-skin="glass"] .fct-status,
+:root[data-skin="glass"] .ph-tabs,
+:root[data-skin="glass"] .ph-head,
+:root[data-skin="glass"] .phv-sheet,
+:root[data-skin="glass"] .mnu,
+:root[data-skin="glass"] .ph-scanbar,
+:root[data-skin="glass"] .ql {
+  -webkit-backdrop-filter: var(--fct-blur);
+  backdrop-filter: var(--fct-blur);
+}
+
+/* The one thing that makes glass look like glass rather than like a panel at
+   60% opacity: a lit top edge, as if a light source were above it. */
+:root[data-skin="glass"] .fct-phone-panel,
+:root[data-skin="glass"] .phv-sheet,
+:root[data-skin="glass"] .mnu {
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, var(--fct-text-raw) 12%, transparent),
+    var(--fct-shadow);
+}
+
+/* ── Edge ───────────────────────────────────────────────────────────────────
+   The literal answer to "it does not need to be in boxes". Surfaces collapse
+   into the page ground, so there is no filled rectangle anywhere; what
+   separates one region from another is a single hairline that fades out along
+   its length, and a bar's worth of empty space. */
+
+:root[data-skin="edge"] {
+  --fct-surface: transparent;
+  --fct-surface-raised: color-mix(in srgb, var(--fct-text-raw) 5%, transparent);
+  --fct-surface-overlay: color-mix(in srgb, var(--fct-bg-raw) 94%, var(--fct-text-raw));
+  --fct-card-bg: transparent;
+  --fct-card-border-skin: color-mix(in srgb, var(--fct-text-raw) 10%, transparent);
+  --fct-border-skin: color-mix(in srgb, var(--fct-text-raw) 9%, transparent);
+  --fct-border-strong-skin: color-mix(in srgb, var(--fct-accent-raw) 55%, transparent);
+  --fct-card-border: var(--fct-card-border-skin);
+  --fct-border: var(--fct-border-skin);
+  --fct-border-strong: var(--fct-border-strong-skin);
+  --fct-shadow: none;
+  --fct-corner: 0.4;
+}
+
+/* A hairline that is strongest where the eye enters it and gone by the far
+   end. A solid 1px rule across a whole screen is the single thing that most
+   makes an interface read as a stack of boxes. */
+:root[data-skin="edge"] .fct-phone-panel-head,
+:root[data-skin="edge"] .ph-head,
+:root[data-skin="edge"] .fct-topbar {
+  border-bottom: none;
+  background-image: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--fct-accent-raw) 60%, transparent) 0,
+    color-mix(in srgb, var(--fct-text-raw) 14%, transparent) 22%,
+    transparent 96%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-position: bottom left;
+}
+
+/* A bar that scrolling content passes *under* is the one place a surface
+   cannot simply go away. Measured on a test phone with the photo grid scrolled: the
+   bottom tab bar had no fill, thumbnails ran through it, and ALL / ALBUMS /
+   FILES / SEARCH were unreadable. So the bars keep a scrim -- enough to read a
+   label against, still translucent enough that you can see the content moving
+   beneath it, which is the effect the fill was hiding in the first place. */
+:root[data-skin="edge"] .ph-tabs,
+:root[data-skin="edge"] .ph-head,
+:root[data-skin="edge"] .fct-topbar,
+:root[data-skin="edge"] .fct-status,
+:root[data-skin="edge"] .fct-rail {
+  background-color: color-mix(in srgb, var(--fct-bg-raw) 86%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  backdrop-filter: blur(20px) saturate(130%);
+}
+
+/* Panels need *something* holding them off the wallpaper, or the content
+   behind competes with the content in front. A wash, not a fill: dense at the
+   head where the controls are, gone by the bottom. */
+:root[data-skin="edge"] .fct-phone-panel,
+:root[data-skin="edge"] .phv-sheet {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--fct-surface-raw) 96%, transparent) 0,
+    color-mix(in srgb, var(--fct-bg-raw) 92%, transparent) 100%
+  );
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* ── Neon ───────────────────────────────────────────────────────────────────
+   Darker than the theme asked for, with the accent doing the structural work
+   that borders normally do. Reads as an instrument rather than a document. */
+
+:root[data-skin="neon"] {
+  --fct-bg: color-mix(in srgb, var(--fct-bg-raw) 70%, #000);
+  --fct-surface: color-mix(in srgb, var(--fct-surface-raw) 72%, #000);
+  --fct-surface-raised: color-mix(in srgb, var(--fct-surface-raised-raw) 78%, #000);
+  --fct-canvas-bg: color-mix(in srgb, var(--fct-canvas-bg-raw) 60%, #000);
+  --fct-border-skin: color-mix(in srgb, var(--fct-accent-raw) 22%, transparent);
+  --fct-border-strong-skin: var(--fct-accent-raw);
+  --fct-card-border-skin: color-mix(in srgb, var(--fct-accent-raw) 18%, transparent);
+  --fct-border: var(--fct-border-skin);
+  --fct-border-strong: var(--fct-border-strong-skin);
+  --fct-card-border: var(--fct-card-border-skin);
+  --fct-shadow:
+    0 0 0 1px color-mix(in srgb, var(--fct-accent-raw) 18%, transparent),
+    0 10px 30px -12px color-mix(in srgb, var(--fct-accent-raw) 40%, transparent);
+  --fct-corner: 0.3;
+}
+
+/* The label style is half of what makes a panel read as an instrument: small,
+   tracked out, and not fighting the content for attention. */
+:root[data-skin="neon"] .fct-phone-panel-head,
+:root[data-skin="neon"] .prefs-section-head,
+:root[data-skin="neon"] .ph-set-head {
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-size: var(--fct-fs-xs);
+}
+
+/* ── Glow ───────────────────────────────────────────────────────────────────
+   Its own axis rather than part of a skin, because "I want the neon palette
+   without my eyes bleeding" is a real preference.
+
+   Gated on the attribute rather than left to evaluate to a transparent shadow
+   at zero, because `box-shadow` is not additive: this file is imported last, so
+   an always-on rule here would silently erase the shadow every other stylesheet
+   put on a pressed button, and it would erase it for the majority of people who
+   never turn the glow on. The attribute is only present above zero. */
+
+:root[data-glow] .btn:focus-visible,
+:root[data-glow] button:focus-visible,
+:root[data-glow] input:focus-visible,
+:root[data-glow] select:focus-visible {
+  box-shadow: 0 0 var(--fct-glow-size)
+    color-mix(in srgb, var(--fct-accent) calc(55% * var(--fct-glow)), transparent);
+}
+
+:root[data-glow] .btn.active,
+:root[data-glow] .btn.primary,
+:root[data-glow] button.active,
+:root[data-glow] [aria-pressed="true"],
+:root[data-glow] [aria-selected="true"] {
+  box-shadow: 0 0 var(--fct-glow-size)
+    color-mix(in srgb, var(--fct-accent) calc(45% * var(--fct-glow)), transparent);
+}
+
+/* ── Outlines ───────────────────────────────────────────────────────────────
+   Independent of the skin, and the single most effective de-boxing control
+   there is: every one of the 38 stylesheets draws its dividers from these
+   tokens, so turning them down reaches all of them at once. */
+
+/* Composed on `--fct-border-skin`, not on the raw theme value: a skin that has
+   already decided its hairlines should be accent-tinted (neon) or nearly gone
+   (edge) would otherwise have that decision thrown away the moment someone
+   picked Soft, because these rules come later in the file and win the tie.
+   The fallback is the raw value, which is what Classic leaves it as. */
+:root[data-outlines="soft"] {
+  --fct-border: color-mix(in srgb, var(--fct-border-skin, var(--fct-border-raw)) 45%, transparent);
+  --fct-border-strong: color-mix(in srgb, var(--fct-border-strong-skin, var(--fct-border-strong-raw)) 55%, transparent);
+  --fct-card-border: color-mix(in srgb, var(--fct-card-border-skin, var(--fct-card-border-raw)) 45%, transparent);
+}
+
+:root[data-outlines="none"] {
+  --fct-border: transparent;
+  --fct-border-strong: color-mix(in srgb, var(--fct-accent-raw) 40%, transparent);
+  --fct-card-border: transparent;
+}
+
+/* Focus has to survive `none`, or the app becomes unusable from a keyboard for
+   the sake of a look. It is the one outline that is never optional. */
+:root[data-outlines="none"] :focus-visible {
+  outline: 2px solid var(--fct-accent) !important;
+}
+
+/* ── Backdrop ───────────────────────────────────────────────────────────────
+   An ambient layer behind everything, at the back of the stack and
+   pointer-transparent, so no amount of it can ever swallow a tap. */
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  display: none;
+}
+
+:root[data-backdrop="grid"] body::before {
+  display: block;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--fct-text) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--fct-text) 6%, transparent) 1px, transparent 1px);
+  background-size: 38px 38px;
+  /* Fading the grid out at the edges stops it reading as graph paper and
+     starts it reading as depth. */
+  -webkit-mask-image: radial-gradient(ellipse at 50% 35%, #000 20%, transparent 78%);
+  mask-image: radial-gradient(ellipse at 50% 35%, #000 20%, transparent 78%);
+}
+
+:root[data-backdrop="aurora"] body::before {
+  display: block;
+  background:
+    radial-gradient(60% 45% at 18% 8%, color-mix(in srgb, var(--fct-accent) 26%, transparent), transparent 70%),
+    radial-gradient(55% 40% at 88% 22%, color-mix(in srgb, var(--fct-info) 20%, transparent), transparent 70%),
+    radial-gradient(70% 50% at 50% 104%, color-mix(in srgb, var(--fct-success) 14%, transparent), transparent 72%);
+  filter: blur(28px);
+}
+
+:root[data-backdrop="pulse"] body::before {
+  display: block;
+  background: radial-gradient(50% 38% at 50% 52%, color-mix(in srgb, var(--fct-accent) 20%, transparent), transparent 72%);
+  filter: blur(34px);
+  animation: fct-pulse 9s ease-in-out infinite;
+}
+
+@keyframes fct-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.12); }
+}
+
+/* Someone who has asked for less movement has asked for this too. The layer
+   stays; only the motion goes. */
+:root[data-motion="reduced"] body::before {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) body::before { animation: none; }
+}
+
+/* ── Floor for the viewer sheet ─────────────────────────────────────────────
+   Whatever the skin and the glass slider say, the sheet a filename and a
+   player sit on keeps a near-solid fill. At the translucent settings the list
+   behind showed through as bright blurred thumbnails, and on a test phone they sat
+   directly over the title of the file being played. Colour only, so the edge
+   skin's wash and every skin's blur still layer on top. */
+:root:root .phv-sheet.phv-sheet {
+  background-color: color-mix(in srgb, var(--fct-surface-raw) 93%, transparent);
+}

@@ -79,6 +79,18 @@ class MainActivity : TauriActivity() {
     OpenBridge.offer(this, intent)
   }
 
+  /**
+   * Let the speech engine go.
+   *
+   * `TextToSpeech` is a bound service. An app that never shuts it down keeps
+   * the engine alive after its own window is gone, which on some phones leaves
+   * a sentence finishing itself over whatever the user opened next.
+   */
+  override fun onDestroy() {
+    SpeechBridge.shutdown()
+    super.onDestroy()
+  }
+
   private fun requestStorageAccess() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
       if (!Environment.isExternalStorageManager()) {

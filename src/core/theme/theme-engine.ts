@@ -10,7 +10,7 @@
  */
 
 import {
-  cssVar,
+  cssVarRaw,
   TOKEN_KEYS,
   type Theme,
   type ThemeTokens,
@@ -100,7 +100,7 @@ class ThemeEngine {
     const root = document.documentElement;
     const style = root.style;
     for (const key of TOKEN_KEYS) {
-      style.setProperty(cssVar(key), theme.tokens[key]);
+      style.setProperty(cssVarRaw(key), theme.tokens[key]);
     }
     // Native scrollbars, selection highlight and form controls follow this.
     style.setProperty("color-scheme", theme.mode);
@@ -117,7 +117,7 @@ class ThemeEngine {
 
   /** Live-edit a single token without committing a theme. Used by the editor. */
   preview(token: keyof ThemeTokens, value: string): void {
-    document.documentElement.style.setProperty(cssVar(token), value);
+    document.documentElement.style.setProperty(cssVarRaw(token), value);
   }
 
   /** Discard any previews and repaint the committed theme. */

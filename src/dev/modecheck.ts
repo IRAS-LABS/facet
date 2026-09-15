@@ -237,8 +237,12 @@ async function main(): Promise<void> {
   const rowTop = tiles()[0]?.style.top;
   const perRow = tiles().filter((t) => t.style.top === rowTop).length;
   ok("…with more than one tile to a row", perRow > 1, `perRow=${perRow}`);
+  // The nearest fit, not the floor: gallery-view rounds so a phone gets two
+  // columns instead of one and a wasted half-screen, and stretches the tiles to
+  // absorb the difference. Measured against the scroller, which is what it fits.
+  const gw = gHost.querySelector<HTMLElement>(".gv-scroll")?.clientWidth ?? 900;
   ok("…and the row width is what fits, not a guess",
-    perRow === Math.floor((900 - 16) / (180 + 16)), `perRow=${perRow}`);
+    perRow === Math.max(1, Math.round((gw - 16) / (180 + 16))), `perRow=${perRow} width=${gw}`);
 
   gallery.selectPaths([many[3]!.path]);
   await tick();

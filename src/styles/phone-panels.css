@@ -147,12 +147,17 @@ body.fct-phone .fct-phone-panel .ql-zoom {
 
 /* ── Controls: thumb-sized, and they say what they do ─────────────────────── */
 
+/* Written out by type, this listed `text`, `search` and `number` -- and an
+   `<input>` with no `type` attribute at all is none of them as far as CSS is
+   concerned, however much it behaves like a text field. The video editor's
+   export-name field is exactly that, and it stayed 28px tall next to 44px
+   buttons on a phone. Asked the other way round -- everything except the
+   controls that are deliberately small -- a field cannot be missed for want of
+   an attribute nobody wrote. */
 body.fct-phone .fct-phone-panel .btn,
 body.fct-phone .fct-phone-panel button,
 body.fct-phone .fct-phone-panel select,
-body.fct-phone .fct-phone-panel input[type="text"],
-body.fct-phone .fct-phone-panel input[type="search"],
-body.fct-phone .fct-phone-panel input[type="number"] {
+body.fct-phone .fct-phone-panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]) {
   min-height: 44px;
   height: auto;
   font-size: var(--fct-fs-sm);
@@ -370,4 +375,38 @@ body.fct-phone .ql-facts {
   padding: var(--fct-sp-3) var(--fct-sp-2) var(--fct-sp-2);
   border-top: 1px solid var(--fct-border);
   font-size: var(--fct-fs-sm);
+}
+
+/* ── Close buttons ─────────────────────────────────────────────────────────
+   Nine stylesheets declare their own `✕` as `width: 26px`, which is a mouse
+   target. `panel-fit` widens the ones it can put a word inside, but a button
+   whose tooltip it cannot read keeps the 26px -- watch folders' was measured at
+   26x44 on a test phone. Asked of every button in a panel instead, none can be
+   missed: 44px is the floor, the label still decides the rest. */
+body.fct-phone .fct-phone-panel button {
+  min-width: 44px;
+}
+
+/* A colour swatch is the one input that should not be 44px tall and full
+   width -- but it is still something a thumb has to hit. */
+body.fct-phone .fct-phone-panel input[type="color"] {
+  min-height: 44px;
+  min-width: 56px;
+}
+
+/* ── Hex: three desktop columns do not fit on a phone ──────────────────────
+   `300px | 1fr | 260px` is 560px of hard minimum on a 384px screen, and the
+   values pane was simply off the right edge with no way to reach it. Stacked,
+   the dump keeps the room and the two side panels take a capped slice each. */
+body.fct-phone .fct-phone-panel .hx-main {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 0.9fr) minmax(0, 2fr) minmax(0, 1.1fr);
+}
+body.fct-phone .fct-phone-panel .hx-tree {
+  border-right: none;
+  border-bottom: 1px solid var(--fct-border);
+}
+body.fct-phone .fct-phone-panel .hx-side {
+  border-left: none;
+  border-top: 1px solid var(--fct-border);
 }

@@ -202,7 +202,7 @@ const WEB_VIDEO = new Set(["mp4", "webm", "m4v", "mov", "ogv"]);
  */
 const STREAMED = new Set([
   "mp4", "webm", "m4v", "mov", "ogv", "mkv", "3gp",
-  "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav",
+  "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "weba",
 ]);
 
 const ANDROID = /android/i.test(navigator.userAgent);
@@ -567,6 +567,25 @@ export class TauriFs implements FsAdapter {
     return invoke("append_file", { path, bytes: Array.from(bytes) });
   }
 
+  /** Overwrite bytes in place, never past the end. See `patch_file` in `fsx.rs`. */
+  patchFile(path: string, offset: number, bytes: Uint8Array): Promise<void> {
+    return invoke("patch_file", { path, offset, bytes: Array.from(bytes) });
+  }
+
+  /**
+   * Re-index paths FACET wrote outside a Rust command.
+   *
+   * Every command that touches a file scans it itself, so this exists for the
+   * one write that Rust only sees in pieces: a streamed recording, created
+   * empty and appended to for an hour. Android indexes it the moment the file
+   * appears and never revisits it, so the row keeps the size the file had in
+   * its first second -- a 68 KB take listed as `950 B`. Fire-and-forget, and a
+   * failure is only a stale row, so the rejection is swallowed.
+   */
+  mediaScan(paths: string[]): void {
+    void invoke("media_scan", { paths }).catch(() => {});
+  }
+
   /**
    * Move or rename. `copied` comes back true when the destination was on a
    * different drive: the bytes are there and **the original is still where it
@@ -663,6 +682,47 @@ export class TauriFs implements FsAdapter {
       return [];
     }
   }
+
+  // ── Pop-outs (desktop; `pip.rs`) ─────────────────────────────────────────
+
+  /**
+   * Float each file in a borderless always-on-top window of its own. All or
+   * nothing: a request that would pass the cap opens none and says why.
+   * Answers the new windows' ids.
+   */
+  popOut(paths: readonly string[], layout?: PopOutLayout): Promise<number[]> {
+    return invoke("pip_open", { paths: [...paths], layout: layout ?? null });
+  }
+
+  /** Every pop-out that is open, in the order they were opened. */
+  popOuts(): Promise<PopOut[]> {
+    return invoke("pip_list");
+  }
+
+  /** Lay every pop-out out again: a grid, a cascade, or stacked in a corner. */
+  tilePopOuts(layout: PopOutLayout = "tile"): Promise<void> {
+    return invoke("pip_tile", { layout });
+  }
+
+  /** Close one pop-out by id, or all of them. */
+  closePopOuts(id?: number): Promise<void> {
+    return invoke("pip_close", { id: id ?? null });
+  }
+
+  /** Hide every pop-out out of the way, or bring them all back. */
+  showPopOuts(show: boolean): Promise<void> {
+    return invoke("pip_show_all", { show });
+  }
+}
+
+export type PopOutLayout = "tile" | "cascade" | "corner";
+
+/** One open pop-out, as `pip_list` answers. */
+export interface PopOut {
+  id: number;
+  path: string;
+  name: string;
+  aspect: number | null;
 }
 
 /**

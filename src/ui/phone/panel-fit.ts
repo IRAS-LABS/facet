@@ -29,6 +29,18 @@
  *  a label and is left alone. */
 const GLYPH_MAX = 3;
 
+/**
+ * Two letters in a row, which is a word and not a glyph.
+ *
+ * The length test alone is not enough. "Key" and "End" are three characters,
+ * so they slipped under `GLYPH_MAX` and got a second line stapled underneath
+ * them -- the blur editor's rail read "Key / Remove" and "End / End blur",
+ * two-line buttons among one-line ones. Length says how much room the content
+ * takes; this says whether it is already telling you something. A lone "B" or
+ * a "✕" still gets its word.
+ */
+const IS_WORD = /\p{L}\p{L}/u;
+
 /** Panels live at these layers; see the z-index map in the desktop styles. */
 const PANEL_Z = 40;
 
@@ -134,7 +146,7 @@ function label(root: HTMLElement): void {
     // What the button already shows. A button holding an `svg` reports empty
     // text, which is exactly the case that most needs a word.
     const shown = (btn.textContent ?? "").trim();
-    if (shown.length > GLYPH_MAX) continue;
+    if (shown.length > GLYPH_MAX || IS_WORD.test(shown)) continue;
 
     const text = short !== "" ? short : shorten(name);
     if (text === "" || text.toLowerCase() === shown.toLowerCase()) continue;

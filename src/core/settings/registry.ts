@@ -39,6 +39,11 @@ export const PREF = {
   density: "appearance.density",
   font: "appearance.font",
   reduceMotion: "appearance.reduceMotion",
+  skin: "appearance.skin",
+  corners: "appearance.corners",
+  outlines: "appearance.outlines",
+  glow: "appearance.glow",
+  backdrop: "appearance.backdrop",
 
   view: "explorer.view",
   sort: "explorer.sort",
@@ -61,6 +66,13 @@ export const PREF = {
   previewCache: "previews.cache",
   previewTextLines: "previews.textLines",
 
+  sceneToneMap: "scene.toneMap",
+  sceneExposure: "scene.exposure",
+  sceneBackground: "scene.background",
+  sceneEnvironment: "scene.environment",
+  sceneTurntableSpeed: "scene.turntableSpeed",
+  scenePanelOpen: "scene.panelOpen",
+
   cameraFormat: "camera.format",
   cameraQuality: "camera.quality",
   cameraHeight: "camera.height",
@@ -77,6 +89,32 @@ export const PREF = {
   recCountdown: "recorder.countdown",
   recFolder: "recorder.folder",
 
+  scanLook: "scan.look",
+  scanSearchable: "scan.searchable",
+  scanFolder: "scan.folder",
+
+  readEngine: "read.engine",
+  readVoice: "read.voice",
+  readSystemVoice: "read.systemVoice",
+  readLang: "read.lang",
+  readOnline: "read.online",
+  readSpeed: "read.speed",
+  readPitch: "read.pitch",
+  readVolume: "read.volume",
+  readHighlight: "read.highlight",
+  readOnPage: "read.onPage",
+  readFollow: "read.follow",
+  readRepeat: "read.repeat",
+  readAwake: "read.awake",
+  readSkipHeaders: "read.skipHeaders",
+  readSkipPageNumbers: "read.skipPageNumbers",
+  readSkipCaptions: "read.skipCaptions",
+  readSkipReferences: "read.skipReferences",
+  readSkipFootnotes: "read.skipFootnotes",
+  readSkipLineNumbers: "read.skipLineNumbers",
+  readSkipEquations: "read.skipEquations",
+  readSkipHeadings: "read.skipHeadings",
+
   batchLanes: "performance.batchLanes",
   watchInterval: "performance.watchInterval",
   tableBlocks: "performance.tableBlocks",
@@ -89,7 +127,7 @@ export const PREF = {
  * order below — but it is exported because the panel's group nav wants it and
  * an explicit list is easier to reorder than a file.
  */
-export const GROUPS = ["Appearance", "Explorer", "Previews", "Camera", "Recorder", "Performance"] as const;
+export const GROUPS = ["Appearance", "Explorer", "Previews", "3D viewer", "Camera", "Recorder", "Scanner", "Read aloud", "Performance"] as const;
 
 // ── Appearance ──────────────────────────────────────────────────────────────
 
@@ -147,6 +185,94 @@ const reduceMotion: ToggleSetting = {
   help: "Turns off the panel slides, card transitions and zoom easing. Until you touch this, Windows' own reduced-motion setting decides; changing it here — either way — takes over.",
   keywords: ["animation", "transition", "accessibility", "vestibular"],
   default: false,
+};
+
+/*
+ * The look, as opposed to the colours.
+ *
+ * A theme says what colour a panel is. These say whether it is a panel at all —
+ * whether it has a fill, an outline, a corner, a glow. They are separate
+ * settings rather than one list of presets because the combinations are the
+ * point: the same palette drawn as frameless glass and as a square-cornered
+ * console are two different applications, and nobody should have to pick a
+ * palette they dislike to get the shape they want.
+ *
+ * All five are read by `applyAppearance()` in main.ts, which writes them onto
+ * <html> as attributes and custom properties. skin.css does the rest.
+ */
+
+const skin: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.skin,
+  group: "Appearance",
+  label: "Interface style",
+  help: "Classic is filled panels with outlines. Glass makes them translucent and blurs what is behind. Edge removes the fills entirely, leaving hairlines and space. Neon darkens everything and lets the accent draw the structure.",
+  keywords: ["skin", "look", "glass", "blur", "frosted", "neon", "flat", "futuristic", "boxes", "borderless"],
+  choices: [
+    ["classic", "Classic"],
+    ["glass", "Glass"],
+    ["edge", "Edge"],
+    ["neon", "Neon"],
+  ],
+  default: "classic",
+};
+
+const corners: NumberSetting = {
+  kind: "number",
+  id: PREF.corners,
+  group: "Appearance",
+  label: "Corner roundness",
+  help: "0 is square, 1 is the standard radius, 2 is as round as the control is tall. Separate from Spacing so a compact layout can still be soft, and a roomy one can still be sharp.",
+  keywords: ["radius", "rounded", "square", "sharp", "pill", "shape"],
+  min: 0,
+  max: 2,
+  step: 0.1,
+  unit: "×",
+  default: 1,
+};
+
+const outlines: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.outlines,
+  group: "Appearance",
+  label: "Outlines",
+  help: "How present the hairlines between regions are. Off removes every divider in the app at once — the keyboard focus ring is the one exception and always stays.",
+  keywords: ["border", "divider", "lines", "hairline", "frame", "boxes", "clean"],
+  choices: [
+    ["full", "Full"],
+    ["soft", "Soft"],
+    ["none", "Off"],
+  ],
+  default: "full",
+};
+
+const glow: NumberSetting = {
+  kind: "number",
+  id: PREF.glow,
+  group: "Appearance",
+  label: "Accent glow",
+  help: "How far the accent colour bleeds around whatever is live — the focused field, the pressed button, the selected tab. 0 is off and costs nothing.",
+  keywords: ["bloom", "halo", "highlight", "neon", "shine"],
+  min: 0,
+  max: 1,
+  step: 0.05,
+  default: 0,
+};
+
+const backdrop: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.backdrop,
+  group: "Appearance",
+  label: "Backdrop",
+  help: "An ambient layer behind the whole app. It sits below everything and cannot be clicked, so it never gets in the way of anything. Pulse breathes slowly; Reduce motion stops it.",
+  keywords: ["wallpaper", "background", "grid", "aurora", "ambient", "atmosphere"],
+  choices: [
+    ["none", "None"],
+    ["grid", "Grid"],
+    ["aurora", "Aurora"],
+    ["pulse", "Pulse"],
+  ],
+  default: "none",
 };
 
 // ── Explorer ────────────────────────────────────────────────────────────────
@@ -409,6 +535,101 @@ const previewTextLines: NumberSetting = {
   default: 14,
 };
 
+// ── 3D viewer ───────────────────────────────────────────────────────────────
+
+/*
+ * The 3D viewer's side panel writes these back as they are changed, so the next
+ * model opens looking the way the last one was left. Only the choices that are
+ * about *how someone likes to look at models* are here. The per-model ones —
+ * which way is up, the camera angle, which animation clip — belong to one file
+ * and would be wrong for the next, so they are deliberately not remembered.
+ *
+ * The panel's open state is remembered too, but only for a roomy window: in a
+ * small pop-out the panel covers the model, so it always starts closed there
+ * whatever this says.
+ */
+
+const sceneToneMap: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.sceneToneMap,
+  group: "3D viewer",
+  label: "Tone mapping",
+  help: "How bright highlights are squeezed into what a screen can show. Neutral keeps a model's colours closest to what its author picked; ACES and AgX look more like film; None shows the raw values and clips.",
+  keywords: ["3d", "model", "tone", "aces", "agx", "neutral", "hdr", "colour", "color"],
+  choices: [
+    ["neutral", "Neutral"],
+    ["aces", "ACES filmic"],
+    ["agx", "AgX"],
+    ["none", "None"],
+  ],
+  default: "neutral",
+};
+
+const sceneExposure: NumberSetting = {
+  kind: "number",
+  id: PREF.sceneExposure,
+  group: "3D viewer",
+  label: "Exposure",
+  help: "Overall brightness of the 3D view, applied before tone mapping.",
+  keywords: ["3d", "model", "bright", "dark", "exposure"],
+  min: 0.2,
+  max: 3,
+  step: 0.05,
+  unit: "×",
+  default: 1,
+};
+
+const sceneBackground: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.sceneBackground,
+  group: "3D viewer",
+  label: "Background",
+  help: "What sits behind a model. Environment shows the soft studio room the lighting comes from.",
+  keywords: ["3d", "model", "background", "backdrop", "black", "grey", "gray", "gradient", "studio"],
+  choices: [
+    ["theme", "Match the theme"],
+    ["gradient", "Gradient"],
+    ["black", "Black"],
+    ["studio", "Studio grey"],
+    ["environment", "Environment"],
+  ],
+  default: "theme",
+};
+
+const sceneEnvironment: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.sceneEnvironment,
+  group: "3D viewer",
+  label: "Environment lighting",
+  help: "Lights models from a soft studio room as well as the lamps, so metal and glossy paint reflect something instead of looking black.",
+  keywords: ["3d", "model", "ibl", "environment", "reflection", "pbr", "lighting"],
+  default: true,
+};
+
+const sceneTurntableSpeed: NumberSetting = {
+  kind: "number",
+  id: PREF.sceneTurntableSpeed,
+  group: "3D viewer",
+  label: "Turntable speed",
+  help: "How fast a model spins when the turntable is on.",
+  keywords: ["3d", "model", "turntable", "spin", "rotate", "orbit"],
+  min: 0.5,
+  max: 30,
+  step: 0.5,
+  unit: "rpm",
+  default: 4,
+};
+
+const scenePanelOpen: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.scenePanelOpen,
+  group: "3D viewer",
+  label: "Open the side panel",
+  help: "Start the 3D viewer with its controls panel showing. Small windows always start with it closed.",
+  keywords: ["3d", "model", "panel", "sidebar", "controls"],
+  default: false,
+};
+
 // ── Performance ─────────────────────────────────────────────────────────────
 //
 // The preview budgets above are half of item 43 and live under Previews,
@@ -632,6 +853,303 @@ const recFolder: TextSetting = {
   default: "",
 };
 
+/*
+ * Scanner.
+ *
+ * Only the three answers that are the same every time. Everything else about a
+ * scan -- where the corners are, which way up the page is -- is a property of
+ * that page and belongs on the page, not in a preferences panel.
+ */
+
+const scanLook: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.scanLook,
+  group: "Scanner",
+  label: "How a scanned page looks",
+  help: "Colour whitens the paper and keeps the ink's colour, so a signature stays blue. Black & white is the smallest and the least forgiving.",
+  keywords: ["scan", "scanner", "document", "look", "whiten", "mono", "threshold"],
+  choices: [
+    ["photo", "Photo — leave it alone"],
+    ["colour", "Colour"],
+    ["grey", "Greyscale"],
+    ["mono", "Black & white"],
+  ],
+  default: "colour",
+};
+
+const scanSearchable: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.scanSearchable,
+  group: "Scanner",
+  label: "Make scanned PDFs searchable",
+  help: "Reads the text and puts it invisibly under the picture, so you can search the PDF. Slower, and the first scan downloads a language model.",
+  keywords: ["scan", "ocr", "searchable", "pdf", "text", "read"],
+  default: false,
+};
+
+const scanFolder: TextSetting = {
+  kind: "text",
+  id: PREF.scanFolder,
+  group: "Scanner",
+  label: "Save scans to",
+  help: "Leave empty to save into whichever folder is open. Scans are never overwritten.",
+  keywords: ["scan", "folder", "save", "pdf", "destination"],
+  placeholder: "The folder that is open",
+  default: "",
+};
+
+// ── Read aloud ──────────────────────────────────────────────────────
+
+/*
+ * The voice, the speed and what gets skipped are settings rather than panel
+ * state because they are the same on every document. Someone who reads at
+ * 1.6× reads everything at 1.6×, and re-choosing it on each paper is the kind
+ * of small friction that stops a feature being used at all.
+ *
+ * The skip switches are the exception worth explaining: they are defaults, and
+ * the reader lets them be overridden for the document in front of you without
+ * writing that back here. A paper whose captions you do want read should not
+ * change what happens on the next one.
+ */
+
+const readEngine: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.readEngine,
+  group: "Read aloud",
+  label: "Voice engine",
+  help: "The system voices are already on this machine and speak instantly. The natural voices sound far better and need a one-off download of about 88 MB, which you are asked about before it happens.",
+  keywords: ["tts", "speech", "kokoro", "narration", "speak"],
+  choices: [
+    ["system", "System voices"],
+    ["kokoro", "Natural voices (downloaded)"],
+  ],
+  default: "system",
+};
+
+const readVoice: TextSetting = {
+  kind: "text",
+  id: PREF.readVoice,
+  group: "Read aloud",
+  label: "Natural voice",
+  help: "Which of the natural voices to read in. Picked from the list in the reader rather than typed here.",
+  keywords: ["voice", "kokoro", "accent", "speaker"],
+  placeholder: "af_heart",
+  default: "af_heart",
+};
+
+const readSystemVoice: TextSetting = {
+  kind: "text",
+  id: PREF.readSystemVoice,
+  group: "Read aloud",
+  label: "System voice",
+  help: "Which of this machine own voices to read in. The list differs between Windows and Android, so an empty value means whichever one the system treats as default.",
+  keywords: ["voice", "system", "windows", "android", "speaker"],
+  placeholder: "The system default",
+  default: "",
+};
+
+const readLang: TextSetting = {
+  kind: "text",
+  id: PREF.readLang,
+  group: "Read aloud",
+  label: "Voice language",
+  help: "Which language's voices the reader offers. A phone's speech engine lists a few hundred voices across about a hundred languages, and scrolling past ninety-nine of them to reach your own is not a choice, it is an obstacle. Empty means this device's own language.",
+  keywords: ["language", "locale", "english", "filter", "voice"],
+  placeholder: "This device's language",
+  default: "",
+};
+
+const readOnline: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readOnline,
+  group: "Read aloud",
+  label: "Offer voices that need the internet",
+  help: "Off. Most of the voices a phone advertises are not on the phone: they send the sentence to a server and play back the reply. A document read aloud would then be a document uploaded, which is not what this app is for. Turn this on only if you want those voices in the list.",
+  keywords: ["network", "online", "cloud", "offline", "privacy", "voice"],
+  default: false,
+};
+
+const readSpeed: NumberSetting = {
+  kind: "number",
+  id: PREF.readSpeed,
+  group: "Read aloud",
+  label: "Speed",
+  help: "How fast to read. The natural voices are generated at this speed rather than played faster, so raising it does not raise the pitch. Anything from a quarter speed to five times is allowed, and the reader takes a typed value as readily as the slider -- past about three the system voices start slurring, but that is the engine's limit to find rather than the reader's to impose.",
+  keywords: ["rate", "fast", "slow", "wpm", "tempo"],
+  min: 0.25,
+  max: 5,
+  step: 0.05,
+  unit: "\u00d7",
+  default: 1,
+};
+
+const readPitch: NumberSetting = {
+  kind: "number",
+  id: PREF.readPitch,
+  group: "Read aloud",
+  label: "Pitch",
+  help: "Only the system voices take a pitch directly. On the natural voices it shifts the speed with it, so it is best left alone there.",
+  keywords: ["tone", "higher", "lower", "voice"],
+  min: 0.5,
+  max: 2,
+  step: 0.05,
+  unit: "\u00d7",
+  default: 1,
+};
+
+const readVolume: NumberSetting = {
+  kind: "number",
+  id: PREF.readVolume,
+  group: "Read aloud",
+  label: "Volume",
+  help: "Relative to the system volume, which still has the last word.",
+  keywords: ["loud", "quiet", "sound"],
+  min: 0,
+  max: 1,
+  step: 0.05,
+  default: 1,
+};
+
+const readOnPage: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.readOnPage,
+  group: "Read aloud",
+  label: "Follow along on",
+  help: "The page shows the document exactly as it looks -- the real figures, columns and equations -- with the spoken sentence lit up on it. The rebuilt text is one plain column, which is easier on a phone and is the only option for a file that has no pages, such as a text or web file.",
+  keywords: ["page", "layout", "original", "pdf", "scan", "text", "reflow"],
+  choices: [
+    ["page", "The page itself, where there is one"],
+    ["text", "The rebuilt text"],
+  ],
+  default: "page",
+};
+
+const readHighlight: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.readHighlight,
+  group: "Read aloud",
+  label: "Highlight",
+  help: "What to mark as it is spoken. Word-level highlighting is estimated on the natural voices rather than reported, so it can drift slightly on a long sentence.",
+  keywords: ["follow", "karaoke", "mark", "colour"],
+  choices: [
+    ["both", "Sentence and word"],
+    ["sentence", "Sentence only"],
+    ["word", "Word only"],
+    ["none", "Nothing"],
+  ],
+  default: "both",
+};
+
+const readFollow: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readFollow,
+  group: "Read aloud",
+  label: "Scroll to keep up",
+  help: "Keeps the sentence being spoken on screen. Suspended while you are scrolling by hand, and resumed when you stop.",
+  keywords: ["autoscroll", "follow", "scroll"],
+  default: true,
+};
+
+const readRepeat: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readRepeat,
+  group: "Read aloud",
+  label: "Start again at the end",
+  help: "Goes back to the top instead of stopping.",
+  keywords: ["repeat", "loop", "again"],
+  default: false,
+};
+
+const readAwake: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readAwake,
+  group: "Read aloud",
+  label: "Keep reading with the screen off",
+  help: "On a phone, keeps playing when the screen locks and puts the controls on the lock screen. Costs a little more battery.",
+  keywords: ["background", "lock", "screen", "phone", "battery"],
+  default: true,
+};
+
+const readSkipHeaders: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readSkipHeaders,
+  group: "Read aloud",
+  label: "Skip running heads and footers",
+  help: "The title repeated at the top of every page, the journal name along the bottom. Found by repetition across pages, so a heading that appears once is never mistaken for one.",
+  keywords: ["header", "footer", "running", "repeat", "paper"],
+  default: true,
+};
+
+const readSkipPageNumbers: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readSkipPageNumbers,
+  group: "Read aloud",
+  label: "Skip page numbers",
+  help: "A bare number in the margin, top or bottom.",
+  keywords: ["page", "number", "folio"],
+  default: true,
+};
+
+const readSkipCaptions: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readSkipCaptions,
+  group: "Read aloud",
+  label: "Skip figure and table captions",
+  help: "Off by default: a caption often carries the finding, and hearing it read is usually what was wanted.",
+  keywords: ["figure", "table", "caption", "chart"],
+  default: false,
+};
+
+const readSkipReferences: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readSkipReferences,
+  group: "Read aloud",
+  label: "Skip the reference list",
+  help: "Everything after the References or Bibliography heading, up to any appendix. Forty minutes of author names and years is rarely what anyone wanted.",
+  keywords: ["bibliography", "citation", "works cited", "references"],
+  default: true,
+};
+
+const readSkipFootnotes: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readSkipFootnotes,
+  group: "Read aloud",
+  label: "Skip footnotes",
+  help: "Off by default. A footnote in the middle of an argument is sometimes the argument.",
+  keywords: ["footnote", "endnote", "note"],
+  default: false,
+};
+
+const readSkipLineNumbers: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readSkipLineNumbers,
+  group: "Read aloud",
+  label: "Skip line numbers",
+  help: "The column of numbers down the margin of a manuscript under review.",
+  keywords: ["line", "number", "margin", "manuscript", "preprint"],
+  default: true,
+};
+
+const readSkipEquations: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readSkipEquations,
+  group: "Read aloud",
+  label: "Say \u201cequation\u201d rather than reading the symbols",
+  help: "A displayed formula read character by character is noise. This replaces it with the single word, so you still know one was there.",
+  keywords: ["equation", "formula", "maths", "math", "symbols"],
+  default: true,
+};
+
+const readSkipHeadings: ToggleSetting = {
+  kind: "toggle",
+  id: PREF.readSkipHeadings,
+  group: "Read aloud",
+  label: "Skip section headings",
+  help: "Off by default: headings are how you keep your place in a long paper by ear.",
+  keywords: ["heading", "section", "title"],
+  default: false,
+};
+
 const batchLanes: NumberSetting = {
   kind: "number",
   id: PREF.batchLanes,
@@ -688,6 +1206,11 @@ const undoKeep: NumberSetting = {
 
 /** Everything above, in panel order. */
 export const ALL_SETTINGS = [
+  skin,
+  outlines,
+  corners,
+  glow,
+  backdrop,
   uiScale,
   density,
   font,
@@ -711,6 +1234,12 @@ export const ALL_SETTINGS = [
   previewLanes,
   previewCache,
   previewTextLines,
+  sceneToneMap,
+  sceneExposure,
+  sceneBackground,
+  sceneEnvironment,
+  sceneTurntableSpeed,
+  scenePanelOpen,
   cameraFormat,
   cameraQuality,
   cameraHeight,
@@ -725,6 +1254,30 @@ export const ALL_SETTINGS = [
   recQuality,
   recCountdown,
   recFolder,
+  scanLook,
+  scanSearchable,
+  scanFolder,
+  readEngine,
+  readVoice,
+  readSystemVoice,
+  readLang,
+  readOnline,
+  readSpeed,
+  readPitch,
+  readVolume,
+  readHighlight,
+  readOnPage,
+  readFollow,
+  readRepeat,
+  readAwake,
+  readSkipHeaders,
+  readSkipPageNumbers,
+  readSkipCaptions,
+  readSkipReferences,
+  readSkipFootnotes,
+  readSkipLineNumbers,
+  readSkipEquations,
+  readSkipHeadings,
   batchLanes,
   watchInterval,
   tableBlocks,

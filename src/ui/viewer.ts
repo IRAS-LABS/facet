@@ -40,6 +40,7 @@ import { Tesseract } from "@core/ocr/engine";
 
 import { EditRail, type RailStatus } from "./edit-rail";
 import type { PhoneTool } from "./phone/tools";
+import { loadPicture } from "@core/canvas/picture";
 
 export interface ViewerHost {
   /** Full-resolution URL for a path. */
@@ -56,6 +57,30 @@ export interface ViewerHost {
    * one place.
    */
   sign?(path: string, mode?: "sign" | "redact" | "crop"): void;
+  /**
+   * Hand this photo to the reader, which OCRs it and speaks it.
+   *
+   * Optional for the same reason `sign` is, and asked the same way: the row is
+   * dropped from the bar entirely where the shell has no reader, rather than
+   * offered and then apologised for.
+   */
+  read?(path: string): void;
+  /**
+   * Re-list the folder, because a save just added a file to it.
+   *
+   * Optional for the same reason `sign` is: the viewer is also built where
+   * there is no folder behind it. Every other surface that writes -- the
+   * camera, the recorder, the OCR view, metadata -- already takes one of
+   * these, and the exported copy is the one new file a user goes looking for
+   * straight afterwards, so it was the worst one to leave out.
+   */
+  refresh?(): void;
+}
+
+/** "faces, plates and screens" — for a sentence, not a list widget. */
+function listOut(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
 const SHAPES: ReadonlyArray<readonly [ShapeKind, string, string]> = [
@@ -68,15 +93,20 @@ const SHAPES: ReadonlyArray<readonly [ShapeKind, string, string]> = [
   ["full", "▣", "Whole image"],
 ];
 
+// Redact leads the list because it is the only entry that actually hides
+// anything from someone who wants it back: every other kind here is a
+// reversible picture effect, and the labels say so. `solid` is left out on
+// purpose -- a cosmetic flat fill is indistinguishable from a redaction bar
+// on screen and is not one. It stays in the engine for older sessions.
 const KINDS: ReadonlyArray<readonly [BlurKind, string]> = [
-  ["gaussian", "Gaussian"],
-  ["box", "Box"],
-  ["pixelate", "Pixelate"],
-  ["mosaic", "Mosaic"],
-  ["motion", "Motion"],
-  ["radial", "Radial"],
-  ["frosted", "Frosted"],
-  ["solid", "Solid"],
+  ["redact", "Redact (cannot be undone)"],
+  ["gaussian", "Gaussian (reversible)"],
+  ["box", "Box (reversible)"],
+  ["pixelate", "Pixelate (reversible)"],
+  ["mosaic", "Mosaic (reversible)"],
+  ["motion", "Motion (reversible)"],
+  ["radial", "Radial (reversible)"],
+  ["frosted", "Frosted (reversible)"],
 ];
 
 /** Handle positions on the bounding box, as fractions of it. */
@@ -160,6 +190,7 @@ const RAIL_ACTS: ReadonlySet<string> = new Set([
   "blur.clear",
   "blur.layers",
   "ai.faces",
+  "ai.read",
   "out.save",
   "info.undo",
   "info.redo",
@@ -172,6 +203,7 @@ type RailTarget =
   | { at: "kind"; kind: BlurKind }
   | { at: "light"; field: keyof Adjust }
   | { at: "param"; key: string }
+  | { at: "auto"; cats: readonly AutoCategory[] }
   | { at: "act"; id: string };
 
 /** The reason a row is greyed, said once so every row says it the same way. */
@@ -348,7 +380,7 @@ export class Viewer {
     this.title.textContent = `${entry.name}   ${formatSize(entry.size)}`;
     try {
       const url = await this.host.fileUrl(entry.path);
-      const img = await loadImage(url);
+      const img = await loadPicture(url, "decode failed");
       this.img = img;
       this.title.textContent =
         `${entry.name}   ${img.naturalWidth}×${img.naturalHeight}   ${formatSize(entry.size)}`;
@@ -977,11 +1009,19 @@ export class Viewer {
       b.dataset["cat"] = c;
       b.textContent = CATEGORY_NAMES[c].title;
       b.title = `Look for ${CATEGORY_NAMES[c].many} on the next Auto-blur`;
-      if (this.autoPick.has(c)) b.dataset["on"] = "true";
+      // `data-on` styles the chip; `aria-pressed` is the half a screen reader
+      // can hear. They have to be set together -- a chip that looks ticked and
+      // reads as unticked is worse than one that never lit up at all.
+      const tick = (on: boolean): void => {
+        if (on) b.dataset["on"] = "true";
+        else delete b.dataset["on"];
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      };
+      tick(this.autoPick.has(c));
       b.addEventListener("click", () => {
         const pick = this.autoPick!;
         if (pick.has(c)) pick.delete(c); else pick.add(c);
-        b.dataset["on"] = pick.has(c) ? "true" : "false";
+        tick(pick.has(c));
       });
       picks.append(b);
     }
@@ -989,7 +1029,13 @@ export class Viewer {
     auto.type = "button";
     auto.className = "vp-faces vp-auto";
     auto.textContent = "Auto-blur";
-    auto.title = "Find everything ticked above — plates, screens, terminals, cards, codes, text — and blur each one. Every result stays editable.";
+    // Built from the chips rather than written out: the old fixed list had
+    // fallen behind the categories twice, and a tooltip that names the wrong
+    // things is worse than one that names none.
+    const picked = AUTO_CATEGORIES.filter((c) => this.autoPick!.has(c)).map((c) => CATEGORY_NAMES[c].many);
+    auto.title = picked.length
+      ? `Look for ${listOut(picked)} and blur each one. Every result stays editable.`
+      : "Tick at least one kind above, then this looks for it and blurs each one.";
     auto.addEventListener("click", () => void this.autoBlur(auto));
     this.panel.append(this.group("Add", tools), faces, this.group("Auto-blur", picks), auto);
 
@@ -1174,10 +1220,22 @@ export class Viewer {
     // The one pair whose availability is not a property of this file: signing
     // happens in another view, and whether there is one is the shell's answer.
     if (SIGN_ROWS.has(t.id) && !this.host.sign) return null;
+    if (t.id === "ai.read" && !this.host.read) return null;
     const field = LIGHT_FIELD[t.id];
     if (field !== undefined) return { at: "light", field };
     const key = ADJ_PARAM[t.id];
     if (key !== undefined) return { at: "param", key };
+    // Auto-blur and the single-category rows. The panel has had all of these
+    // since it got the chip list; the bar did not, so it greyed "Blur
+    // windscreens" and every other category with "Not part of the desktop
+    // photo editor" while the very same run sat two inches below it. Derived
+    // from `AUTO_CATEGORIES` rather than listed, for the reason the tooltip
+    // beside the chips gives: the fixed list had already fallen behind twice.
+    if (t.id === "ai.auto") return { at: "auto", cats: enabledCategories(autoBlurStore().get()) };
+    const cat = t.id.startsWith("ai.") ? t.id.slice(3) : "";
+    if (cat !== "faces" && (AUTO_CATEGORIES as readonly string[]).includes(cat)) {
+      return { at: "auto", cats: [cat as AutoCategory] };
+    }
     return RAIL_ACTS.has(t.id) ? { at: "act", id: t.id } : null;
   }
 
@@ -1206,6 +1264,11 @@ export class Viewer {
         // `noAdjust`. So a closed Light & colour still says which of its
         // sliders are doing something.
         return { enabled: true, why: t.hint, on: this.light[target.field] !== 0 };
+      case "auto":
+        if (!this.img) return { enabled: false, why: "No photo is open", on: false };
+        return target.cats.length === 0
+          ? { enabled: false, why: "Nothing is ticked to look for — turn a kind on in Settings", on: false }
+          : { enabled: true, why: t.hint, on: false };
       case "param":
         if (!sel) return { enabled: false, why: NEEDS_REGION, on: false };
         // `paramsFor` omits the corners slider for anything but a box, so the
@@ -1239,6 +1302,7 @@ export class Viewer {
       case "blur.layers":
         return { enabled: true, why: t.hint, on: this.openGroups.has("Regions") };
       case "ai.faces":
+      case "ai.read":
         return this.img
           ? { enabled: true, why: t.hint, on: false }
           : { enabled: false, why: "No photo is open", on: false };
@@ -1311,6 +1375,16 @@ export class Viewer {
       case "param":
         this.reveal(`[data-param="${target.key}"]`);
         return;
+      case "auto":
+        // Ticked, rebuilt, clicked: the row runs the panel's own button rather
+        // than a second copy of `autoBlur`, so what the bar does and what the
+        // button does can never drift apart, and the chips afterwards show
+        // exactly what was looked for.
+        this.autoPick = new Set(target.cats);
+        this.openGroups.add("Auto-blur");
+        this.buildPanel();
+        this.panel.querySelector<HTMLButtonElement>(".vp-auto")?.click();
+        return;
       case "act":
         this.railAct(target.id);
         return;
@@ -1353,6 +1427,16 @@ export class Viewer {
       case "info.openwith":
         void this.openExternal();
         return;
+      case "ai.read": {
+        const entry = this.current();
+        if (!entry || !this.host.read) return;
+        // Closed first, like signing: the reader is a full-screen panel, and a
+        // photo left open behind it is a second Escape nobody expects.
+        const path = entry.path;
+        this.close();
+        this.host.read(path);
+        return;
+      }
       case "sign.doc":
       case "sign.mark":
       case "sign.redact":
@@ -1559,6 +1643,7 @@ export class Viewer {
       const stem = dot > 0 ? entry.path.slice(0, dot) : entry.path;
       const out = await this.host.writeFile(`${stem}-facet.png`, bytes, false);
       btn.textContent = `Saved  ${out.split("/").pop()}`;
+      this.host.refresh?.();
     } catch (e) {
       btn.textContent = `Failed: ${String(e).slice(0, 40)}`;
     } finally {
@@ -1665,14 +1750,6 @@ function fmt(key: string, v: number): string {
   return v.toFixed(3);
 }
 
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("decode failed"));
-    img.src = url;
-  });
-}
 
 /**
  * How long ago, in words.

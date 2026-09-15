@@ -1114,6 +1114,31 @@ pub fn append_file(path: String, bytes: Vec<u8>) -> Result<u64, String> {
     Ok(f.metadata().map_err(|e| e.to_string())?.len())
 }
 
+/// Overwrite bytes inside a file that already holds them.
+///
+/// For the recorder's last act: the WebM header is on disk from the first
+/// chunk, and its Duration is a fixed-width placeholder that can only be filled
+/// in once the take has ended (see `webm-duration.ts`). Deliberately narrow --
+/// it never creates, never truncates and refuses to write past the current end,
+/// so a wrong offset fails loudly instead of growing or damaging the file.
+#[tauri::command]
+pub fn patch_file(path: String, offset: u64, bytes: Vec<u8>) -> Result<(), String> {
+    use std::io::{Seek, SeekFrom, Write};
+    let p = PathBuf::from(&path);
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .open(&p)
+        .map_err(|e| format!("{path}: {e}"))?;
+    let len = f.metadata().map_err(|e| e.to_string())?.len();
+    if offset.checked_add(bytes.len() as u64).map_or(true, |end| end > len) {
+        return Err(format!("{path}: patch past the end of the file"));
+    }
+    f.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+    f.write_all(&bytes).map_err(|e| format!("{path}: {e}"))?;
+    f.flush().map_err(|e| format!("{path}: {e}"))?;
+    Ok(())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoveResult {

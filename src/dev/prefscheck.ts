@@ -43,7 +43,8 @@ function main(): void {
   // ── Schema ────────────────────────────────────────────────────────────
   {
     ok("the storage key is the one the brief names", STORAGE_KEY === "fct.phone.prefs.v1");
-    ok("there are twenty settings", KEYS.length === 20, String(KEYS.length));
+    ok("there are twenty-five settings (skin, outlines, backdrop, corners, bloom joined the twenty)",
+      KEYS.length === 25, String(KEYS.length));
     ok("the chip bubbles are not the default", DEFAULTS.chips !== "bubbles");
     ok("albums are not boxed by default", DEFAULTS.albumStyle === "borderless");
     ok("tiles are edge to edge by default", DEFAULTS.tileRadius === 0 && DEFAULTS.tileGap === 2);
@@ -224,9 +225,9 @@ function main(): void {
     const groups = outsideAuto(sheet.el.querySelectorAll('[role="group"]'));
     const ranges = outsideAuto(sheet.el.querySelectorAll<HTMLInputElement>('input[type="range"]'));
     ok("eight switches, one per boolean", switches.length === 8, String(switches.length));
-    ok("nine choice groups: theme, accent, text, chips, two column pickers, album style, album columns, open-on",
-      groups.length === 9, String(groups.length));
-    ok("three sliders: translucency, corners, gap", ranges.length === 3, String(ranges.length));
+    ok("twelve choice groups: theme, accent, text, chips, two column pickers, album style, album columns, open-on, skin, outlines, backdrop",
+      groups.length === 12, String(groups.length));
+    ok("five sliders: translucency, tile corners, gap, UI corners, bloom", ranges.length === 5, String(ranges.length));
 
     const controls = sheet.el.querySelectorAll<HTMLElement>("button, input, label.ph-set-swatch");
     let small = 0;

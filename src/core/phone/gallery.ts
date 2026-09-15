@@ -48,7 +48,7 @@ export const EXTRA_EXTS = [
   "pdf", "doc", "docx", "odt", "rtf", "txt", "md", "epub", "ppt", "pptx",
   "xls", "xlsx", "ods", "csv", "tsv", "json",
   // audio
-  "mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "wma", "aiff", "amr", "mid",
+  "mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "wma", "aiff", "amr", "mid", "weba",
   // installs and archives
   "apk", "apks", "xapk", "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "zst", "iso",
 ] as const;
@@ -82,8 +82,8 @@ export const ANDROID_MEDIA_ROOTS: readonly string[] = [
  * The handful of folders worth looking in before anything else.
  *
  * The first pass used to be "the first three roots, three levels down", which
- * on this phone is forty directories -- `DCIM` alone has twenty-seven
- * subfolders, one per app that has ever saved a picture -- and forty
+ * on a typical phone is dozens of directories -- `DCIM` alone can have twenty or more
+ * subfolders, one per app that has ever saved a picture -- and that many
  * directories through Android's storage emulation is about two seconds. All of
  * it to fill a grid whose first screen is sixteen tiles, every one of which
  * came from the camera or a screenshot.
@@ -302,6 +302,7 @@ export function itemFromRow(row: RawMediaRow): GalleryItem | null {
 function rowKind(row: RawMediaRow, ext: string): FileKind {
   if (row.mediaType === MEDIA_TYPE_NONE) {
     const k = kindForExt(ext);
+    if (UNSCANNABLE.has(ext)) return k;
     return k === "image" || k === "video" || k === "audio" ? "binary" : k;
   }
   // The indexer's verdict outranks the MIME string: a clip the scanner filed
@@ -337,6 +338,28 @@ export function canonicalPath(p: string): string {
   if (s === "/storage/emulated/0") return "/sdcard";
   return s;
 }
+
+/*
+ * Extensions Android's own MIME table has no row for. MediaStore files these as
+ * MEDIA_TYPE_NONE with `application/octet-stream` whatever is actually inside
+ * them, so the demotion above misreads them: it takes MEDIA_TYPE_NONE to mean
+ * "the scanner looked at this and decided it is not media", which is true of
+ * most of the store and false of exactly these, where the scanner had no
+ * opinion to give in the first place.
+ *
+ * `weba` is this app's own voice recordings, which is how it was found. FACET
+ * recorded a take, wrote it to `Music/Facet`, said so — and then could not find
+ * it: Files > Audio listed 170 items, newest first, and the take made a minute
+ * earlier was not among them. Confirmed against the device's own index, where
+ * both recordings on it read `media_type=0, mime_type=application/octet-stream`.
+ *
+ * The container is not the thing to change. WebM is written here because it
+ * streams to disk with nothing to patch at the end, which is what makes a
+ * recording cut short a shorter recording instead of a broken one — see
+ * `AUDIO_MIMES`. That property is worth more than Android's table knowing the
+ * name, so the name is kept and the reader is taught instead.
+ */
+const UNSCANNABLE = new Set(["weba"]);
 
 const MEDIA_TYPE_NONE = 0;
 const MEDIA_TYPE_IMAGE = 1;

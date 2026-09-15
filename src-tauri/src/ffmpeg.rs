@@ -103,11 +103,30 @@ fn resolve(exe: &str) -> PathBuf {
     }
 }
 
+/// `ffmpeg` -> the copy the desktop installer puts beside the app, if there is
+/// one, else the bare name so PATH decides.
+///
+/// `scripts/build-desktop.ps1` bundles an ffmpeg build as a resource that lands
+/// in `<install dir>/ffmpeg/`, DLLs and all; Windows loads an exe's DLLs from
+/// its own folder first, so nothing else needs to be on PATH. A dev build, or an
+/// installer made without the bundle, has no such folder and keeps the old
+/// behaviour. Looked up once: the install cannot move while the app runs.
+#[cfg(not(target_os = "android"))]
+fn resolve(exe: &str) -> PathBuf {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    let dir = DIR.get_or_init(|| {
+        let dir = std::env::current_exe().ok()?.parent()?.join("ffmpeg");
+        let probe = dir.join(format!("ffmpeg{}", std::env::consts::EXE_SUFFIX));
+        probe.is_file().then_some(dir)
+    });
+    match dir {
+        Some(d) => d.join(format!("{exe}{}", std::env::consts::EXE_SUFFIX)),
+        None => PathBuf::from(exe),
+    }
+}
+
 fn cmd(exe: &str) -> Command {
-    #[cfg(target_os = "android")]
     let mut c = Command::new(resolve(exe));
-    #[cfg(not(target_os = "android"))]
-    let mut c = Command::new(exe);
     // ffmpeg writes its own scratch files for two-pass and for some filters, and
     // inherits an environment in which the default temp directory does not
     // exist. Left alone it fails deep inside a job rather than at the start.
@@ -145,8 +164,9 @@ pub fn media_ready() -> bool {
         }
         #[cfg(not(target_os = "android"))]
         {
-            // On the desktop it is whatever is on PATH, so the only honest
-            // answer is to run it. `-version` writes a few lines and exits.
+            // On the desktop it is the bundled copy or whatever is on PATH, so
+            // the only honest answer is to run it. `-version` writes a few
+            // lines and exits.
             cmd("ffmpeg").arg("-version").output().is_ok()
                 && cmd("ffprobe").arg("-version").output().is_ok()
         }

@@ -118,6 +118,15 @@ export interface PhoneHost {
    * capability that shipped without anything to press.
    */
   recordVoice(): void;
+  /**
+   * Open the document scanner.
+   *
+   * The one surface here that a phone is genuinely better at than the desktop:
+   * the desktop's only way in is a webcam pointed at a desk, and the phone has
+   * a good camera on an arm. It shares the code either way -- the corner
+   * finder, the flattening and the PDF do not know which one they are on.
+   */
+  openScan(): void;
   /** True when running under Tauri. Gates every tool that touches disk. */
   native: boolean;
 }
@@ -215,6 +224,14 @@ export class PhoneShell {
 
   /** Read-only accessors the tabs use, so they take one constructor argument. */
   get fs(): PhoneFs { return this.host.fs; }
+
+  /**
+   * Hand a tool to the host, for the surfaces the shell owns rather than the
+   * viewer. The audio dock is the one that needs it: `open` sends every sound
+   * file there and returns, so without this the eleven audio tools in the
+   * catalogue had a runner and no caller.
+   */
+  runTool(entry: FileEntry, tool: string): boolean { return this.host.runTool(entry, tool); }
   get home(): string { return this.host.home; }
   get native(): boolean { return this.host.native; }
 
@@ -320,6 +337,11 @@ export class PhoneShell {
   /** Straight through to the host, as `openCamera`. */
   recordVoice(): void {
     this.host.recordVoice();
+  }
+
+  /** Straight through to the host, as `openCamera`. */
+  openScan(): void {
+    this.host.openScan();
   }
 
   openTrash(): void {

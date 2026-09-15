@@ -28,7 +28,9 @@
 .phv.phe {
   --phe-top-h: 48px;
   --phe-strip-h: 60px;
+  --phe-row-h: 60px;
   --phe-rail-h: 68px;
+  --phe-grab-h: 14px;
   --phe-inset-top: var(--fct-inset-top, env(safe-area-inset-top, 0px));
   --phe-inset-left: var(--fct-inset-left, env(safe-area-inset-left, 0px));
   --phe-inset-right: var(--fct-inset-right, env(safe-area-inset-right, 0px));
@@ -41,7 +43,9 @@
   .phv.phe {
     --phe-top-h: 40px;
     --phe-strip-h: 46px;
+    --phe-row-h: 46px;
     --phe-rail-h: 50px;
+    --phe-grab-h: 12px;
   }
 }
 
@@ -72,7 +76,7 @@
 }
 /* Sits above the dock so a message about an edit is not under the strip. */
 .phv.phe .phv-toast {
-  bottom: calc(var(--phe-strip-h) + var(--phe-rail-h) + var(--phe-safe) + var(--fct-sp-3));
+  bottom: calc(var(--phe-grab-h) + var(--phe-strip-h) + var(--phe-rail-h) + var(--phe-safe) + var(--fct-sp-3));
 }
 
 /* ── Top bar ──────────────────────────────────────────────────────────── */
@@ -84,7 +88,7 @@
   gap: var(--fct-sp-1);
   min-width: 0;
   height: calc(var(--phe-top-h) + var(--phe-inset-top));
-  padding: var(--phe-inset-top) calc(var(--fct-sp-1) + var(--phe-inset-right)) 0
+  padding: var(--phe-inset-top) calc(var(--fct-sp-3) + var(--phe-inset-right)) 0
     calc(var(--fct-sp-1) + var(--phe-inset-left));
   box-sizing: border-box;
   overflow: hidden;
@@ -188,15 +192,152 @@
 .phe-dock {
   grid-row: 3;
   display: grid;
-  grid-template-rows: var(--phe-strip-h) var(--phe-rail-h);
+  grid-template-rows: var(--phe-grab-h) var(--phe-strip-h) var(--phe-rail-h);
   min-width: 0;
   padding: 0 var(--phe-inset-right) var(--phe-safe) var(--phe-inset-left);
   background: color-mix(in srgb, var(--fct-bg) calc((1 - var(--fct-glass, 0) * 0.5) * 100%), transparent);
   border-top: 1px solid var(--fct-border);
   color: var(--fct-text);
   z-index: 3;
+  /* The panel fits what is in it, so opening Layers or a slider changes its
+     height, and the picture (fitted to what is left) moved in one jump.
+     Eased, the picture glides to its new size instead. Not while dragging
+     the handle: there the panel follows the finger. */
+  transition: grid-template-rows 180ms ease-out;
 }
 .phe-dock[hidden] { display: none; }
+.phe-dock { position: relative; }
+
+/* Auto-blur progress: floats just above the dock, over the foot of the
+   picture, with the step it is on and a way out of a long text read. */
+.phe-busy {
+  position: absolute;
+  left: calc(var(--fct-sp-3) + var(--phe-inset-left));
+  right: calc(var(--fct-sp-3) + var(--phe-inset-right));
+  bottom: calc(100% + var(--fct-sp-3));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: var(--fct-sp-3);
+  row-gap: 6px;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid var(--fct-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--fct-bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+  z-index: 4;
+}
+.phe-busy[hidden] { display: none; }
+.phe-busy-track {
+  grid-column: 1;
+  grid-row: 2;
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fct-text-muted) 25%, transparent);
+}
+.phe-busy-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 8%;
+  border-radius: 2px;
+  background: var(--fct-accent);
+  transition: width 400ms ease-out;
+}
+/* A sheen runs along the filled part so a long single step still reads as alive. */
+.phe-busy-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  transform: translateX(-100%);
+  animation: phe-busy-sheen 1.2s ease-in-out infinite;
+}
+@keyframes phe-busy-sheen { to { transform: translateX(100%); } }
+.phe-busy-text {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--fct-text);
+}
+.phe-busy-stop {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--fct-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fct-text);
+  font: inherit;
+  font-size: 13px;
+}
+.phe-busy-stop:active { background: color-mix(in srgb, var(--fct-text) 12%, transparent); }
+.phe-dock .phe-strip { transition: height 180ms ease-out; }
+.phe-dock.phe-dragging,
+.phe-dock.phe-dragging .phe-strip { transition: none; }
+
+/* The handle on top of the dock: drag up for more tools, down for more
+   picture, tap to cycle. The hit area is the full width; the pill is the cue. */
+.phe-grab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--phe-grab-h);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  touch-action: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: ns-resize;
+  position: relative;
+}
+/* 14 px is a thin target for a thumb; the touch area reaches a little into
+   the picture above and the options below without moving the pill. */
+.phe-grab::after {
+  content: "";
+  position: absolute;
+  inset: -14px 0 -4px;
+}
+.phe-grab::before {
+  content: "";
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fct-text-muted);
+  opacity: 0.55;
+  transition: opacity var(--fct-t-fast), background var(--fct-t-fast);
+}
+.phe-dock.phe-dragging .phe-grab::before { opacity: 1; background: var(--fct-accent); }
+.phe-dock.phe-nostrip .phe-strip { visibility: hidden; }
+/* Tall: the options wrap into rows and scroll up and down instead. */
+.phe-dock.phe-tall .phe-strip {
+  flex-wrap: wrap;
+  align-content: flex-start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-block: 6px;
+  row-gap: var(--fct-sp-2);
+  scroll-padding: 0;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.phe-dock.phe-tall .phe-strip::after { display: none; }
+.phe-dock.phe-tall .phe-divider { flex-basis: 100%; height: 0; margin: 0; background: none; }
+.phe-dock.phe-tall .phe-slider { height: var(--phe-row-h); }
+.phe-dock.phe-tall.phe-single .phe-strip { padding-block: 0; overflow-y: hidden; }
+.phe-dock.phe-tall .phe-filter { height: calc(var(--phe-row-h) - 6px); }
+.phe-dock.phe-tall .phe-filter-thumb { height: calc(var(--phe-row-h) - 28px); }
 
 /* Both rows scroll sideways and never wrap. The system's back gesture owns
    the outer 130 px on Android (EDGE_GESTURE_PX); the rows pad past that so
@@ -272,9 +413,16 @@
 .phe-chip-icon .fct-icon { width: 18px; height: 18px; }
 /* A chip whose control is not at rest carries its value and an accent dot. */
 .phe-chip-value {
-  font: 600 var(--fct-fs-xs) var(--fct-font-mono);
+  /* The UI face with even-width digits: numbers still hold still as they
+     change, and a word value ("Off") no longer looks like code. */
+  font: 600 var(--fct-fs-xs) var(--fct-font-ui);
+  font-variant-numeric: tabular-nums;
   color: var(--fct-accent);
   padding-left: 2px;
+  /* Room for "100%" from the start, so a value growing a digit does not
+     reflow the chips and move the one you were about to tap. */
+  display: inline-block;
+  min-width: 4ch;
 }
 .phe-chip-set::before {
   content: "";
@@ -318,25 +466,36 @@
   -webkit-user-select: none;
 }
 
+/* The question gives way to its buttons: it wraps to two lines rather than
+   pushing "Stay" onto a row of its own, where it read as a separate control. */
 .phe-question {
-  flex: 0 0 auto;
+  flex: 1 1 0;
+  min-width: 10ch;
   font: 500 var(--fct-fs-sm) var(--fct-font-ui);
+  line-height: 1.25;
   color: var(--fct-text);
   padding-right: var(--fct-sp-2);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
+/* 32 px so back plus all nine fit one row on a 400 px-wide phone; at 34 the
+   last one wrapped in the tall panel. The outer ring is a light line so Black
+   reads on the dark dock and White on the light one. */
 .phe-swatch {
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  border: 2px solid var(--fct-border);
+  border: 2px solid var(--fct-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fct-text) 45%, transparent);
   padding: 0;
   transition: transform var(--fct-t-fast);
 }
 .phe-swatch[aria-pressed="true"] {
-  border-color: var(--fct-accent);
+  box-shadow: 0 0 0 2px var(--fct-accent);
   transform: scale(1.12);
 }
 
@@ -359,6 +518,8 @@
   padding: 0;
 }
 .phe-chip-x .fct-icon { width: 16px; height: 16px; }
+.phe-chip-x.phe-chip-eye { border-radius: 0; border-right: 0; color: var(--fct-text); }
+.phe-chip-x.phe-chip-eye[aria-pressed="true"] { color: var(--fct-text-muted); }
 
 .phe-field {
   flex: 1 1 160px;
@@ -413,7 +574,7 @@
 .phe-range::-webkit-slider-runnable-track {
   height: 6px;
   border-radius: 3px;
-  background: var(--fct-border);
+  background: linear-gradient(to right, var(--fct-accent) var(--fill, 0%), var(--fct-border) var(--fill, 0%));
 }
 .phe-range::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -427,6 +588,24 @@
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
 }
 .phe-range::-moz-range-track { height: 6px; border-radius: 3px; background: var(--fct-border); }
+.phe-range::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--fct-accent); }
+
+/* While compare is held the stage names what it shows. */
+.phv.phe.phe-comparing .phv-stage::after {
+  content: "Original";
+  position: absolute;
+  top: var(--fct-sp-3);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.72);
+  color: #fff;
+  font: 600 var(--fct-fs-sm) var(--fct-font-ui);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 2;
+}
 .phe-range::-moz-range-thumb {
   width: 26px; height: 26px; border: 0; border-radius: 50%; background: var(--fct-accent);
 }
@@ -526,8 +705,13 @@
 .fct-no-motion .phe-swatch,
 .fct-no-motion .phe-filter,
 .fct-no-motion .phe-rail-btn,
-.fct-no-motion .phe-rail-btn::after { transition: none; }
+.fct-no-motion .phe-rail-btn::after,
+.fct-no-motion .phe-dock,
+.fct-no-motion .phe-dock .phe-strip,
+.fct-no-motion .phe-busy-bar { transition: none; }
+.fct-no-motion .phe-busy-bar::after { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   .phe-btn, .phe-save, .phe-chip, .phe-swatch, .phe-filter,
-  .phe-rail-btn, .phe-rail-btn::after { transition: none; }
+  .phe-rail-btn, .phe-rail-btn::after, .phe-dock, .phe-dock .phe-strip, .phe-busy-bar { transition: none; }
+  .phe-busy-bar::after { animation: none; }
 }

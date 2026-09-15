@@ -31,6 +31,7 @@
 
 import { SpanList, type Span } from "@core/edit/spans";
 import { formatTime } from "./media";
+import { icon } from "./phone/icons";
 import { suggestName, type JobDone, type JobProgress, type Media } from "./vedit";
 
 export interface AudioJob {
@@ -127,6 +128,7 @@ export class AudioEditor {
   private readonly noiseSel = document.createElement("select");
   private readonly noiseNote = document.createElement("span");
   private readonly exportBtn: HTMLButtonElement;
+  private readonly playBtn: HTMLButtonElement;
   private readonly cancelBtn: HTMLButtonElement;
 
   private path = "";
@@ -153,7 +155,7 @@ export class AudioEditor {
     head.className = "aedit-bar";
     this.titleEl.className = "aedit-title";
     this.note.className = "aedit-note";
-    head.append(this.titleEl, this.note, this.btn("✕", "Close  (Esc)", () => this.close()));
+    head.append(this.titleEl, this.note, this.btn("x", "Close  (Esc)", () => this.close(), true));
 
     this.stage.className = "aedit-stage";
     this.wave.className = "aedit-wave";
@@ -166,23 +168,24 @@ export class AudioEditor {
     this.clock.className = "aedit-clock";
     time.append(this.clock);
 
+    this.playBtn = this.btn("play", "Play / pause  (space)", () => this.toggle(), true);
     const cuts = this.group("Cut", [
-      this.btn("▶", "Play / pause  (space)", () => this.toggle()),
-      this.btn("[", "Start here  (I)", () => this.mark("in")),
-      this.btn("]", "End here  (O)", () => this.mark("out")),
-      this.btn("✂", "Split here  (S)", () => this.split()),
-      this.btn("⌫", "Remove this piece  (Del)", () => this.drop()),
-      this.btn("⟲", "Undo  (ctrl+Z)", () => this.undo()),
-      this.btn("⟳", "Redo  (ctrl+shift+Z)", () => this.redo()),
-      this.btn("⤢", "Keep all of it again", () => this.resetSpans()),
+      this.playBtn,
+      this.btn("trim-in", "Start here  (I)", () => this.mark("in"), true),
+      this.btn("trim-out", "End here  (O)", () => this.mark("out"), true),
+      this.btn("scissors", "Split here  (S)", () => this.split(), true),
+      this.btn("trash", "Remove this piece  (Del)", () => this.drop(), true),
+      this.btn("undo", "Undo  (ctrl+Z)", () => this.undo(), true),
+      this.btn("redo", "Redo  (ctrl+shift+Z)", () => this.redo(), true),
+      this.btn("rotate-ccw", "Keep all of it again", () => this.resetSpans(), true),
     ]);
 
     this.gainOut.className = "aedit-read";
     this.speedOut.className = "aedit-read";
     const level = this.group("Level", [
-      this.btn("−", "Quieter by 1 dB", () => this.stepGain(-1)),
+      this.btn("minus", "Quieter by 1 dB", () => this.stepGain(-1), true),
       this.gainOut,
-      this.btn("+", "Louder by 1 dB", () => this.stepGain(1)),
+      this.btn("plus", "Louder by 1 dB", () => this.stepGain(1), true),
       this.check("Normalise", "Match broadcast loudness (EBU R128, −16 LUFS)", (v) => {
         this.normalize = v;
         this.paint();
@@ -202,9 +205,9 @@ export class AudioEditor {
     ]);
 
     const time2 = this.group("Time", [
-      this.btn("−", "Slower", () => this.stepSpeed(-1)),
+      this.btn("minus", "Slower", () => this.stepSpeed(-1), true),
       this.speedOut,
-      this.btn("+", "Faster", () => this.stepSpeed(1)),
+      this.btn("plus", "Faster", () => this.stepSpeed(1), true),
       this.check("Fade", "One second in and out", (v) => {
         this.fade = v;
         this.paint();
@@ -257,6 +260,12 @@ export class AudioEditor {
     this.root.append(head, this.stage, time, rows, foot, this.audio);
     document.body.appendChild(this.root);
 
+    // The one button whose picture is state: it shows what pressing it does.
+    const showTransport = (): void =>
+      this.playBtn.replaceChildren(icon(this.audio.paused ? "play" : "pause"));
+    this.audio.addEventListener("play", showTransport);
+    this.audio.addEventListener("pause", showTransport);
+    this.audio.addEventListener("emptied", showTransport);
     this.audio.addEventListener("timeupdate", () => this.tick());
     this.audio.addEventListener("loadedmetadata", () => this.tick());
     window.addEventListener("resize", () => {
@@ -614,10 +623,22 @@ export class AudioEditor {
 
   // ── Plumbing ──────────────────────────────────────────────────────────────
 
-  private btn(label: string, title: string, on: () => void): HTMLButtonElement {
+  /**
+   * `label` is the visible text, or with `ico` the icon's name. Icon buttons
+   * carry their title (minus the shortcut hint) as the accessible name, since
+   * there is no text in them for a screen reader to read.
+   */
+  private btn(label: string, title: string, on: () => void, ico = false): HTMLButtonElement {
     const b = document.createElement("button");
     b.className = "aedit-btn";
-    b.textContent = label;
+    b.type = "button";
+    if (ico) {
+      b.classList.add("aedit-icon");
+      b.append(icon(label));
+      b.setAttribute("aria-label", title.replace(/\s+\(.*\)$/, ""));
+    } else {
+      b.textContent = label;
+    }
     b.title = title;
     b.addEventListener("click", on);
     return b;

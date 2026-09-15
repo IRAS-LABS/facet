@@ -8,6 +8,40 @@ something is fixed.
 
 ## [Unreleased]
 
+### Added
+
+- **Read aloud.** A reader that opens over a PDF, text, Markdown, HTML, CSV,
+  JSON, a log, an RTF or a photo of a page and speaks it, marking the sentence
+  and the word as it goes. Move by sentence, paragraph or page, drag the
+  scrubber, or tap any word to start there; 0.5x to 4x. It skips the running
+  heads, page numbers, margin line numbers and the bibliography of a research
+  paper, lists what it skipped and why, and puts any of it back with one
+  press. Two-column papers are read down each column, and a layout it reads
+  wrong can be fixed by hand once and is remembered for that document. Two
+  engines: the operating system's own voices, instant and free, which on
+  Android is Google's neural speech; or 54 natural Kokoro voices running
+  inside the app, a one-time 88 MB download you press a button for and 523 kB
+  per extra voice. No text leaves the machine either way.
+
+### Fixed
+
+- **Read aloud pronounced every word by guesswork.** Two independent faults,
+  both of which had shipped. The build's ship-list dropped `public/voice/` out
+  of `dist/`, so the 812 kB pronunciation dictionary was absent from every
+  installer and every APK ever built; the app fetched it, got a 404, swallowed
+  the error by design and fell back to letter-to-sound rules for every word.
+  And even with the dictionary present, a per-word lookup cannot pronounce a
+  sentence — "the", "to", "of", "a" and "than" keep their full citation vowel,
+  stress lands on every word, and the result sounds like somebody reading a
+  list. English now goes through espeak-ng, which reads whole sentences and is
+  the front-end Kokoro itself was trained against. **This changes the licence
+  of a build you redistribute — see the notes in `README.md` and
+  `THIRD-PARTY-NOTICES.md`.**
+- The build now fails outright if an asset the app fetches by URL at runtime
+  is missing from `dist/`, rather than printing a warning into a hundred lines
+  of build output. That silent drop has now happened twice — OCR's
+  `tessdata` and read-aloud's dictionary — and both times it shipped.
+
 ## [0.1.2] — 2026-09-07
 
 ### Added

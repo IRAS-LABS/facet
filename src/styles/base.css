@@ -9,10 +9,36 @@
  */
 
 :root {
-  /* Written by theme-engine at init; these are only a pre-paint fallback so
-     there is no white flash if storage is slow. */
-  --fct-bg: #0b0d12;
-  --fct-text: #e8ecf5;
+  /* The theme writes the `-raw` half of each of these onto <html>'s inline
+     style; this is where those become the names the other 38 stylesheets read.
+     The indirection is the whole reason a skin can exist: inline style beats
+     any selector, so while a theme wrote `--fct-surface` directly, no
+     stylesheet could ever make a panel translucent. The two hex values are a
+     pre-paint fallback so there is no white flash if storage is slow; the rest
+     have no fallback because by the time anything reads them the theme is on. */
+  --fct-bg: var(--fct-bg-raw, #0b0d12);
+  --fct-surface: var(--fct-surface-raw);
+  --fct-surface-raised: var(--fct-surface-raised-raw);
+  --fct-surface-overlay: var(--fct-surface-overlay-raw);
+  --fct-border: var(--fct-border-raw);
+  --fct-border-strong: var(--fct-border-strong-raw);
+  --fct-text: var(--fct-text-raw, #e8ecf5);
+  --fct-text-dim: var(--fct-text-dim-raw);
+  --fct-text-muted: var(--fct-text-muted-raw);
+  --fct-accent: var(--fct-accent-raw);
+  --fct-accent-hover: var(--fct-accent-hover-raw);
+  --fct-accent-ink: var(--fct-accent-ink-raw);
+  --fct-success: var(--fct-success-raw);
+  --fct-warning: var(--fct-warning-raw);
+  --fct-danger: var(--fct-danger-raw);
+  --fct-info: var(--fct-info-raw);
+  --fct-canvas-bg: var(--fct-canvas-bg-raw);
+  --fct-canvas-grid: var(--fct-canvas-grid-raw);
+  --fct-card-bg: var(--fct-card-bg-raw);
+  --fct-card-border: var(--fct-card-border-raw);
+  --fct-card-hover: var(--fct-card-hover-raw);
+  --fct-selection: var(--fct-selection-raw);
+  --fct-shadow: var(--fct-shadow-raw);
 
   /* User-configurable typography and rhythm. */
   --fct-font-ui: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
@@ -32,8 +58,19 @@
   --fct-sp-4: calc(16px * var(--fct-density));
   --fct-sp-5: calc(24px * var(--fct-density));
 
-  --fct-radius: calc(10px * var(--fct-density));
-  --fct-radius-sm: calc(6px * var(--fct-density));
+  /* Corner roundness is its own axis, not something you get by accident from
+     the spacing slider. 0 is a square-cornered instrument panel, 2 is a pill. */
+  --fct-corner: 1;
+  --fct-radius: calc(10px * var(--fct-density) * var(--fct-corner));
+  --fct-radius-sm: calc(6px * var(--fct-density) * var(--fct-corner));
+
+  /* How much the accent bleeds around a live control. 0 is off. Skins read it;
+     nothing pays for it at 0 because the rules that use it are gated on the
+     skin attribute, not on this number. */
+  --fct-glow: 0;
+  /* One place decides how far a glow reaches, so a hover and a focus ring and
+     an active tab all bloom by the same amount. */
+  --fct-glow-size: calc(14px * var(--fct-glow));
 
   /* 44, down from 76. The width was 76 because every rail button carried a
      word under its icon, and the word was there because the rail listed every
@@ -336,6 +373,21 @@ body {
 .rail-icon {
   font-size: calc(17px * var(--fct-ui-scale));
   line-height: 1;
+}
+
+/* A drive's icon is its letter, so it needs the outline the glyph used to
+   provide -- otherwise a bare "C" beside a row of symbols reads as stray text
+   rather than as a place you can click. */
+.rail-icon.is-drive {
+  display: grid;
+  place-items: center;
+  width: calc(18px * var(--fct-ui-scale));
+  height: calc(15px * var(--fct-ui-scale));
+  border: 1px solid currentcolor;
+  border-radius: 2px;
+  font-size: calc(10px * var(--fct-ui-scale));
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 /* Present in the DOM, not drawn in the vertical rail: the phone block below

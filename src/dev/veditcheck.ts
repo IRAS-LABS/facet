@@ -143,14 +143,20 @@ function press(fragment: string): void {
   b.click();
 }
 
+/*
+ * The on/off controls were a `<label>` around a checkbox and are now buttons
+ * carrying `aria-pressed` -- see the note on `check()` in `vedit.ts`. They are
+ * still found by the words they show, but a button holds those words in a
+ * child span now (the desktop wording and the chip wording sit side by side),
+ * so the search is on the whole subtree's text, and flipping one is a click
+ * rather than a synthesised `change`.
+ */
 function toggleCheck(label: string): void {
-  const l = Array.from(root().querySelectorAll<HTMLLabelElement>(".vedit-check")).find((x) =>
+  const b = Array.from(root().querySelectorAll<HTMLButtonElement>(".vedit-toggle")).find((x) =>
     x.textContent?.includes(label),
   );
-  const i = l?.querySelector("input");
-  if (!i) throw new Error(`no checkbox called "${label}"`);
-  i.checked = !i.checked;
-  i.dispatchEvent(new Event("change"));
+  if (!b) throw new Error(`no on/off control called "${label}"`);
+  b.click();
 }
 
 /** The span bars as fractions of the timeline, read off their inline styles. */
@@ -300,13 +306,20 @@ async function run(): Promise<void> {
 
   // ── Geometry ──────────────────────────────────────────────────────────────
 
+  const flat = [video().style.width, video().style.height];
   press("Turn a quarter clockwise");
   job = await exportNow();
   ok("a quarter turn is sent as 90", job.rotate === 90, String(job.rotate));
   ok("and the preview is turned to match", video().style.transform.includes("rotate(90deg)"),
     video().style.transform);
+  // The box is measured before the rotation is applied, so a quarter turn has
+  // to swap the two numbers or the preview sticks out of the stage sideways.
+  // This used to look for a `vedit-turned` class, which no stylesheet ever
+  // matched -- it proved only that a line of code had run, and kept passing
+  // while the preview was in fact drawn behind the phone's control sheet.
   ok("with its limits swapped so it does not overflow the stage",
-    video().classList.contains("vedit-turned"));
+    video().style.width === flat[1] && video().style.height === flat[0],
+    `${flat[0]}x${flat[1]} -> ${video().style.width}x${video().style.height}`);
   press("Turn a quarter the other way");
   ok("turning back leaves no transform", video().style.transform === "", video().style.transform);
 
@@ -402,18 +415,23 @@ async function run(): Promise<void> {
     }
   };
   const note0 = (): string => root().querySelector(".vedit-note")?.textContent ?? "";
+  // The desktop wording, not the phone chip's short word that sits beside it.
+  const facesText = (): string => {
+    const b = facesBtn();
+    return (b.querySelector(".vedit-text") ?? b).textContent ?? "";
+  };
 
   serveFaces = false;
   await scan();
   ok("a clip with nobody in it says so rather than quietly doing nothing",
     note0().toLowerCase().includes("no faces"), note0());
-  ok("and arms nothing", facesBtn().textContent === "Blur faces", facesBtn().textContent ?? "");
+  ok("and arms nothing", facesText() === "Blur faces", facesText());
 
   serveFaces = true;
   await scan();
   ok("a face in the frame is found and counted", note0().includes("1 face"), note0());
   ok("and the button says what will happen at export",
-    (facesBtn().textContent ?? "").startsWith("Blurring"), facesBtn().textContent ?? "");
+    facesText().startsWith("Blurring"), facesText());
 
   job = await exportNow();
   const blurs = job.blur ?? [];
@@ -429,8 +447,8 @@ async function run(): Promise<void> {
     blurs.every((b) => b.w > 20 && b.w < 200), blurs.map((b) => b.w).join(","));
 
   press("Forget the faces");
-  ok("clearing them puts the button back", facesBtn().textContent === "Blur faces",
-    facesBtn().textContent ?? "");
+  ok("clearing them puts the button back", facesText() === "Blur faces",
+    facesText());
   job = await exportNow();
   ok("and the next export carries none", (job.blur ?? []).length === 0, JSON.stringify(job.blur));
   serveFaces = false;

@@ -1183,7 +1183,11 @@ export class PhoneViewer {
     this.toast.textContent = text;
     this.toast.hidden = false;
     window.clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => { this.toast.hidden = true; }, 2600);
+    // "Reading text…" is a step of something still running: it stays until the
+    // next message replaces it. A result stays long enough to read — at 2.6 s
+    // flat, "No faces found" after a long scan was gone before anyone looked.
+    const ms = text.endsWith("…") ? 60_000 : Math.min(7000, 3500 + text.length * 40);
+    this.toastTimer = window.setTimeout(() => { this.toast.hidden = true; }, ms);
   }
 
   /**
