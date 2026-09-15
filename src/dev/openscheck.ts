@@ -86,6 +86,10 @@ async function main(): Promise<void> {
   ok("audio opens in the same player", builtInFor("audio") === "player");
   ok("a table opens in the table view", builtInFor("tabular") === "table");
   ok("a document goes out to Windows", builtInFor("document") === "system");
+  ok("a PDF opens in FACET's own reader", builtInFor("document", "pdf") === "quicklook");
+  ok("a PDF still goes to quick look through the layers",
+    resolveOpen(file("document", "pdf"), empty(), ALL) === "quicklook");
+  ok("a .docx still goes out to Windows", builtInFor("document", "docx") === "system");
   ok("code goes out to Windows", builtInFor("code") === "system");
   ok(
     "…and every kind but folder has a shipped answer",

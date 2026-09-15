@@ -14,8 +14,11 @@
 
 import { formatSize, type FileEntry } from "@core/explorer/types";
 import { loadPdfjs } from "@core/explorer/preview";
+import { primeVideo } from "@ui/media";
 import { attachZoom, type Zoom } from "@ui/zoom";
 import { icon } from "@ui/phone/icons";
+import { loadPicture } from "@core/canvas/picture";
+import type { Recogniser } from "@core/ocr/engine";
 
 /** One button on the bar under the preview. */
 export interface QuickAction {
@@ -87,6 +90,15 @@ export interface QuickLookHost {
  */
 const PDF_MAX_SHARP = 4;
 
+/**
+ * One press of the zoom button, or one press of Ctrl and a plus.
+ *
+ * A quarter bigger: large enough that one press is visibly worth pressing,
+ * small enough that four of them land near 2.4x rather than overshooting the
+ * size someone was aiming for.
+ */
+const ZOOM_STEP = 1.25;
+
 /** Just enough of pdfjs's document to draw from. */
 type PdfDoc = { getPage(n: number): Promise<import("pdfjs-dist").PDFPageProxy> };
 
@@ -142,6 +154,31 @@ const HEX_BYTES = 512;
  * canvases rather than four hundred.
  */
 const PDF_LOOKAHEAD = "200% 0px";
+/**
+ * A width change smaller than this is not worth rasterising a page again.
+ *
+ * It must stay clear of a scrollbar's width (~17px in WebView2), because a
+ * reflow can change how tall the document is, which can make the vertical
+ * scrollbar appear or disappear, which changes `clientWidth` by exactly that
+ * much -- and a threshold below it turns that into a reflow loop that never
+ * settles.
+ */
+const PDF_REFLOW_MIN = 24;
+/** How long the window edge has to be still before the pages are redrawn. */
+const PDF_REFLOW_MS = 180;
+
+/**
+ * The width a PDF page is rasterised at: the scroller's box, less its gutter.
+ *
+ * The floor is low on purpose. It used to be 320, which is wider than a
+ * pop-out window can easily be -- and a page drawn wider than the box it is
+ * shown in is then squeezed by `max-width: 100%` while its placeholder still
+ * claims the height it was drawn at, so the pages sat in the middle of a band
+ * of empty card with the scrollbar lying about where the document ended.
+ */
+function pdfPageWidth(body: HTMLElement): number {
+  return Math.max(200, body.clientWidth - 12);
+}
 
 /** How far a thumb has to travel sideways before it counts as a page turn. */
 const SWIPE_MIN = 60;
@@ -178,6 +215,20 @@ export class QuickLook {
   /** Sticky across files: someone reading markup is reading all of it. */
   private asSource = false;
 
+  /**
+   * The zoom control: out, the percentage, in.
+   *
+   * Ctrl-wheel and pinch were the only ways to make a document bigger, which
+   * is a gesture nothing on screen mentions and which a plain mouse with no
+   * trackpad only has by accident. The percentage is a button of its own and
+   * goes back to 100%, the way every reader's is.
+   */
+  private readonly head = document.createElement("div");
+  private readonly zoomRow = document.createElement("div");
+  private readonly zoomOut = document.createElement("button");
+  private readonly zoomIn = document.createElement("button");
+  private readonly zoomPct = document.createElement("button");
+
   /** The button that takes the card full-bleed, and the one that brings it
    *  back. Two controls rather than one, because in full screen the header
    *  it lives in is gone -- see `setFull`. */
@@ -190,8 +241,13 @@ export class QuickLook {
   /** A single finger on the preview, until it lifts or a second one lands. */
   private swipe: { id: number; x: number; y: number; live: boolean } | null = null;
 
+  /** A mouse dragging a zoomed page around. Null whenever nothing is held. */
+  private pan: { id: number; x: number; y: number; left: number; top: number } | null = null;
+
   /** Rename, done in the header where the name already is. */
   private readonly editBtn = document.createElement("button");
+  /** "Select text" -- only ever shown over a picture. */
+  private readonly textBtn = document.createElement("button");
   private readonly renameRow = document.createElement("form");
   private readonly renameField = document.createElement("input");
   private readonly renameNote = document.createElement("p");
@@ -217,11 +273,42 @@ export class QuickLook {
   private pdfDpr = 1;
   /** The extra resolution the visible pages are currently drawn at. */
   private pdfSharp = 1;
+  /** Watches the scroller's own box, so the pages follow the window's width. */
+  private sizeWatch: ResizeObserver | null = null;
+  /** Debounces the re-lay-out while a window edge is still being dragged. */
+  private reflowTimer = 0;
+
+  /**
+   * Whatever had the keyboard before the card opened, so closing gives it back.
+   * Usually the row in the list the file was opened from, which then keeps
+   * answering the arrow keys the way it did a moment earlier.
+   */
+  private returnFocus: HTMLElement | null = null;
+
+  /**
+   * The reader that finds words in a picture, built on the first ask.
+   *
+   * Kept between files rather than closed with the card: starting the worker
+   * and loading English is the slow part, and someone reading text off one
+   * screenshot is usually about to read it off the next one too.
+   */
+  private ocr: Recogniser | null = null;
+  /** True while a picture is being read, so a second press cannot start two. */
+  private ocrBusy = false;
+  /** Keeps the words the size of the picture as the window changes it. */
+  private ocrWatch: ResizeObserver | null = null;
 
   constructor(private readonly host: QuickLookHost) {
     this.root = document.createElement("div");
     this.root.className = "ql";
     this.root.hidden = true;
+    // The card holds the keyboard while it is open. Its zoom keys, its arrow
+    // keys and its Escape all listen on the card itself, and a keypress only
+    // reaches a listener on the way up from whatever has the focus -- so
+    // without this the card heard nothing unless something inside it had
+    // already been clicked. -1 because it is reached by opening a file, never
+    // by tabbing to it.
+    this.root.tabIndex = -1;
 
     this.card.className = "ql-card";
     // A button, not a heading: the name is the obvious thing to tap to ask
@@ -240,6 +327,19 @@ export class QuickLook {
     this.body.className = "ql-body";
     this.zoomLayer.className = "ql-zoom";
     this.body.append(this.zoomLayer);
+    // Follow the box. In the app this fires when the sidebar moves or the
+    // window is resized; in a pop-out it fires all the way through someone
+    // dragging the corner, which is why the work waits for the edge to be
+    // still -- redrawing a page per frame of a drag is a heater, and the
+    // placeholder heights are correct the moment the drag stops either way.
+    if (typeof ResizeObserver !== "undefined") {
+      this.sizeWatch = new ResizeObserver(() => {
+        if (!this.pdfDoc) return;
+        window.clearTimeout(this.reflowTimer);
+        this.reflowTimer = window.setTimeout(() => this.reflowPdf(), PDF_REFLOW_MS);
+      });
+      this.sizeWatch.observe(this.body);
+    }
     // Pinch, double-tap and ctrl-wheel. Every gallery on the phone has this;
     // a file manager that renders a PDF and then refuses to enlarge it is
     // showing you the document through a letterbox.
@@ -257,13 +357,17 @@ export class QuickLook {
       // full decode -- but a PDF page is a canvas, and a canvas stretched to
       // 4x is a canvas four times too coarse. This is the "zoom in without
       // lowering quality" of 2026-09-07.
-      onSettle: (k) => this.resharpen(k),
+      onSettle: (k) => {
+        this.resharpen(k);
+        this.setPanCursor();
+      },
+      onChange: (k) => this.showZoom(k),
     });
     this.facts.className = "ql-facts";
     this.actionBar.className = "ql-actions";
     this.actionBar.hidden = true;
 
-    const head = document.createElement("div");
+    const head = this.head;
     head.className = "ql-head";
     this.infoBtn.type = "button";
     this.infoBtn.className = "ql-icon";
@@ -292,6 +396,17 @@ export class QuickLook {
     this.editBtn.setAttribute("aria-label", "Rename");
     this.editBtn.addEventListener("click", () => this.setRenaming(true));
 
+    // The words in a picture, made selectable. A screenshot, a photographed
+    // page and a scan all arrive here as pixels, and "I can see the text but I
+    // cannot copy it" is the complaint every one of them produces. Behind a
+    // button rather than automatic: reading a picture costs a worker, a
+    // language file and a second or two, and most pictures are not text.
+    this.textBtn.type = "button";
+    this.textBtn.className = "ql-icon";
+    this.textBtn.hidden = true;
+    this.textBtn.addEventListener("click", () => void this.readPicture());
+    this.setTextBtn("idle");
+
     // Full screen. Wanted most by the two previews that are documents in their
     // own right -- a rendered page and a PDF -- but offered on everything,
     // because "let me see this bigger" is not a question about file types.
@@ -313,6 +428,27 @@ export class QuickLook {
     this.exitBtn.addEventListener("click", () => this.setFull(false));
 
 
+    // Zoom, said out loud. Three small controls rather than one: a reader
+    // reaches for "bigger" far more often than for any exact number, and the
+    // number in the middle is the way back to the size the page really is.
+    this.zoomRow.className = "ql-zoomrow";
+    for (const [btn, glyph, title, label] of [
+      [this.zoomOut, "−", "Zoom out  (Ctrl+−)", "Zoom out"],
+      [this.zoomPct, "100%", "Back to 100%  (Ctrl+0)", "Zoom level"],
+      [this.zoomIn, "+", "Zoom in  (Ctrl++)", "Zoom in"],
+    ] as const) {
+      btn.type = "button";
+      btn.className = btn === this.zoomPct ? "ql-zoompct" : "ql-zoombtn";
+      btn.textContent = glyph;
+      btn.title = title;
+      btn.setAttribute("aria-label", label);
+      btn.dataset["fctLabelled"] = "";
+      this.zoomRow.append(btn);
+    }
+    this.zoomOut.addEventListener("click", () => this.zoom.by(1 / ZOOM_STEP));
+    this.zoomIn.addEventListener("click", () => this.zoom.by(ZOOM_STEP));
+    this.zoomPct.addEventListener("click", () => this.zoom.to(1));
+
     const close = document.createElement("button");
     close.type = "button";
     close.className = "ql-close";
@@ -320,14 +456,14 @@ export class QuickLook {
     close.title = "Close  (Esc)";
     close.addEventListener("click", () => this.close());
     this.titleWrap.append(this.heading);
-    head.append(this.titleWrap, this.srcBtn, this.editBtn, this.fullBtn, this.infoBtn, close);
+    head.append(this.titleWrap, this.textBtn, this.zoomRow, this.srcBtn, this.editBtn, this.fullBtn, this.infoBtn, close);
     // Glyphs only, up here. The phone shell stacks the button's name under its
     // glyph, which is the right call on a toolbar with room and the wrong one
     // on this row: five words turned a header into three rows and took a fifth
     // of the screen away from the file. Marking them as already-labelled is how
     // that pass is told to leave a button alone; each keeps its `title` and its
     // `aria-label`, so nothing is lost to a screen reader or a long press.
-    for (const b of [this.srcBtn, this.editBtn, this.fullBtn, this.infoBtn, close]) {
+    for (const b of [this.textBtn, this.srcBtn, this.editBtn, this.fullBtn, this.infoBtn, close]) {
       b.dataset["fctLabelled"] = "";
     }
 
@@ -369,11 +505,37 @@ export class QuickLook {
     // Gives the button its glyph and its accessible name before the phone
     // shell walks the panel looking for buttons to put words on.
     this.setFull(false);
+    this.showZoom(1);
     document.body.appendChild(this.root);
 
     // Clicking the dimmed ground closes; clicking the card must not.
     this.root.addEventListener("pointerdown", (e) => {
       if (e.target === this.root) this.close();
+    });
+
+    // Ctrl and a plus, a minus or a nought -- what every reader, browser and
+    // document viewer has bound, and what someone reaches for before they
+    // think to try a wheel. The bare keys work too while the card has focus
+    // and nothing is being typed into, because on a document there is nothing
+    // else for them to mean.
+    this.root.addEventListener("keydown", (e) => {
+      if (!this.renameRow.hidden) return;
+      if (e.altKey || e.metaKey) return;
+      const t = e.target;
+      if (t instanceof Element && t.closest("input, textarea, select, [contenteditable]")) return;
+      // `Equal` and `Minus` are the physical keys, so this survives a keyboard
+      // where the plus needs a shift and the readout still says "Ctrl++".
+      const code = e.code;
+      const key = e.key;
+      let f = 0;
+      if (key === "+" || key === "=" || code === "Equal" || code === "NumpadAdd") f = ZOOM_STEP;
+      else if (key === "-" || key === "_" || code === "Minus" || code === "NumpadSubtract") f = 1 / ZOOM_STEP;
+      else if (key === "0" || code === "Digit0" || code === "Numpad0") f = -1;
+      else return;
+      if (f === -1) this.zoom.to(1);
+      else this.zoom.by(f);
+      e.preventDefault();
+      e.stopPropagation();
     });
 
     // Left and right walk the folder, the same keys the grid underneath uses.
@@ -420,6 +582,60 @@ export class QuickLook {
     };
     this.body.addEventListener("pointerup", endSwipe, { passive: true });
     this.body.addEventListener("pointercancel", endSwipe, { passive: true });
+
+    // A mouse drags a zoomed page around, the way it does in every other
+    // reader. Scrolling was the only way to move a zoomed page here, which is
+    // barely a way at all in a small pop-out window -- sideways needs a
+    // horizontal wheel most mice do not have, and the scrollbars are a few
+    // pixels of a window that is already short of them. A finger already had
+    // this: `touch-action: pan-x pan-y` on the scroller hands the drag to the
+    // browser, which is why this is mouse-only and why it moves the scroller
+    // rather than the transform -- the same panning, asked for the other way.
+    this.body.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
+      if (this.zoom.scale === 1) return;
+      const t = e.target;
+      // Anything you can press keeps its press. The zoom lives over previews
+      // that have their own controls -- a video's scrubber above all.
+      if (t instanceof Element && t.closest("button, a, input, select, textarea, video, audio")) return;
+      // Over the words, a drag is a selection. That is the whole point of the
+      // text layer, and a pan that swallowed it would have traded one missing
+      // ability for another.
+      if (t instanceof Element && t.closest(".ql-textlayer, .ql-ocrlayer")) return;
+      this.pan = {
+        id: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        left: this.body.scrollLeft,
+        top: this.body.scrollTop,
+      };
+      // Guarded: a pointer that is not actually down -- a synthetic event, or
+      // one the browser has already released -- throws here, and an unhandled
+      // throw would leave the pan half set up and the cursor wrong.
+      try {
+        this.body.setPointerCapture(e.pointerId);
+      } catch {
+        /* the drag still works, it just stops at the edge of the scroller */
+      }
+      this.body.style.cursor = "grabbing";
+      // Otherwise the drag becomes a text selection or an image drag, and the
+      // page appears to tear rather than move.
+      e.preventDefault();
+    });
+    this.body.addEventListener("pointermove", (e) => {
+      const p = this.pan;
+      if (!p || p.id !== e.pointerId) return;
+      this.body.scrollLeft = p.left - (e.clientX - p.x);
+      this.body.scrollTop = p.top - (e.clientY - p.y);
+    }, { passive: true });
+    const endPan = (e: PointerEvent): void => {
+      if (!this.pan || this.pan.id !== e.pointerId) return;
+      this.pan = null;
+      if (this.body.hasPointerCapture(e.pointerId)) this.body.releasePointerCapture(e.pointerId);
+      this.setPanCursor();
+    };
+    this.body.addEventListener("pointerup", endPan, { passive: true });
+    this.body.addEventListener("pointercancel", endPan, { passive: true });
 
     // The phone's back gesture arrives as an Escape dispatched at this panel
     // (see `closeTopPanel`). Taking it here, ahead of the document handler
@@ -477,6 +693,12 @@ export class QuickLook {
     this.entry = null;
     this.token++;
     this.dropPdf();
+    this.dropOcr();
+    const back = this.returnFocus;
+    this.returnFocus = null;
+    // Not if it has since left the page -- a deleted row, or a folder walked
+    // away from -- in which case the browser's own default is the better one.
+    if (back && back.isConnected) back.focus({ preventScroll: true });
   }
 
   /** Space toggles, so a second press on the same file dismisses it. */
@@ -493,6 +715,14 @@ export class QuickLook {
     this.dropPdf();
     this.entry = entry;
     this.root.hidden = false;
+    // Only on the way in: walking to the next file in the folder re-enters
+    // here, and that must not record the card as the thing to hand the focus
+    // back to when it closes.
+    if (!this.root.contains(document.activeElement)) {
+      const had = document.activeElement;
+      this.returnFocus = had instanceof HTMLElement ? had : null;
+    }
+    this.root.focus({ preventScroll: true });
     // In a span, not straight on the button: the two-line clamp that keeps a
     // long name from pushing the head's buttons onto a row of their own has to
     // live on a block, and a flex item is not one. See `.ql-title > span`.
@@ -501,6 +731,10 @@ export class QuickLook {
     this.heading.replaceChildren(title);
     const isPage = WEB_PAGE.has(entry.ext);
     this.srcBtn.hidden = !isPage;
+    // Only over a picture the browser itself can show: reading one means
+    // drawing it into a canvas, and that is the only preview that is one.
+    this.dropOcr();
+    this.textBtn.hidden = !(entry.kind === "image" && WEB_IMAGE.has(entry.ext));
     // A folder's preview is one sentence. Nothing to enlarge, and full screen
     // would be a blank wall with a full stop in the middle of it.
     this.setRenaming(false);
@@ -555,7 +789,13 @@ export class QuickLook {
       img.addEventListener("load", () => {
         this.addFact("Dimensions", `${img.naturalWidth} × ${img.naturalHeight}`);
       });
-      return img;
+      // Wrapped, because the words found in it are laid over it and an `img`
+      // cannot hold children. The box shrinks to exactly the picture, so the
+      // overlay's corner is the picture's corner at every window size.
+      const box = document.createElement("div");
+      box.className = "ql-imgbox";
+      box.append(img);
+      return box;
     }
 
     if (entry.kind === "video" && WEB_VIDEO.has(entry.ext)) {
@@ -566,7 +806,10 @@ export class QuickLook {
       // Muted so a peek at a clip never blasts a room; the player is one
       // keypress away when you actually want to watch it.
       v.muted = true;
-      v.preload = "metadata";
+      v.preload = "auto";
+      v.playsInline = true;
+      // Otherwise the peek is Android's grey play triangle, not the clip.
+      void primeVideo(v);
       v.addEventListener("loadedmetadata", () => {
         this.addFact("Dimensions", `${v.videoWidth} × ${v.videoHeight}`);
         this.addFact("Duration", hms(v.duration));
@@ -726,7 +969,7 @@ export class QuickLook {
     const wrap = document.createElement("div");
     wrap.className = "ql-pdf";
     // The body is already on screen holding "Reading…", so its box is real.
-    const width = Math.max(320, this.body.clientWidth - 12);
+    const width = pdfPageWidth(this.body);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.pdfWidth = width;
     this.pdfDpr = dpr;
@@ -751,7 +994,11 @@ export class QuickLook {
           // scrolled to while zoomed in arrives sharp rather than arriving
           // coarse and being redrawn.
           slot.dataset["sharp"] = String(this.pdfSharp);
-          void this.drawPdfPage(doc, Number(slot.dataset["page"]), slot, width, dpr * this.pdfSharp, mine);
+          // `this.pdfWidth`, not the `width` this closure was built with: the
+          // window can be resized after the document is open, and then the
+          // pages that scroll into view afterwards must arrive at the size the
+          // ones already on screen were redrawn to.
+          void this.drawPdfPage(doc, Number(slot.dataset["page"]), slot, this.pdfWidth, this.pdfDpr * this.pdfSharp, mine);
         }
       },
       { root: this.body, rootMargin: PDF_LOOKAHEAD },
@@ -767,6 +1014,84 @@ export class QuickLook {
       watch.observe(slot);
     }
     return wrap;
+  }
+
+  /**
+   * Put the current scale on the button between the two others.
+   *
+   * Also the one place the ends of the range are admitted to: a plus that
+   * still looks pressable at 8x is a control lying about what it will do.
+   */
+  private showZoom(k: number): void {
+    this.zoomPct.textContent = `${Math.round(k * 100)}%`;
+    this.zoomOut.disabled = k <= this.zoom.min + 0.001;
+    this.zoomIn.disabled = k >= this.zoom.max - 0.001;
+    this.zoomRow.classList.toggle("is-zoomed", Math.abs(k - 1) > 0.001);
+  }
+
+  /** The open hand that says a zoomed page can be dragged with a mouse. */
+  private setPanCursor(): void {
+    this.body.style.cursor = this.zoom.scale === 1 ? "" : "grab";
+  }
+
+  /**
+   * Lay the pages out again for a scroller that changed width.
+   *
+   * A PDF was rasterised once, at the width the card happened to be when it
+   * opened, and never again. In the app that is almost true -- the card is a
+   * fixed fraction of the window -- but a pop-out is a window someone drags by
+   * the corner, and there the document simply stopped following: widen it and
+   * the page stayed put with the new room showing as margin either side,
+   * narrow it and `max-width: 100%` squeezed the canvas while the slots kept
+   * the heights they were given, so gaps opened between the pages and the
+   * scrollbar stopped meaning anything.
+   *
+   * Every slot goes back to being a placeholder of the right new height and is
+   * handed to the observer again, which redraws the ones near the viewport and
+   * leaves the rest for when they are scrolled to -- the same path as opening
+   * the document, so there is only one way a page is ever drawn.
+   */
+  private reflowPdf(): void {
+    const doc = this.pdfDoc;
+    const watch = this.pdfWatch;
+    if (!doc || !watch) return;
+    const was = this.pdfWidth;
+    const width = pdfPageWidth(this.body);
+    if (!was || Math.abs(width - was) < PDF_REFLOW_MIN) return;
+    this.pdfWidth = width;
+    // Back to ordinary sharpness: the zoom is a separate question and asks
+    // again through `resharpen` if it is still up.
+    this.pdfSharp = 1;
+    for (const slot of this.zoomLayer.querySelectorAll<HTMLElement>(".ql-slot")) {
+      const canvas = slot.querySelector("canvas");
+      const box = slot.querySelector<HTMLElement>(".ql-pagebox");
+      if (box) {
+        box.style.width = `${width}px`;
+        // The text layer positions itself in percentages but sizes its type
+        // against this, so without it the words would stay at the old size
+        // over a page that had changed.
+        const unit = Number(box.dataset["unit"]) || 0;
+        if (unit > 0) box.style.setProperty("--total-scale-factor", String(width / unit));
+      }
+      if (canvas) {
+        // The pixels that are already there stay there. Emptying the slot and
+        // waiting for the redraw blanked every page on screen for as long as
+        // rasterising takes, which during a corner-drag is every page, every
+        // time -- the window looked broken rather than resized. A canvas is a
+        // replaced element with `height: auto`, so moving its CSS width moves
+        // the whole page, correctly proportioned, this frame; the redraw that
+        // follows only swaps soft pixels for sharp ones.
+        canvas.style.width = `${width}px`;
+      } else {
+        // An undrawn one is still the shape page one gave it, which is the
+        // ratio its placeholder height encodes.
+        const ratio = (Number.parseFloat(slot.style.height) || 0) / was;
+        slot.style.height = `${Math.round(width * (ratio > 0 ? ratio : 1))}px`;
+      }
+      delete slot.dataset["drawn"];
+      delete slot.dataset["sharp"];
+      watch.observe(slot);
+    }
   }
 
   /**
@@ -825,13 +1150,224 @@ export class QuickLook {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvas, canvasContext: ctx, viewport }).promise;
     if (mine !== this.token) return;
+
+    // The words, over the picture of the words.
+    //
+    // A rasterised page is a photograph of a document: you cannot put the
+    // cursor in it, cannot drag across a sentence, cannot copy a citation --
+    // which is most of what anybody does with a paper. pdf.js hands back
+    // where every run of text sits, and the standard answer is to lay
+    // transparent spans over the canvas at exactly those positions, so the
+    // browser's own selection does the rest. Ctrl+C then copies the real
+    // characters out of the file rather than anything guessed from pixels.
+    const box = document.createElement("div");
+    box.className = "ql-pagebox";
+    box.style.width = `${Math.floor(viewport.width / dpr)}px`;
+    box.append(canvas);
+    void this.drawPdfText(page, box, base.width, width, mine);
+
     // The placeholder height goes now, not before: keeping it until the pixels
     // exist is what stops the page under the finger from jumping.
     slot.style.height = "";
-    slot.replaceChildren(canvas);
+    slot.replaceChildren(box);
+  }
+
+  /**
+   * Lay the selectable text of one page over its canvas.
+   *
+   * Separate from the drawing and deliberately not awaited by it: the pixels
+   * are what someone is waiting for, and a page whose text is still arriving
+   * is a page you can already read. A document with no text at all -- a scan,
+   * a photograph saved as a PDF -- simply produces no spans, which is the
+   * honest answer rather than an error.
+   *
+   * `pageWidth` is the page's own width in PDF units and `cssWidth` the width
+   * it is being shown at, and their ratio is the `--total-scale-factor` that
+   * pdf.js's own span styles are written against. Keeping the ratio in a
+   * custom property rather than baking pixels in is what lets `reflowPdf`
+   * resize a page without re-reading its text.
+   */
+  private async drawPdfText(
+    page: import("pdfjs-dist").PDFPageProxy,
+    box: HTMLElement,
+    pageWidth: number,
+    cssWidth: number,
+    mine: number,
+  ): Promise<void> {
+    try {
+      const pdfjs = await loadPdfjs();
+      if (mine !== this.token || !box.isConnected) return;
+      const scale = cssWidth / pageWidth;
+      const layer = document.createElement("div");
+      layer.className = "ql-textlayer";
+      box.dataset["unit"] = String(pageWidth);
+      box.style.setProperty("--total-scale-factor", String(scale));
+      const text = new pdfjs.TextLayer({
+        textContentSource: await page.getTextContent(),
+        container: layer,
+        viewport: page.getViewport({ scale }),
+      });
+      await text.render();
+      if (mine !== this.token || !box.isConnected) return;
+      box.append(layer);
+    } catch {
+      // No text, or a page pdf.js could not read the text of. The picture of
+      // the page is still there and still correct; nothing is worth saying.
+    }
+  }
+
+  // ── Words in a picture ────────────────────────────────────
+
+  /**
+   * Read the picture on screen and lay its words over it, or take them away.
+   *
+   * The words are real DOM text, transparent, sitting exactly where the ink
+   * is -- so selecting them is the browser's own selection, and Ctrl+C is the
+   * browser's own copy. Nothing here has to reimplement either.
+   */
+  private async readPicture(): Promise<void> {
+    const box = this.zoomLayer.querySelector<HTMLElement>(".ql-imgbox");
+    const img = box?.querySelector("img");
+    if (!box || !img) return;
+    if (box.querySelector(".ql-ocrlayer")) {
+      this.dropOcr();
+      return;
+    }
+    if (this.ocrBusy) return;
+    const mine = this.token;
+    this.ocrBusy = true;
+    this.setTextBtn("busy");
+    try {
+      // Loaded here, not at the top: the reader is a few megabytes of WASM and
+      // a language file, and a card that only ever showed a photograph should
+      // never pay for it.
+      const [{ Tesseract }, { readingOrder }] = await Promise.all([
+        import("@core/ocr/engine"),
+        import("@core/ocr/page"),
+      ]);
+      if (mine !== this.token) return;
+      // Through a blob, so the canvas stays readable wherever the bytes came
+      // from -- see `loadPicture`. The picture on screen may be a cross-origin
+      // asset URL, and drawing that one in would taint the canvas the reader
+      // has to read back.
+      const src = await loadPicture(img.currentSrc || img.src, "Could not read this picture.");
+      if (mine !== this.token) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = src.naturalWidth;
+      canvas.height = src.naturalHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) throw new Error("no canvas");
+      ctx.drawImage(src, 0, 0);
+      this.ocr ??= new Tesseract();
+      const { page } = await this.ocr.read(canvas);
+      if (mine !== this.token || !box.isConnected) return;
+
+      const layer = document.createElement("div");
+      layer.className = "ql-ocrlayer";
+      layer.style.width = `${page.width}px`;
+      layer.style.height = `${page.height}px`;
+      // Everything inside is positioned in the picture's own pixels and the
+      // whole layer is scaled to whatever size the picture is being shown at.
+      // One number to update when the window moves, instead of one per word.
+      const spans: { node: HTMLElement; want: number }[] = [];
+      let words = 0;
+      for (const block of readingOrder(page)) {
+        for (const line of block.lines) {
+          for (const word of line.words) {
+            if (!word.text) continue;
+            words++;
+            const b = word.box;
+            const node = document.createElement("span");
+            node.textContent = word.text;
+            node.style.left = `${b.x}px`;
+            node.style.top = `${b.y}px`;
+            node.style.fontSize = `${Math.max(b.h, 1)}px`;
+            layer.append(node);
+            spans.push({ node, want: b.w });
+            // The gap between two words, as a character rather than as
+            // emptiness: a selection that crosses it has to copy a space, and
+            // an absent one would paste the page back as one long word.
+            const gap = document.createElement("span");
+            gap.textContent = " ";
+            gap.style.left = `${b.x + b.w}px`;
+            gap.style.top = `${b.y}px`;
+            gap.style.fontSize = `${Math.max(b.h, 1)}px`;
+            layer.append(gap);
+          }
+          const br = document.createElement("span");
+          br.textContent = "\n";
+          br.style.left = `${line.box.x + line.box.w}px`;
+          br.style.top = `${line.box.y}px`;
+          br.style.fontSize = `${Math.max(line.box.h, 1)}px`;
+          layer.append(br);
+        }
+      }
+      if (words === 0) {
+        this.setTextBtn("idle");
+        this.flash(box, "No text found in this picture.");
+        return;
+      }
+      box.append(layer);
+      // One read of every width, then one write of every transform. Asking for
+      // a width after setting a transform would lay the whole page out again
+      // per word, which on a dense scan is a visible stall.
+      const widths = spans.map((s) => s.node.offsetWidth);
+      for (const [i, s] of spans.entries()) {
+        const had = widths[i] ?? 0;
+        if (had > 0) s.node.style.transform = `scaleX(${s.want / had})`;
+      }
+      this.fitOcr(layer, img, page.width);
+      this.ocrWatch = new ResizeObserver(() => this.fitOcr(layer, img, page.width));
+      this.ocrWatch.observe(img);
+      this.setTextBtn("on");
+    } catch {
+      this.setTextBtn("idle");
+      this.flash(box, "Could not read this picture.");
+    } finally {
+      this.ocrBusy = false;
+    }
+  }
+
+  /** Keep the words the size of the picture they were found in. */
+  private fitOcr(layer: HTMLElement, img: HTMLImageElement, unit: number): void {
+    if (unit <= 0) return;
+    layer.style.transform = `scale(${img.clientWidth / unit})`;
+  }
+
+  private dropOcr(): void {
+    this.ocrWatch?.disconnect();
+    this.ocrWatch = null;
+    for (const l of this.zoomLayer.querySelectorAll(".ql-ocrlayer")) l.remove();
+    if (this.ocrBusy) void this.ocr?.cancel().catch(() => undefined);
+    this.ocrBusy = false;
+    this.setTextBtn("idle");
+  }
+
+  private setTextBtn(state: "idle" | "busy" | "on"): void {
+    const label = state === "busy" ? "Reading\u2026" : state === "on" ? "Hide text" : "Select text";
+    this.textBtn.disabled = state === "busy";
+    this.textBtn.title = state === "on"
+      ? "Take the selectable words away"
+      : "Find the text in this picture so it can be selected and copied";
+    this.textBtn.setAttribute("aria-label", label);
+    this.textBtn.setAttribute("aria-pressed", String(state === "on"));
+    this.textBtn.classList.toggle("is-on", state === "on");
+    this.textBtn.textContent = state === "busy" ? "\u22ef" : "T";
+    const tag = this.textBtn.querySelector(".fct-blabel");
+    if (tag) tag.textContent = label;
+  }
+
+  /** A sentence over the preview, gone on its own. For things with no result. */
+  private flash(box: HTMLElement, text: string): void {
+    const chip = document.createElement("p");
+    chip.className = "ql-flash";
+    chip.textContent = text;
+    box.append(chip);
+    window.setTimeout(() => chip.remove(), 2600);
   }
 
   private dropPdf(): void {
+    window.clearTimeout(this.reflowTimer);
     this.pdfWatch?.disconnect();
     this.pdfWatch = null;
     this.pdfDoc = null;
@@ -874,6 +1410,13 @@ export class QuickLook {
   private setFull(on: boolean): void {
     this.full = on;
     this.root.classList.toggle("ql-full", on);
+    // The header is gone in full screen, and the zoom went with it -- so the
+    // control moves out to float over the page instead, next to the way out.
+    // Moved rather than duplicated: two of them would drift apart the first
+    // time one grew a state the other did not.
+    if (on) this.card.append(this.zoomRow);
+    else this.head.insertBefore(this.zoomRow, this.srcBtn);
+    this.zoomRow.classList.toggle("ql-zoomrow-float", on);
     this.exitBtn.hidden = !on;
     this.fullGlyph.textContent = on ? "⤡" : "⤢";
     // Both fit the twelve characters the phone shell allows a stacked label

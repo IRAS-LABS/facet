@@ -124,6 +124,25 @@ export const BUILT_IN: Readonly<Record<Exclude<FileKind, "folder">, HandlerId>> 
   binary: "system",
 };
 
+/**
+ * Extensions FACET ships an opinion about, whatever their kind says.
+ *
+ * `document` covers a .pdf, a .docx and a .odt, and Windows is the right answer
+ * for two of those and the wrong one for the third: FACET renders PDF pages
+ * itself, with zoom, pan, full screen and selectable text, and handing the one
+ * document format it can actually read to another program was a default that
+ * made the app look like it had no reader at all.
+ *
+ * Kept as a separate table rather than by splitting `document` into two kinds:
+ * the kind is what the file *is*, and a .pdf is a document. This is only the
+ * shipped preference, and it is still the weakest layer -- both a per-extension
+ * and a per-kind choice by the user beat it, and `resolveOpen` still drops it
+ * for something available if quick look is not.
+ */
+export const BUILT_IN_EXT: Readonly<Record<string, HandlerId>> = {
+  pdf: "quicklook",
+};
+
 interface Persisted {
   version: 1;
   /** Lowercase extension, no dot → handler. */
@@ -223,7 +242,7 @@ export class OpensStore {
     if (byExt !== undefined) return { handler: byExt, from: "ext" };
     const byKind = this.byKind.get(entry.kind);
     if (byKind !== undefined) return { handler: byKind, from: "kind" };
-    return { handler: builtInFor(entry.kind), from: "built-in" };
+    return { handler: builtInFor(entry.kind, entry.ext), from: "built-in" };
   }
 
   setExt(ext: string, handler: HandlerId | null): void {
@@ -320,9 +339,17 @@ export class OpensStore {
   }
 }
 
-/** The shipped answer for a kind. `folder` has none and gets the escape hatch. */
-export function builtInFor(kind: FileKind): HandlerId {
-  return kind === "folder" ? "system" : BUILT_IN[kind];
+/**
+ * The shipped answer for a file. `folder` has none and gets the escape hatch.
+ *
+ * The extension is optional so the by-kind settings panel can ask the question
+ * it actually has -- "what does FACET do with documents" -- without inventing a
+ * file to ask it about.
+ */
+export function builtInFor(kind: FileKind, ext?: string): HandlerId {
+  if (kind === "folder") return "system";
+  const byExt = ext === undefined ? undefined : BUILT_IN_EXT[normalizeExt(ext)];
+  return byExt ?? BUILT_IN[kind];
 }
 
 /**
@@ -352,7 +379,7 @@ export function resolveOpen(
     const byKind = store.forKind(entry.kind);
     if (byKind !== undefined && can.has(byKind)) return byKind;
   }
-  const shipped = builtInFor(entry.kind);
+  const shipped = builtInFor(entry.kind, entry.ext);
   if (can.has(shipped)) return shipped;
   // Last resort. `system` first and not merely first in `HANDLERS` order,
   // because "hand it to Windows" is the one answer that is never *wrong* for a

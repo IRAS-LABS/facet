@@ -90,12 +90,33 @@ export interface ZoomOptions {
    * were never rendered.
    */
   onSettle?(scale: number): void;
+  /**
+   * The scale changed, now, however it was changed.
+   *
+   * Separate from `onSettle` on purpose: that one waits for the gesture to
+   * stop because redrawing a canvas mid-pinch is wasted work, and a readout
+   * that only updated when your fingers stopped would read as frozen.
+   */
+  onChange?(scale: number): void;
 }
 
 export interface Zoom {
   /** Back to 1×, scrolled to the top. Called for every new file. */
   reset(): void;
   readonly scale: number;
+  /** The ends of the range, so a control can grey itself out at them. */
+  readonly min: number;
+  readonly max: number;
+  /**
+   * Zoom by a factor, anchored on the middle of what is on screen.
+   *
+   * What a button or a keyboard shortcut calls. The gestures anchor on the
+   * fingers or the pointer because that is where the intent is; a button has
+   * no such point, and the middle of the view is the one everybody expects.
+   */
+  by(factor: number): void;
+  /** Go to an exact scale, same anchoring as `by`. */
+  to(scale: number): void;
 }
 
 /** What one recogniser needs to know that is not the gesture itself. */
@@ -158,6 +179,7 @@ function recognize(scroller: HTMLElement, kind: ZoomKind, opts: ZoomOptions): Zo
     const was = k;
     k = want;
     kind.apply(k, ax, ay, was);
+    opts.onChange?.(k);
   };
 
   const centre = (): { x: number; y: number; d: number } => {
@@ -290,9 +312,22 @@ function recognize(scroller: HTMLElement, kind: ZoomKind, opts: ZoomOptions): Zo
       kind.clear();
       scroller.style.touchAction = "";
       scroller.scrollTo(0, 0);
+      opts.onChange?.(1);
     },
     get scale(): number {
       return k;
+    },
+    min: kind.min,
+    max: kind.max,
+    by(factor: number): void {
+      const box = scroller.getBoundingClientRect();
+      to(k * factor, box.left + box.width / 2, box.top + box.height / 2);
+      settle();
+    },
+    to(scale: number): void {
+      const box = scroller.getBoundingClientRect();
+      to(scale, box.left + box.width / 2, box.top + box.height / 2);
+      settle();
     },
   };
 }
