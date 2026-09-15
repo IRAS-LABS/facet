@@ -32,7 +32,7 @@ import {
   type Processor,
 } from "@huggingface/transformers";
 
-import type { Segment, Turn } from "./transcript";
+import { dropInventedWords, type Segment, type Turn } from "./transcript";
 
 /** 16 kHz mono is what all three models want, and the only rate this file knows. */
 export const RATE = 16_000;
@@ -134,7 +134,7 @@ async function load(options: LoadOptions): Promise<void> {
 }
 
 /** Whisper's chunks → our segments, in the window's own time base. */
-function toSegments(out: any): Segment[] {
+function toSegments(out: any, samples: Float32Array): Segment[] {
   const chunks: any[] = Array.isArray(out?.chunks) ? out.chunks : [];
   if (chunks.length === 0) {
     const text = String(out?.text ?? "").trim();
@@ -154,6 +154,7 @@ function toSegments(out: any): Segment[] {
       };
     })
     .filter((w) => w.text.trim().length > 0);
+  const heard = dropInventedWords(words, samples, RATE);
 
   /*
    * Words are grouped back into sentences before they leave. Whisper with
@@ -164,7 +165,7 @@ function toSegments(out: any): Segment[] {
    */
   const segments: Segment[] = [];
   let current: Segment | null = null;
-  for (const w of words) {
+  for (const w of heard) {
     if (!current) {
       current = { start: w.start, end: w.end, text: w.text.trim(), words: [w], speaker: null };
       continue;
@@ -188,7 +189,7 @@ async function words(samples: Float32Array): Promise<Segment[]> {
     chunk_length_s: 0, // windowing is ours; see planWindows
     ...(settings?.language ? { language: settings.language } : {}),
   });
-  return toSegments(out);
+  return toSegments(out, samples);
 }
 
 async function voices(samples: Float32Array): Promise<Turn[]> {

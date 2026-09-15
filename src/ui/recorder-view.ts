@@ -61,6 +61,7 @@ import {
   type Quality,
   type Sources,
 } from "@core/capture/recorder";
+import { durationBytes, findDuration, withDuration, type DurationSlot } from "@core/capture/webm-duration";
 
 /**
  * The device layer, injected — same arrangement as the camera and for the same
@@ -88,6 +89,24 @@ export interface RecorderHost {
    * different promises about what a crash costs.
    */
   appendFile?(path: string, bytes: Uint8Array): Promise<number>;
+  /**
+   * Overwrite bytes already in a file. Used once per streamed take, at stop, to
+   * replace the 1 ms placeholder Duration in the header with the real length.
+   * Optional: without it a take still saves, it just reads as 0:00 to players.
+   */
+  patchFile?(path: string, offset: number, bytes: Uint8Array): Promise<void>;
+  /**
+   * Tell the platform's media index that a path is finished and its size is
+   * final.
+   *
+   * A streamed take is created empty and grown chunk by chunk, and Android
+   * indexes it the moment the file appears -- with whatever size it had then.
+   * Nothing updates that row afterwards, so a 68 KB recording sat in FACET's
+   * own Files > Audio reading `950 B` (observed on a test phone, 2026-09-10). Rust
+   * has always exposed the command for exactly this case and nothing called
+   * it. Optional, because the browser build has no index to tell.
+   */
+  scanPath?(path: string): void;
   refresh(): void;
   prefs(): RecorderPrefs;
   /** `navigator.platform`, for whether system sound can be honoured here. */
@@ -167,6 +186,8 @@ export class RecorderView {
   private writes: Promise<void> = Promise.resolve();
   private mime = "";
   private outPath: string | null = null;
+  /** Where the header's placeholder Duration sits, patched at stop. */
+  private durationSlot: DurationSlot | null = null;
 
   private started = 0;
   private pausedFor = 0;
@@ -218,11 +239,13 @@ export class RecorderView {
 
     this.micSel.className = "rec-sel";
     this.micSel.title = "Which microphone";
+    this.micSel.setAttribute("aria-label", "Which microphone");
     this.micSel.addEventListener("change", () => {
       this.micId = this.micSel.value || null;
     });
     this.qualitySel.className = "rec-sel";
     this.qualitySel.title = "How much detail is kept";
+    this.qualitySel.setAttribute("aria-label", "Recording quality");
     for (const [id, label, why] of QUALITIES) {
       const o = option(id, label);
       o.title = why;
@@ -233,6 +256,7 @@ export class RecorderView {
     });
     this.waitSel.className = "rec-sel";
     this.waitSel.title = "A pause after the share dialog, to get to the right window";
+    this.waitSel.setAttribute("aria-label", "Countdown before recording starts");
     for (const s of [0, 3, 5, 10]) {
       this.waitSel.append(option(String(s), s === 0 ? "Start at once" : `Wait ${s}s`));
     }
@@ -548,6 +572,7 @@ export class RecorderView {
     this.ledger.note = this.soundNote;
     this.buffer = [];
     this.outPath = null;
+    this.durationSlot = null;
     this.writes = Promise.resolve();
 
     const rec = new MediaRecorder(stream, options);
@@ -655,11 +680,35 @@ export class RecorderView {
     let ctx: AudioContext;
     try {
       ctx = this.host.source.audioContext();
-    } catch {
-      // No WebAudio: a single source can still be recorded straight, and only
-      // the mix and the meter are lost. Saying nothing would be wrong; failing
-      // the whole take over a meter would be worse.
-      if (mix) this.say("Cannot sum two sounds here — recording the microphone only");
+    } catch (e) {
+      /*
+       * No WebAudio: a single source can still be recorded straight, and only
+       * the mix and the meter are lost. Saying nothing would be wrong; failing
+       * the whole take over a meter would be worse.
+       *
+       * Reported now even when there is only one source. This branch used to be
+       * silent in the single-source case, on the reasoning that nothing was
+       * lost — but the meter was lost, and the panel gives no other sign of it.
+       * Found on a test phone: a 39-second take wrote 42 KB to disk and grew when
+       * sound was played at it, while the bar stayed empty and the readout sat
+       * at −∞ with nothing anywhere on screen to say why. A meter pinned at the
+       * floor through a take that is in fact recording perfectly is the most
+       * alarming thing this panel can show, and it was showing it on purpose.
+       *
+       * The reason is carried through rather than swallowed, because "no audio
+       * engine here" is the one thing that cannot be worked out from the
+       * surface afterwards.
+       */
+      const why = (e as Error | undefined)?.message?.trim();
+      const tail = why ? ` (${why})` : "";
+      this.soundNote = mix
+        ? `no audio engine here${tail} — microphone only, no level meter`
+        : `no audio engine here${tail} — no level meter`;
+      this.say(
+        mix
+          ? `Cannot sum two sounds here${tail} — recording the microphone only, without the level meter`
+          : `No audio engine here${tail} — recording without the level meter`,
+      );
       return fromUser ?? fromDisplay;
     }
 
@@ -830,6 +879,8 @@ export class RecorderView {
           // to somebody else's file.
           this.outPath = await this.host.writeFile(wanted, bytes, false);
           this.ledger.path = this.outPath;
+          // The header is all in the first chunk. Found now, filled in at stop.
+          this.durationSlot = findDuration(bytes);
         } else {
           await this.host.appendFile!(this.outPath, bytes);
         }
@@ -878,7 +929,9 @@ export class RecorderView {
             this.host.folder(),
             takeName(this.mime.startsWith("video") ? "video" : "audio", new Date(), extOfMime(this.mime)),
           );
-          this.outPath = await this.host.writeFile(wanted, bytes, false);
+          // Held in memory from the start, so the length goes in before the
+          // one and only write rather than as a patch after it.
+          this.outPath = await this.host.writeFile(wanted, withDuration(bytes, seconds), false);
         } else {
           // The tail that piled up after a write failed. Retried once here,
           // because whatever went wrong may have been a moment rather than a
@@ -901,10 +954,23 @@ export class RecorderView {
       }
     }
 
+    // A take that cannot be patched still plays; it just reads as 0:00 to a
+    // player that trusts the header, which is what every take did before.
+    if (this.outPath && this.durationSlot && this.host.patchFile && seconds > 0) {
+      try {
+        await this.host.patchFile(this.outPath, this.durationSlot.at, durationBytes(seconds, this.durationSlot));
+      } catch {
+        /* see above */
+      }
+    }
+
     this.teardown();
     this.backToSetup();
     const where = this.outPath ? base(this.outPath) : "the recording";
     this.say(`Saved ${where} — ${clock(seconds)}, ${size(this.ledger.written)}`);
+    // Before `refresh`, so the listing that comes back has the final size in
+    // it rather than the one the file was created with.
+    if (this.outPath) this.host.scanPath?.(this.outPath);
     this.host.refresh();
   }
 

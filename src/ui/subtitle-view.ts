@@ -24,6 +24,7 @@
  */
 
 import type { Segment } from "@core/speech/transcript";
+import { primeVideo } from "@ui/media";
 import {
   cueAt,
   cueText,
@@ -246,7 +247,8 @@ export class SubtitleView {
 
     // ── Body ───────────────────────────────────────────────────────────────
     this.video.controls = true;
-    this.video.preload = "metadata";
+    this.video.preload = "auto";
+    this.video.playsInline = true;
     this.video.className = "subs-video";
     this.video.addEventListener("timeupdate", () => this.tick());
     this.video.addEventListener("seeked", () => this.tick());
@@ -341,6 +343,9 @@ export class SubtitleView {
     this.stage.hidden = false;
     try {
       this.video.src = await this.host.fileUrl(path);
+      // See `primeVideo`: Android paints over an unplayed clip.
+      delete this.video.dataset["fctPrimed"];
+      void primeVideo(this.video);
     } catch {
       this.stage.hidden = true;
       this.say("That file could not be played here.", true);

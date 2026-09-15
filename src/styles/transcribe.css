@@ -18,6 +18,31 @@
   background: var(--fct-bg);
   color: var(--fct-text);
 }
+
+/*
+ * Each part is pinned to its own row, and that is not decoration.
+ *
+ * Auto-placement numbers the rows by *visible* children, and three of the five
+ * parts here hide and show during one run: the setup bar goes while it works,
+ * the progress bar comes and goes with it, the export bar only exists once
+ * there is something to export. Every time one of them leaves, everything
+ * below slides up a row -- so the `1fr` that is meant to be the transcript
+ * lands on whatever happens to be fourth. Observed on a test phone the moment a
+ * transcript finished: progress hidden, so the export bar inherited the `1fr`
+ * and stretched to a thousand pixels with "Find in transcript" floating in the
+ * middle of it and half the screen empty underneath.
+ *
+ * Pinned, the parts cannot trade places, and a hidden row simply collapses.
+ */
+.scribe-bar { grid-row: 1; }
+.scribe-setup { grid-row: 2; }
+.scribe-progress { grid-row: 3; }
+.scribe-body { grid-row: 4; }
+.scribe-export { grid-row: 5; }
+/* The `<audio>` is `hidden`, but it is still a child: without a row of its own
+   it would be auto-placed into the next one and re-open the bug above the day
+   something un-hides it. */
+.scribe audio { grid-row: 6; }
 /* Not optional — `display: grid` beats the browser's own `[hidden]` rule, and
    two panels have shipped pinned over the file list without this line. */
 .scribe[hidden] {
@@ -296,4 +321,155 @@
 }
 .scribe-name {
   width: calc(220px * var(--fct-density));
+}
+
+
+/* ── Phone ─────────────────────────────────────────────────────────────────
+ *
+ * This panel was written for a window and had no phone rules at all. Two
+ * things break at 360 px, both of them the same mistake: a flex row of fixed
+ * widths wider than the screen.
+ *
+ * The setup row wraps, but a `<select>` will not shrink below the width of its
+ * longest option, and the quality options carry their download size and a note
+ * ("Balanced -- ~150 MB - the usual choice"). So Quality alone was wider than
+ * a test phone and Language hung off the right edge with People and Transcribe past
+ * it, off screen entirely -- the button that starts the work, unreachable.
+ *
+ * The export row does not wrap at all, and it holds a search box with a 140 px
+ * floor, a 220 px filename and three buttons.
+ *
+ * Both become one column. Taller, and a column is what the rest of the phone
+ * UI already is.
+ */
+body.fct-phone .scribe-setup,
+body.fct-phone .scribe-export {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  gap: var(--fct-sp-2);
+}
+
+/*
+ * ...but not one control per row. A single column put the settings at ~500 px
+ * and the export bar at ~560 px, and on a test phone those two plus the head are the
+ * whole screen: the transcript's `1fr` row resolved to zero, and a finished
+ * run read "2 lines · 0:25" over an empty strip with the lines nowhere on it.
+ *
+ * So: two columns for the settings, three for the export bar, the wide things
+ * (Quality, Find, the filename) spanning the row. And the transcript row has a
+ * floor, with the panel itself scrolling if a small screen still cannot fit
+ * everything, so the thing the user came for can never be squeezed to nothing.
+ */
+body.fct-phone .scribe {
+  grid-template-rows: auto auto auto minmax(14rem, 1fr) auto;
+  overflow-y: auto;
+}
+body.fct-phone .scribe-setup {
+  grid-template-columns: 1fr 1fr;
+  align-items: end;
+}
+body.fct-phone .scribe-setup > .scribe-field:first-child {
+  grid-column: 1 / -1;
+}
+body.fct-phone .scribe-export {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+body.fct-phone .scribe-find,
+body.fct-phone .scribe-name {
+  grid-column: 1 / -1;
+}
+body.fct-phone .scribe-export button {
+  padding-inline: var(--fct-sp-1);
+  min-width: 0;
+}
+/* The panel scrolls on a phone, so the status-bar inset moves from the panel
+   (where it scrolled away and the transcript slid under the clock) to a bar
+   that stays put. */
+body.fct-phone .scribe.fct-phone-panel {
+  padding-top: 0;
+}
+body.fct-phone .scribe.fct-phone-panel .scribe-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-top: max(var(--fct-sp-2), env(safe-area-inset-top));
+}
+
+/* Once there is a transcript, the settings that made it are the least useful
+   thing on the screen; they fold away behind "Redo" and come back on a tap. */
+.scribe-again {
+  display: none;
+}
+body.fct-phone .scribe-again {
+  display: block;
+}
+body.fct-phone .scribe:has(.scribe-export:not([hidden])):not(.scribe-redo) .scribe-setup {
+  display: none;
+}
+
+/* A grid item's automatic minimum is its content, which is the same floor the
+   flex row hit. These have to be told they may be narrower than their widest
+   option. */
+body.fct-phone .scribe-field,
+body.fct-phone .scribe-field select,
+body.fct-phone .scribe-field input,
+body.fct-phone .scribe-find,
+body.fct-phone .scribe-name {
+  min-width: 0;
+  width: auto;
+}
+
+/* Comfortably past the 44 px touch target the rest of the phone UI holds to;
+   the desktop 30 px is a mouse measurement. */
+body.fct-phone .scribe-field select,
+body.fct-phone .scribe-field input,
+body.fct-phone .scribe-find,
+body.fct-phone .scribe-name,
+body.fct-phone .scribe-go,
+body.fct-phone .scribe-stop,
+body.fct-phone .scribe-export button,
+body.fct-phone .scribe-bar button {
+  height: 44px;
+}
+
+body.fct-phone .scribe-check {
+  height: 44px;
+}
+
+/* The bottom row sits on the system gesture strip otherwise. */
+body.fct-phone .scribe-export {
+  padding-bottom: max(var(--fct-sp-2), env(safe-area-inset-bottom, 0px));
+}
+
+/* The title is capped at 40% of a wide window; on a phone that is nine
+   characters and every recording is called `Audio <date> <time>.weba`. */
+body.fct-phone .scribe-bar {
+  flex-wrap: wrap;
+  row-gap: var(--fct-sp-1);
+  padding-top: max(var(--fct-sp-2), env(safe-area-inset-top, 0px));
+}
+body.fct-phone .scribe-title {
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Row one is the filename and the close button; the status note wraps to a row
+   of its own beneath them. The `order` is the whole point: the note is a
+   full-width flex item, so in DOM order it lands *between* the title and the
+   close button and pushes that button onto a third row, left-aligned under the
+   title where nobody looks for it. Measured on a test phone with a real filename and
+   a real "Transcribed 412 segments" note: a 126px-tall bar with the X stranded
+   at the bottom-left. Sending the button to the front of the wrap and the note
+   to the back keeps the X where a close control belongs -- top right, first
+   row -- however long either string gets. */
+body.fct-phone .scribe-close {
+  order: 1;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+body.fct-phone .scribe-note {
+  order: 2;
+  flex: 1 0 100%;
+  white-space: normal;
 }

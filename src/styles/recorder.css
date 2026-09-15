@@ -253,7 +253,9 @@
   bottom: 0;
   right: 0;
   left: 0;
-  background: var(--fct-surface);
+  /* Raw, not --fct-surface: the glass skins make that translucent or fully
+     transparent, which left the whole gradient lit at −∞. */
+  background: var(--fct-surface-raw, #1b1d24);
   transition: left 60ms linear;
 }
 
@@ -322,4 +324,30 @@
 
 .rec-count[hidden] {
   display: none;
+}
+
+/* ── Phone ─────────────────────────────────────────────────────────────────── */
+
+/*
+ * The corner-strip behaviour above exists so the card sits outside the shot of
+ * a *screen* recording. A phone is not recording its own screen — it records
+ * the microphone — so the one reason to move the card does not apply, and the
+ * move itself does harm: the card jumps from the middle of the screen to the
+ * bottom edge the instant a take starts, which is both a lurch under the thumb
+ * that was still on Start and a landing on top of the tab bar and the system
+ * gesture strip. Observed on a test phone: Pause and Stop came to rest directly over
+ * the navigation row.
+ *
+ * So on a phone the card stays where it was and only the width settles. It is
+ * lifted clear of the tab bar as well, which the desktop card never had to
+ * think about.
+ */
+body.fct-phone .rec-card.rec-small {
+  left: 50%;
+  top: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--fct-sp-4);
 }

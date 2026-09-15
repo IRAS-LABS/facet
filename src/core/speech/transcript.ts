@@ -51,6 +51,64 @@ export interface Turn {
   speaker: string;
 }
 
+/**
+ * Drops the words Whisper invents over silence and room noise.
+ *
+ * Whisper never says "nothing here": given a quiet stretch it produces "I'm",
+ * "and", or a runaway "They They They They". Found on a test phone with a 2:35 voice
+ * memo that was mostly an empty room. Two filters, both on evidence the model
+ * cannot argue with:
+ *
+ * 1. **Loudness.** Each word's span is compared with the window's own noise
+ *    floor (the quiet end of its 50 ms frames). A word whose loudest frame is
+ *    not clearly above that floor — and above an absolute floor, for a window
+ *    that is silent throughout — was not spoken. Relative, so a quiet mic still
+ *    transcribes; absolute, so digital silence never does.
+ * 2. **Repetition.** A word said more than twice in a row is cut back to two.
+ *    People do say "no, no"; nobody says "They" seven times.
+ */
+export function dropInventedWords(
+  words: readonly Word[],
+  samples: Float32Array,
+  rate: number,
+): Word[] {
+  const frame = Math.max(1, Math.round(rate * 0.05));
+  const frames = Math.floor(samples.length / frame);
+  if (frames === 0) return [];
+  const rmsOf = new Float32Array(frames);
+  for (let f = 0; f < frames; f++) {
+    let sum = 0;
+    for (let i = f * frame; i < (f + 1) * frame; i++) {
+      const v = samples[i] ?? 0;
+      sum += v * v;
+    }
+    rmsOf[f] = Math.sqrt(sum / frame);
+  }
+  const sorted = Float32Array.from(rmsOf).sort();
+  const floor = sorted[Math.floor(frames * 0.2)] ?? 0;
+  // +9 dB over the room, and never below −55 dBFS.
+  const need = Math.max(floor * 2.8, 0.0018);
+
+  const loud: Word[] = [];
+  for (const w of words) {
+    const a = Math.max(0, Math.floor((clean(w.start) - 0.1) * rate / frame));
+    const b = Math.min(frames - 1, Math.ceil((clean(Math.max(w.end, w.start)) + 0.1) * rate / frame));
+    let top = 0;
+    for (let f = a; f <= b; f++) top = Math.max(top, rmsOf[f] ?? 0);
+    if (top >= need) loud.push(w);
+  }
+
+  const out: Word[] = [];
+  const key = (w: Word) => w.text.trim().toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
+  for (const w of loud) {
+    const k = key(w);
+    const n = out.length;
+    if (k && n >= 2 && key(out[n - 1]!) === k && key(out[n - 2]!) === k) continue;
+    out.push(w);
+  }
+  return out;
+}
+
 /** One slice of audio to hand the model. */
 export interface Window {
   index: number;
@@ -552,7 +610,12 @@ export function transcriptText(
     const text = seg.text.trim();
     if (!text) continue;
     const last = paras[paras.length - 1];
-    if (last && last.speaker === seg.speaker) {
+    /*
+     * With times on, every line keeps its own. Merging them left a saved file
+     * with one "[0:03]" in front of two and a half minutes of speech — not the
+     * ten timed lines the panel had just shown. Found on a test phone.
+     */
+    if (last && last.speaker === seg.speaker && !opts.timestamps) {
       last.text = `${last.text} ${text}`;
       continue;
     }
@@ -560,13 +623,15 @@ export function transcriptText(
   }
 
   return paras
-    .map((p) => {
+    .map((p, i) => {
       const head: string[] = [];
       if (opts.timestamps) head.push(`[${clockOf(p.start)}]`);
-      if (opts.speakers && p.speaker) head.push(`${p.speaker}:`);
+      // Timed lines name the speaker only when it changes, like the prose does.
+      const turn = !opts.timestamps || i === 0 || paras[i - 1]!.speaker !== p.speaker;
+      if (opts.speakers && p.speaker && turn) head.push(`${p.speaker}:`);
       return head.length ? `${head.join(" ")} ${p.text}` : p.text;
     })
-    .join("\n\n");
+    .join(opts.timestamps ? "\n" : "\n\n");
 }
 
 /** `h:mm:ss`, dropping the hour when there isn't one. For reading, not for files. */

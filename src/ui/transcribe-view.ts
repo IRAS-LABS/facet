@@ -43,6 +43,7 @@ import {
   type QualityId,
   type ScribeOptions,
 } from "@core/speech/scribe";
+import { settleDuration } from "./media";
 
 /**
  * The models, injected — same arrangement as the camera's device layer and for
@@ -161,7 +162,10 @@ export class TranscribeView {
     head.className = "scribe-bar";
     this.titleEl.className = "scribe-title";
     this.note.className = "scribe-note";
-    head.append(this.titleEl, this.note, this.btn("✕", "Close  (Esc)", () => this.close()));
+    const closeBtn = this.btn("✕", "Close  (Esc)", () => this.close());
+    closeBtn.className = "scribe-close";
+    closeBtn.setAttribute("aria-label", "Close");
+    head.append(this.titleEl, this.note, closeBtn);
 
     this.buildSetup();
     this.buildProgress();
@@ -280,11 +284,18 @@ export class TranscribeView {
     const copy = this.btn("Copy", "Copy the whole transcript", () => void this.copy());
     const save = this.btn("Save", "Write it beside the recording", () => void this.save());
     save.classList.add("scribe-go");
+    // Phone only (CSS): there the settings fold away once a transcript exists,
+    // and this brings them back for a second run.
+    const again = this.btn("Redo", "Change the settings and run it again", () => {
+      this.root.classList.toggle("scribe-redo");
+    });
+    again.classList.add("scribe-again");
 
     this.exportBar.append(
       this.findIn,
       this.check("Times", this.withTimes),
       this.check("Names", this.withNames),
+      again,
       this.nameIn,
       copy,
     );
@@ -341,6 +352,7 @@ export class TranscribeView {
   async open(path: string): Promise<void> {
     this.path = path;
     this.root.hidden = false;
+    this.root.classList.remove("scribe-redo");
     this.segments = [];
     this.names.clear();
     this.rows = [];
@@ -384,20 +396,17 @@ export class TranscribeView {
     this.root.hidden = true;
   }
 
-  /** Metadata only — the whole decode happens later and once. */
+  /**
+   * Metadata only — the whole decode happens later and once.
+   *
+   * `settleDuration` rather than a plain `loadedmetadata` wait, because the
+   * files this panel is opened on most often are FACET's own recordings, and a
+   * streamed WebM has no length in its header. The old wait resolved the
+   * moment metadata arrived, read `Infinity`, and passed 0 on — which is how a
+   * 57-second recording opened this panel reading `0:00 of audio`.
+   */
   private lengthOf(): Promise<number> {
-    if (Number.isFinite(this.audio.duration) && this.audio.duration > 0) {
-      return Promise.resolve(this.audio.duration);
-    }
-    return new Promise((resolve) => {
-      const done = (): void => {
-        this.audio.removeEventListener("loadedmetadata", done);
-        this.audio.removeEventListener("error", done);
-        resolve(Number.isFinite(this.audio.duration) ? this.audio.duration : 0);
-      };
-      this.audio.addEventListener("loadedmetadata", done);
-      this.audio.addEventListener("error", done);
-    });
+    return settleDuration(this.audio);
   }
 
   // ── Running ───────────────────────────────────────────────────────────────
@@ -406,6 +415,7 @@ export class TranscribeView {
     if (this.running) return;
     this.running = true;
     this.stop = new AbortController();
+    this.root.classList.remove("scribe-redo");
     this.setup.hidden = true;
     this.barWrap.hidden = false;
     this.exportBar.hidden = true;

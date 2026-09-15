@@ -33,6 +33,7 @@ import {
   assignSpeakers,
   clockOf,
   clusterSpeakers,
+  dropInventedWords,
   mergeTurns,
   mergeWindows,
   planWindows,
@@ -465,6 +466,40 @@ function pureChecks(): void {
       clockOf(3725) === "1:02:05", clockOf(3725));
     ok("…and does not go backwards on a bad number",
       clockOf(-4) === "0:00" && clockOf(NaN) === "0:00");
+
+    const timed = transcriptText(segs, { timestamps: true, speakers: true });
+    ok("with times on, every line keeps its own time",
+      (timed.match(/^\[\d+:\d\d\]/gm) ?? []).length === segs.filter((s) => s.text.trim()).length, timed);
+    ok("…and names only appear when the speaker changes",
+      (timed.match(/Speaker 1:/g) ?? []).length === 2, timed);
+  }
+
+  // ── Words invented over silence ──
+  {
+    const rate = 16_000;
+    const audio = new Float32Array(rate * 10);
+    // Speech-like tone at 2–4 s, a whisper of hiss everywhere else.
+    for (let i = 0; i < audio.length; i++) {
+      const t = i / rate;
+      audio[i] = (t >= 2 && t < 4 ? 0.2 * Math.sin(2 * Math.PI * 220 * t) : 0) + (Math.sin(i * 12.9898) * 43758.5453 % 1) * 0.0004;
+    }
+    const w = (start: number, text: string) => ({ start, end: start + 0.3, text });
+    const kept = dropInventedWords(
+      [w(0.5, "I'm"), w(2.2, "hello"), w(2.6, "there"), w(7, "They"), w(7.4, "They")],
+      audio,
+      rate,
+    ).map((x) => x.text);
+    ok("words over room noise are dropped, spoken ones kept",
+      kept.join(" ") === "hello there", kept.join(" "));
+    const loops = dropInventedWords(
+      ["no", "no", "They", "They", "They", "They", "They"].map((t, i) => w(2 + i * 0.25, t)),
+      audio,
+      rate,
+    ).map((x) => x.text);
+    ok("a word repeated past twice is cut back to two",
+      loops.join(" ") === "no no They They", loops.join(" "));
+    ok("digital silence yields nothing",
+      dropInventedWords([w(1, "Thanks"), w(5, "for watching")], new Float32Array(rate * 8), rate).length === 0);
   }
 }
 
