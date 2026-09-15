@@ -35,6 +35,16 @@
   display: none;
 }
 
+/* In a compact viewer (see scene.css) a fixed 268 px column is most of the
+   stage, so the panel becomes a sheet over it, like the side panel does. */
+.sv[data-compact] .se {
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  width: auto;
+}
+
 .se-head {
   flex: none;
   padding: 8px 12px;

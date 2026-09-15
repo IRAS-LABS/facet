@@ -7,9 +7,24 @@
  * CSS width or height here would fight that — the model would stretch, or the
  * buffer would be resized on every frame in a loop that never settles. The
  * canvas fills its parent by `position: absolute; inset: 0` and nothing else.
+ *
+ * Everything else on the stage — side panel, animation bar, gizmo, toast —
+ * floats over the canvas for the same reason `.se` does: a control that took
+ * width from the stage would reallocate the drawing buffer each time it opened,
+ * and the model would jump. Floating chrome is glass rather than slabs so the
+ * model is still legible through the edge of it.
+ *
+ * A trap repeated from `.sv-note` for every overlay below: an author `display`
+ * beats the user agent's `[hidden] { display: none }`, so every element with
+ * both has its own `[hidden]` line.
  */
 
 .sv {
+  --sv-glass: color-mix(in srgb, var(--fct-surface-overlay, var(--fct-surface-raised)) 78%, transparent);
+  --sv-line: color-mix(in srgb, var(--fct-text) 10%, transparent);
+  --sv-line-strong: color-mix(in srgb, var(--fct-text) 18%, transparent);
+  --sv-glow: color-mix(in srgb, var(--fct-accent) 45%, transparent);
+  --sv-accent-soft: color-mix(in srgb, var(--fct-accent) 16%, transparent);
   position: fixed;
   inset: 0;
   z-index: 40;
@@ -30,17 +45,23 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   padding: 6px 8px;
-  background: var(--fct-surface-raised);
-  border-bottom: 1px solid var(--fct-border);
+  background: linear-gradient(to bottom, var(--fct-surface-raised), color-mix(in srgb, var(--fct-surface-raised) 88%, var(--fct-bg)));
+  border-bottom: 1px solid var(--sv-line);
+  /* Wraps before it overflows: in a pop-out a few hundred pixels wide, a button
+     pushed off the end is a button that does not exist. */
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .sv-title {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 10px;
   font-size: var(--fct-fs-md);
+  font-weight: 500;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -49,30 +70,37 @@
 .sv-btn {
   flex: none;
   min-width: 30px;
-  height: 26px;
+  height: 28px;
   padding: 0 8px;
-  border: 1px solid var(--fct-border);
-  border-radius: var(--fct-radius-sm);
-  background: var(--fct-surface);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
   color: var(--fct-text-dim);
   font: inherit;
   line-height: 1;
   cursor: pointer;
-  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+  transition: background var(--fct-t-fast), color var(--fct-t-fast), border-color var(--fct-t-fast), box-shadow var(--fct-t-fast);
 }
 
 .sv-btn:hover {
   background: var(--fct-card-hover);
+  border-color: var(--sv-line);
   color: var(--fct-text);
+}
+
+.sv-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--sv-glow);
 }
 
 /* A pressed toggle has to be readable at a glance from across the bar — half
    these buttons are states, not actions, and a hover tint alone does not say
    which. */
 .sv-btn[data-on="1"] {
-  background: var(--fct-accent);
-  border-color: var(--fct-accent);
-  color: var(--fct-accent-ink);
+  background: var(--sv-accent-soft);
+  border-color: color-mix(in srgb, var(--fct-accent) 55%, transparent);
+  color: var(--fct-accent);
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--fct-accent) 18%, transparent);
 }
 
 /* ── Stage ────────────────────────────────────────────────────────────────── */
@@ -120,12 +148,693 @@
   pointer-events: none;
 }
 
-/* An author `display` beats the user-agent's `[hidden] { display: none }` no
-   matter how specific either is, so the rule above would keep this on screen
-   over a perfectly good model for the rest of the session. Every element with
-   both a `display` and a `hidden` toggle needs this line. */
 .sv-note[hidden] {
   display: none;
+}
+
+/* ── Side panel ───────────────────────────────────────────────────────────── */
+
+.sv-panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  bottom: 10px;
+  width: 256px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--sv-line);
+  border-radius: 14px;
+  background: var(--sv-glass);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35), inset 0 1px 0 color-mix(in srgb, var(--fct-text) 6%, transparent);
+  overflow: hidden;
+  animation: sv-in var(--fct-t-med, 160ms) ease-out;
+}
+
+.sv-panel[hidden] {
+  display: none;
+}
+
+@keyframes sv-in {
+  from { opacity: 0; transform: translateX(-6px); }
+}
+
+.sv-panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 8px 14px;
+  border-bottom: 1px solid var(--sv-line);
+}
+
+.sv-panel-title {
+  font-size: var(--fct-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fct-text-muted);
+}
+
+.sv-icon {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  cursor: pointer;
+}
+
+.sv-icon:hover {
+  background: var(--fct-card-hover);
+  color: var(--fct-text);
+}
+
+.sv-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 0 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sv-line-strong) transparent;
+}
+
+.sv-sec {
+  border-bottom: 1px solid var(--sv-line);
+}
+
+.sv-sec:last-child {
+  border-bottom: 0;
+}
+
+.sv-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  color: var(--fct-text);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.sv-sec-head::-webkit-details-marker {
+  display: none;
+}
+
+.sv-sec-head::after {
+  content: "";
+  margin-left: auto;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--fct-text-muted);
+  border-bottom: 1.5px solid var(--fct-text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--fct-t-fast);
+}
+
+.sv-sec[open] > .sv-sec-head::after {
+  transform: rotate(45deg);
+}
+
+.sv-sec-head:hover {
+  color: var(--fct-accent);
+}
+
+.sv-sec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 14px 12px;
+}
+
+.sv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sv-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sv-label {
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-dim);
+}
+
+.sv-val {
+  font: var(--fct-fs-xs) / 1 var(--fct-font-mono);
+  color: var(--fct-text-muted);
+}
+
+/* The edge angle means nothing outside Edges mode, and FOV nothing in
+   orthographic; both stay in the DOM so their values survive the switch. */
+.sv:not([data-mode="edges"]) .sv-edge-angle,
+.sv[data-projection="orthographic"] .sv-fov {
+  display: none;
+}
+
+/* Segmented control. */
+.sv-seg {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--sv-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fct-bg) 55%, transparent);
+}
+
+.sv-seg-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+}
+
+.sv-seg-btn:hover {
+  color: var(--fct-text);
+}
+
+.sv-seg-btn[data-on="1"] {
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  box-shadow: 0 0 14px var(--sv-glow);
+}
+
+/* Range slider, filled to `--p` so the value reads without the number. */
+.sv-panel input[type="range"],
+.sv-anim-scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sv-panel input[type="range"]::-webkit-slider-runnable-track,
+.sv-anim-scrub::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--fct-accent) var(--p, 0%), var(--sv-line-strong) var(--p, 0%));
+}
+
+.sv-panel input[type="range"]::-webkit-slider-thumb,
+.sv-anim-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border: 2px solid var(--fct-accent);
+  border-radius: 50%;
+  background: var(--fct-bg);
+  box-shadow: 0 0 10px var(--sv-glow);
+}
+
+.sv-panel input[type="range"]::-moz-range-track,
+.sv-anim-scrub::-moz-range-track {
+  height: 3px;
+  border-radius: 3px;
+  background: var(--sv-line-strong);
+}
+
+.sv-panel input[type="range"]::-moz-range-progress,
+.sv-anim-scrub::-moz-range-progress {
+  height: 3px;
+  border-radius: 3px;
+  background: var(--fct-accent);
+}
+
+.sv-panel input[type="range"]::-moz-range-thumb,
+.sv-anim-scrub::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--fct-accent);
+  border-radius: 50%;
+  background: var(--fct-bg);
+}
+
+.sv-panel input[type="range"]:focus-visible,
+.sv-anim-scrub:focus-visible {
+  outline: none;
+}
+
+.sv-panel input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px var(--sv-glow);
+}
+
+/* View presets: a 4×2 grid of chips. */
+.sv-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.sv-chip {
+  height: 26px;
+  border: 1px solid var(--sv-line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--fct-bg) 40%, transparent);
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-xs);
+  cursor: pointer;
+  transition: border-color var(--fct-t-fast), color var(--fct-t-fast), box-shadow var(--fct-t-fast);
+}
+
+.sv-chip:hover {
+  border-color: color-mix(in srgb, var(--fct-accent) 60%, transparent);
+  color: var(--fct-text);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fct-accent) 20%, transparent);
+}
+
+/* On/off switch: a row, label left, pill right. */
+.sv-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fct-text-dim);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sv-switch:hover {
+  color: var(--fct-text);
+}
+
+.sv-switch-label {
+  flex: 1 1 auto;
+}
+
+.sv-switch-track {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--sv-line-strong);
+  transition: background var(--fct-t-fast), box-shadow var(--fct-t-fast);
+}
+
+.sv-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--fct-text-dim);
+  transition: transform var(--fct-t-fast), background var(--fct-t-fast);
+}
+
+.sv-switch[data-on="1"] {
+  color: var(--fct-text);
+}
+
+.sv-switch[data-on="1"] .sv-switch-track {
+  background: var(--fct-accent);
+  box-shadow: 0 0 12px var(--sv-glow);
+}
+
+.sv-switch[data-on="1"] .sv-switch-track::after {
+  transform: translateX(14px);
+  background: var(--fct-accent-ink);
+}
+
+.sv-switch:focus-visible {
+  outline: none;
+}
+
+.sv-switch:focus-visible .sv-switch-track {
+  box-shadow: 0 0 0 3px var(--sv-glow);
+}
+
+.sv-kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid var(--sv-line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font: 10px / 1.3 var(--fct-font-mono);
+  color: var(--fct-text-muted);
+  text-align: center;
+}
+
+.sv-select {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--sv-line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--fct-bg) 55%, transparent);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+.sv-select:focus-visible {
+  outline: none;
+  border-color: var(--fct-accent);
+}
+
+.sv-select option {
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+}
+
+.sv-select[hidden] {
+  display: none;
+}
+
+/* Background swatches. Each chip paints roughly what the scene will. */
+.sv-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.sv-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.sv-swatch-chip {
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 100%;
+  border: 1px solid var(--sv-line-strong);
+  border-radius: 8px;
+  transition: box-shadow var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+
+.sv-swatch[data-bg="theme"] .sv-swatch-chip { background: var(--fct-bg); }
+.sv-swatch[data-bg="gradient"] .sv-swatch-chip { background: linear-gradient(#26303f, #07080b); }
+.sv-swatch[data-bg="black"] .sv-swatch-chip { background: #000; }
+.sv-swatch[data-bg="studio"] .sv-swatch-chip { background: #3c3f45; }
+.sv-swatch[data-bg="environment"] .sv-swatch-chip { background: radial-gradient(circle at 50% 30%, #d9dde3, #6d737c 60%, #3a3e44); }
+
+.sv-swatch:hover {
+  color: var(--fct-text);
+}
+
+.sv-swatch[data-on="1"] {
+  color: var(--fct-accent);
+}
+
+.sv-swatch[data-on="1"] .sv-swatch-chip {
+  border-color: var(--fct-accent);
+  box-shadow: 0 0 0 1px var(--fct-accent), 0 0 14px var(--sv-glow);
+}
+
+/* Capture actions. */
+.sv-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.sv-action {
+  flex: 1 1 0;
+  height: 30px;
+  border: 1px solid var(--fct-accent);
+  border-radius: 8px;
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--fct-accent) 30%, transparent);
+  transition: filter var(--fct-t-fast);
+}
+
+.sv-action:hover {
+  filter: brightness(1.1);
+}
+
+.sv-action-quiet {
+  border-color: var(--sv-line-strong);
+  background: transparent;
+  color: var(--fct-text-dim);
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.sv-action-quiet:hover {
+  color: var(--fct-text);
+  border-color: color-mix(in srgb, var(--fct-accent) 60%, transparent);
+}
+
+/* Model info: two columns of label and number. */
+.sv-info {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 12px;
+  margin: 0;
+  font-size: var(--fct-fs-xs);
+}
+
+.sv-info dt {
+  color: var(--fct-text-muted);
+}
+
+.sv-info dd {
+  margin: 0;
+  font-family: var(--fct-font-mono);
+  color: var(--fct-text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* ── Gizmo ────────────────────────────────────────────────────────────────── */
+
+/* The gizmo itself is drawn into the WebGL canvas by three's ViewHelper; this
+   is the transparent disc over it that takes the click, with a faint ring so
+   the corner reads as a control and not as part of the model. */
+.sv-gizmo {
+  position: absolute;
+  z-index: 1;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--fct-bg) 30%, transparent) 55%, transparent 70%);
+  box-shadow: inset 0 0 0 1px var(--sv-line);
+  cursor: pointer;
+  transition: box-shadow var(--fct-t-fast);
+}
+
+.sv-gizmo:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fct-accent) 55%, transparent), 0 0 18px color-mix(in srgb, var(--fct-accent) 18%, transparent);
+}
+
+.sv-gizmo[hidden] {
+  display: none;
+}
+
+/* ── Animation bar ────────────────────────────────────────────────────────── */
+
+.sv-anim {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(560px, calc(100% - 300px));
+  min-width: 260px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid var(--sv-line);
+  border-radius: 999px;
+  background: var(--sv-glass);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+  transform: translateX(-50%);
+}
+
+.sv-anim[hidden] {
+  display: none;
+}
+
+/* With the panel open the bar centres on what is left of the stage, or its
+   left end would slide under the panel on a medium window. */
+.sv-panel:not([hidden]) ~ .sv-anim {
+  left: calc(50% + 133px);
+  width: min(520px, calc(100% - 580px));
+  min-width: 220px;
+}
+
+.sv-anim-play {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 0 14px var(--sv-glow);
+}
+
+.sv-anim-scrub {
+  flex: 1 1 auto;
+  min-width: 40px;
+}
+
+.sv-anim-time {
+  flex: none;
+  font: var(--fct-fs-xs) / 1 var(--fct-font-mono);
+  color: var(--fct-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.sv-anim-clip {
+  flex: 0 1 120px;
+  min-width: 0;
+}
+
+.sv-anim-speed {
+  flex: none;
+  width: 58px;
+}
+
+.sv-anim-loop {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fct-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sv-anim-loop[data-on="1"] {
+  color: var(--fct-accent);
+  border-color: color-mix(in srgb, var(--fct-accent) 45%, transparent);
+}
+
+/* ── Shortcut sheet ───────────────────────────────────────────────────────── */
+
+.sv-help {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--fct-bg) 55%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.sv-help[hidden] {
+  display: none;
+}
+
+.sv-help-card {
+  max-width: 440px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border: 1px solid var(--sv-line);
+  border-radius: 14px;
+  background: var(--sv-glass);
+  box-shadow: 0 16px 50px rgb(0 0 0 / 0.45);
+}
+
+.sv-help-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 16px;
+  margin: 12px 0 0;
+  font-size: var(--fct-fs-sm);
+}
+
+.sv-help-grid dt {
+  display: flex;
+  gap: 3px;
+  justify-content: flex-end;
+}
+
+.sv-help-grid dd {
+  margin: 0;
+  color: var(--fct-text-dim);
+}
+
+.sv-help-foot {
+  margin: 14px 0 0;
+  font-size: var(--fct-fs-xs);
+  color: var(--fct-text-muted);
+}
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+
+.sv-toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 5;
+  max-width: calc(100% - 24px);
+  padding: 6px 14px;
+  border: 1px solid color-mix(in srgb, var(--fct-accent) 40%, transparent);
+  border-radius: 999px;
+  background: var(--sv-glass);
+  backdrop-filter: blur(10px);
+  color: var(--fct-text);
+  font-size: var(--fct-fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transform: translateX(-50%);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--fct-accent) 18%, transparent);
+  animation: sv-toast 180ms ease-out;
+}
+
+.sv-toast[hidden] {
+  display: none;
+}
+
+@keyframes sv-toast {
+  from { opacity: 0; transform: translate(-50%, -4px); }
 }
 
 /* ── Status line ──────────────────────────────────────────────────────────── */
@@ -133,15 +842,78 @@
 .sv-status {
   flex: none;
   height: var(--fct-status-h, 24px);
-  display: flex;
-  align-items: center;
+  /* Block, not flex: text-overflow only reaches text in a block box, and in a
+     pop-out the line is always longer than the window. */
+  display: block;
+  line-height: calc(var(--fct-status-h, 24px) - 1px);
   padding: 0 10px;
   background: var(--fct-surface-raised);
-  border-top: 1px solid var(--fct-border);
+  border-top: 1px solid var(--sv-line);
   font-size: var(--fct-fs-xs);
   font-family: var(--fct-font-mono);
   color: var(--fct-text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── Compact: a pop-out or a narrow window ────────────────────────────────── */
+
+/* Set from the measured stage width in `resize`, not a media query: the viewer
+   can be a small pop-out inside a large screen, and it is the stage that is
+   small, not the display. */
+.sv[data-compact] .sv-bar {
+  padding: 4px;
+  flex-wrap: nowrap;
+}
+
+.sv[data-compact] .sv-opt {
+  display: none;
+}
+
+.sv[data-compact] .sv-title {
+  padding: 0 4px;
+  font-size: var(--fct-fs-sm);
+}
+
+.sv[data-compact] .sv-btn {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+}
+
+/* A 256 px column in a 360 px stage would leave a sliver of model, so the
+   panel becomes a sheet over the whole stage and Esc takes it away again. */
+.sv[data-compact] .sv-panel {
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  width: auto;
+}
+
+.sv[data-compact] .sv-anim {
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  width: auto;
+  min-width: 0;
+  gap: 6px;
+  padding: 4px 8px 4px 4px;
+  transform: none;
+}
+
+.sv[data-compact] .sv-anim-clip,
+.sv[data-compact] .sv-anim-speed,
+.sv[data-compact] .sv-anim-loop {
+  display: none;
+}
+
+.sv[data-compact] .sv-anim-play {
+  width: 24px;
+  height: 24px;
+}
+
+.sv[data-compact] .sv-status {
+  padding: 0 6px;
 }

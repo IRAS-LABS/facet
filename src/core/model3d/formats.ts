@@ -2,7 +2,7 @@
  * Telling one 3D file from another, before anything tries to draw it (item 13).
  *
  * The explorer already calls eleven extensions `model3d`, and FACET can draw
- * five of them. That gap is the first thing this file exists for: a `.blend` has
+ * seven of them. That gap is the first thing this file exists for: a `.blend` has
  * to be turned away *with a sentence* rather than opened into an empty grey
  * scene, because an empty scene is a claim about the file ("it has nothing in
  * it") and turning it away is a claim about FACET ("I can't read this"), and
@@ -33,10 +33,12 @@ export type Model3DFormat =
   | "stl-binary"
   | "stl-ascii"
   | "ply-binary"
-  | "ply-ascii";
+  | "ply-ascii"
+  | "3mf"
+  | "dae";
 
 /** The extensions `sniff` will attempt. Everything else is somebody else's job. */
-export const VIEWABLE_EXTS: readonly string[] = ["glb", "gltf", "obj", "stl", "ply"];
+export const VIEWABLE_EXTS: readonly string[] = ["glb", "gltf", "obj", "stl", "ply", "3mf", "dae"];
 
 /**
  * The 3D extensions FACET recognises but cannot draw, each with the reason.
@@ -52,8 +54,6 @@ export const UNSUPPORTED: Readonly<Record<string, string>> = {
   blend: "A .blend is a whole Blender session, not a mesh — open it in Blender.",
   usd: "USD needs a runtime larger than the rest of FACET put together.",
   usdz: "USD needs a runtime larger than the rest of FACET put together.",
-  dae: "COLLADA is readable but nothing here reads it yet.",
-  "3mf": "3MF is a print package, not a scene — nothing here reads it yet.",
 };
 
 /** Normalise however the extension arrived: `.STL`, `STL`, `stl` all match. */
@@ -122,6 +122,16 @@ export function sniff(head: Uint8Array, totalBytes: number, rawExt: string): Mod
 
   if (e === "stl") return stlFlavour(head, totalBytes);
   if (e === "obj") return "obj";
+  // A 3MF is a ZIP with a model inside, so the only honest byte test is the ZIP
+  // signature; what is inside is the loader's to find. Anything else named
+  // .3mf — an HTML error page saved under the download's name, most often — is
+  // refused here rather than handed to an unzipper that fails obscurely.
+  if (e === "3mf") return startsWith(head, "PK\x03\x04") ? "3mf" : null;
+  // COLLADA is XML, and XML can open with a byte-order mark, a prolog and any
+  // number of comments before the root element — so it is looked for, not
+  // expected at byte zero. The head is generous enough to reach it in every
+  // exporter's output seen so far.
+  if (e === "dae") return /<collada[\s>]/i.test(ascii(head, 0, head.length)) ? "dae" : null;
   if (e === "gltf" || e === "glb") {
     // Magic said it is not a GLB, so a JSON glTF is the only thing left it can
     // honestly be. Trusting the extension here is safe in a way it was not for
@@ -190,6 +200,10 @@ export function formatLabel(f: Model3DFormat): string {
       return "PLY (binary)";
     case "ply-ascii":
       return "PLY (text)";
+    case "3mf":
+      return "3MF";
+    case "dae":
+      return "COLLADA";
   }
 }
 
@@ -203,5 +217,7 @@ export function formatLabel(f: Model3DFormat): string {
  * their model exported grey.
  */
 export function hasOwnMaterials(f: Model3DFormat): boolean {
-  return f === "glb" || f === "gltf";
+  // 3MF carries base materials and colour groups, and COLLADA its own effects;
+  // both come through their loaders as real materials.
+  return f === "glb" || f === "gltf" || f === "3mf" || f === "dae";
 }
