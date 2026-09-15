@@ -1,4 +1,4 @@
-import { readdir, readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { defineConfig, type Plugin } from "vite";
 
 // Resolve a path relative to this file without pulling in @types/node just for
@@ -90,8 +90,13 @@ function fixtures(): Plugin {
  * nobody thought about. Adding a genuinely new asset means adding a line here,
  * which is the point: one deliberate edit, in a file that gets reviewed.
  *
- * Each removal is printed. A build that quietly drops an asset the app needs
- * would be worse than the leak.
+ * Each removal is printed, and the files the app fetches by hand at runtime are
+ * checked for afterwards. Printing was supposed to be enough and twice was not:
+ * a warning in the middle of a hundred lines of build output is not a warning.
+ * `tessdata` went missing and OCR silently reached for a CDN; `voice` went
+ * missing and read-aloud silently guessed every word. Both shipped. So the
+ * required list below is asserted rather than announced, and a build that would
+ * drop one of them fails instead.
  */
 function shipOnly(): Plugin {
   const ALLOWED = new Set([
@@ -104,6 +109,24 @@ function shipOnly(): Plugin {
     // fell back to a CDN fetch the packaged app's CSP had no host for -- the
     // exact failure bundling it was meant to end.
     "tessdata",
+    // The read-aloud pronunciation dictionary, for exactly the same reason,
+    // and it was missed for exactly as long. Every build of FACET ever shipped
+    // dropped `voice/` here, so `cmudict-ipa.txt.gz` 404'd in the packaged app,
+    // `dictionary()` swallowed it as designed, and every single word the
+    // natural voices read was guessed by letter-to-sound rule. It sounded like
+    // it. Nothing caught it because the dev server serves `public/` straight
+    // off disk, so every check passed on a dictionary the shipped app did not
+    // have. espeak-ng does the English now and does not need this file, but the
+    // non-English voices and any machine where espeak will not load still fall
+    // back to it, and a fallback that is not in the build is not a fallback.
+    "voice",
+    // The pop-out window's page. A second entry rather than a mode of
+    // index.html, so a pop-out does not boot the whole explorer to show one
+    // file.
+    "pip.html",
+    // The 3D viewer's Draco / KTX2 decoders, copied out of three's own
+    // examples so a compressed glTF never needs a CDN.
+    "decoders",
     "favicon.ico",
     "icon-192.png",
     "icon-512.png",
@@ -123,6 +146,29 @@ function shipOnly(): Plugin {
         if (ALLOWED.has(name)) continue;
         await rm(`${dist}/${name}`, { recursive: true, force: true });
         console.warn(`[facet] not on the ship list, dropped from dist/: ${name}`);
+      }
+
+      // Assets the app asks for by URL at runtime. A bundler cannot see these
+      // -- there is no import to follow -- so nothing but this list stands
+      // between a missing file and an app that degrades quietly in the hands
+      // of someone who will never know what it was supposed to sound like.
+      const REQUIRED = [
+        "voice/cmudict-ipa.txt.gz",
+        "tessdata/eng.traineddata.gz",
+      ];
+      const missing: string[] = [];
+      for (const rel of REQUIRED) {
+        try {
+          await stat(`${dist}/${rel}`);
+        } catch {
+          missing.push(rel);
+        }
+      }
+      if (missing.length > 0) {
+        throw new Error(
+          `[facet] the build is missing runtime assets the app fetches by URL: ${missing.join(", ")}. `
+            + "Either the file is not in public/, or its top folder is not on the ship list above.",
+        );
       }
     },
   };
@@ -175,10 +221,12 @@ export default defineConfig({
     target: "es2022",
     sourcemap: true,
     rollupOptions: {
-      // One page. Anything else that needs building has its own config, so
-      // its assets are not emptied and rewritten every time FACET is rebuilt.
+      // The explorer, and the pop-out page. Anything else that needs building
+      // has its own config, so its assets are not emptied and rewritten every
+      // time FACET is rebuilt.
       input: {
         main: here("./index.html"),
+        pip: here("./pip.html"),
       },
     },
   },

@@ -1,6 +1,6 @@
 [package]
 name = "facet"
-version = "0.1.5"
+version = "0.1.6"
 description = "FACET — file explorer and media studio"
 edition = "2021"
 rust-version = "1.77.2"
@@ -36,6 +36,12 @@ serde_json = "1"
 # application on Android, and the crate does not build for that target.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-drag = "2.1.1"
+# Pop-out windows: a second `facet pip open …` hands its arguments to the copy
+# already running instead of starting its own, so every pop-out lives in one
+# table that `pip tile` and `pip close` can reach. Tauri's own plugin,
+# MIT/Apache-2.0, a few hundred KB of source; no dependencies Tauri does not
+# already build.
+tauri-plugin-single-instance = "2.4"
 
 [target.'cfg(target_os = "android")'.dependencies]
 wry = "0.55"

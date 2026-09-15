@@ -1,6 +1,6 @@
 {
   "name": "facet",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "license": "MIT",
   "description": "All-in-one file explorer and media studio. Desktop and Android, fully on-device.",
@@ -17,7 +17,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "icons": "py brand/make-icons.py",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
+    "build:apk": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-apk.ps1 -Release"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
@@ -34,6 +36,7 @@
     "onnxruntime-web": "1.26.0-dev.20260416-b7804b056c",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
+    "phonemizer": "^1.2.1",
     "tesseract.js": "^7.0.0",
     "three": "^0.185.1"
   }

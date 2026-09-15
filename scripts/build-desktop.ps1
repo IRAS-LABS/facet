@@ -23,10 +23,22 @@
 
 .PARAMETER NoBundle
   Build facet.exe but skip the NSIS installer.
+
+.PARAMETER NoFfmpeg
+  Leave ffmpeg out of the installer; the app then uses whatever is on PATH.
+
+.PARAMETER FfmpegZip
+  Where the bundled ffmpeg comes from. Defaults to BtbN's win64 gpl-shared
+  build of FFmpeg 8.1: shared, so ffmpeg.exe and ffprobe.exe share one set of
+  DLLs instead of carrying two static copies, and GPL because the video export
+  encodes with libx264, which no LGPL build contains. The Android binaries are
+  GPL for the same reason. See THIRD-PARTY-NOTICES.md for what that obliges.
 #>
 param(
     [switch]$Debug,
-    [switch]$NoBundle
+    [switch]$NoBundle,
+    [switch]$NoFfmpeg,
+    [string]$FfmpegZip = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,11 +57,73 @@ $remap = "--remap-path-prefix=$cargoHome=/cargo",
          "--remap-path-prefix=$root=/facet"
 $env:RUSTFLAGS = ((@($env:RUSTFLAGS) + $remap) -ne '' -join ' ').Trim()
 
+# ── ffmpeg, bundled ──────────────────────────────────────────────────────────
+#
+# Fetched once into src-tauri/binaries (ignored by git: ~90 MB of someone
+# else's binaries do not belong in the history) and handed to the bundler as a
+# resource through --config, so tauri.conf.json, CI and a plain `tauri build`
+# stay exactly as they were. The installer puts it in <install dir>\ffmpeg\,
+# which is where ffmpeg.rs looks before falling back to PATH.
+$tauriConfig = $null
+if (-not $Debug -and -not $NoBundle -and -not $NoFfmpeg) {
+    $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest crawls with the bar on
+    $bin     = Join-Path $root 'src-tauri\binaries'
+    $zipPath = Join-Path $bin ([IO.Path]::GetFileName(([uri]$FfmpegZip).AbsolutePath))
+    $unzip   = Join-Path $bin 'ffmpeg-download'
+    $stage   = Join-Path $bin 'ffmpeg-win64'
+    if (-not (Test-Path $bin)) { New-Item -ItemType Directory -Path $bin | Out-Null }
+
+    if (-not (Test-Path (Join-Path $stage 'ffmpeg.exe'))) {
+        if (-not (Test-Path $zipPath)) {
+            Write-Host "   downloading ffmpeg: $FfmpegZip" -ForegroundColor DarkGray
+            Invoke-WebRequest -Uri $FfmpegZip -OutFile $zipPath -UseBasicParsing
+        }
+        # Kept rather than cleaned up after: it is the cache, and this machine's
+        # rule is that nothing is deleted outright.
+        Expand-Archive -Path $zipPath -DestinationPath $unzip -Force
+        $top = Get-ChildItem $unzip -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        New-Item -ItemType Directory -Force -Path $stage | Out-Null
+        # ffplay is not used by the app; the headers, import libraries and docs
+        # in the zip are for building against ffmpeg, not running it.
+        Get-ChildItem (Join-Path $top.FullName 'bin') -File |
+            Where-Object { $_.Name -ne 'ffplay.exe' } |
+            Copy-Item -Destination $stage -Force
+        Copy-Item (Join-Path $top.FullName 'LICENSE.txt') (Join-Path $stage 'LICENSE-ffmpeg.txt') -Force
+
+        # What the GPL asks a redistributor to be able to say: exactly which
+        # build this is and how it was configured, and where its source is.
+        $hash    = (Get-FileHash $zipPath -Algorithm SHA256).Hash
+        $version = & (Join-Path $stage 'ffmpeg.exe') -hide_banner -version 2>$null | Select-Object -First 3
+        @(
+            'FFmpeg bundled with FACET'
+            ''
+            "Binary build: $FfmpegZip"
+            "SHA-256 of that archive: $hash"
+            'Build scripts: https://github.com/BtbN/FFmpeg-Builds'
+            'FFmpeg source: https://ffmpeg.org/download.html  (git: https://git.ffmpeg.org/ffmpeg.git)'
+            ''
+            $version
+            ''
+            'This build is licensed under the GPL (see LICENSE-ffmpeg.txt). FACET runs it as a'
+            'separate program; FACET itself remains MIT-licensed.'
+        ) | Out-File -FilePath (Join-Path $stage 'BUILD-INFO.txt') -Encoding utf8
+    }
+
+    $mb = (Get-ChildItem $stage -File | Measure-Object Length -Sum).Sum / 1MB
+    Write-Host ("   bundling ffmpeg ({0:N0} MB uncompressed) -> <install dir>\ffmpeg\" -f $mb) -ForegroundColor DarkGray
+    # A JSON file rather than an inline string: PowerShell 5.1 strips the
+    # quotes out of a JSON argument on its way to a native program.
+    $tauriConfig = Join-Path $bin 'bundle-ffmpeg.json'
+    '{ "bundle": { "resources": { "binaries/ffmpeg-win64/*": "ffmpeg/" } } }' |
+        Out-File -FilePath $tauriConfig -Encoding ascii
+}
+
 Push-Location $root
 try {
     $tauriArgs = @('tauri', 'build')
     if ($Debug)    { $tauriArgs += '--debug' }
     if ($NoBundle) { $tauriArgs += @('--no-bundle') }
+    if ($tauriConfig) { $tauriArgs += @('--config', $tauriConfig) }
 
     & npx @tauriArgs
     if ($LASTEXITCODE -ne 0) { throw "tauri build failed with exit code $LASTEXITCODE" }

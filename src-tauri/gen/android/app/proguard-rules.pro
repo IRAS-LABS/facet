@@ -40,3 +40,23 @@
     public static java.lang.String query(android.content.Context, long, int);
     public static void scan(android.content.Context, java.lang.String);
 }
+
+# OpenBridge.take is reached only from Rust over JNI (openwith.rs). Without
+# this keep, release builds log NoSuchMethodError on every launch and files
+# opened in facet from another app never arrive.
+-keep class com.iraslabs.facet.OpenBridge {
+    public static java.lang.String take();
+}
+
+# SpeechBridge is reached only from Rust over JNI (speech.rs) and from
+# MainActivity.onDestroy. R8 sees no Java caller for the rest and strips them,
+# which on 2026-09-14 surfaced as NoSuchMethodError on "voices" and a reader
+# that still reported no voices on a phone with two working engines.
+-keep class com.iraslabs.facet.SpeechBridge {
+    public static void start(android.content.Context);
+    public static java.lang.String voices(android.content.Context);
+    public static java.lang.String speak(android.content.Context, java.lang.String, java.lang.String, float, float, float);
+    public static void stop();
+    public static java.lang.String drain();
+    public static void shutdown();
+}
