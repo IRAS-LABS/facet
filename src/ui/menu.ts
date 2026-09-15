@@ -14,10 +14,13 @@
  *    bottom of the window that simply overflows is one where the last three
  *    rows cannot be reached; opening upward is the only correct answer, and
  *    when it fits neither way it scrolls.
- *  - **It closes on anything that moves the world underneath it** — Escape,
- *    a click anywhere, a scroll, a resize, a window blur. A stale menu floating
- *    over a folder that has since been navigated away from would run its
- *    commands against the new one.
+ *  - **It closes when the user moves the world underneath it** — Escape, a
+ *    click anywhere outside, a scroll they asked for, a resize, a real window
+ *    blur. A stale menu floating over a folder that has since been navigated
+ *    away from would run its commands against the new one. What it does *not*
+ *    close on is the page reflowing by itself; see `closeLater` and
+ *    `INPUT_MS` for why that distinction is the whole difference between a
+ *    menu you can use and one that flickers away.
  *  - **Rows are buttons and the keyboard works.** Up/Down move, Enter runs,
  *    Escape closes and puts focus back where the menu was opened from, because
  *    a menu that eats the focus is one that breaks the next keystroke.
@@ -27,6 +30,29 @@
 
 import { buildMenu, type MenuCommand, type MenuEntry } from "@core/explorer/menu";
 import { placePopup } from "./popup-place";
+
+/**
+ * How long after opening the menu ignores ambient scroll and resize events.
+ *
+ * Long enough to cover the frame the menu appears in and the focus change that
+ * follows it; far shorter than the gap between opening a menu and deciding to
+ * scroll away from it.
+ */
+const SETTLE_MS = 350;
+
+/**
+ * How recently the user must have done something for a scroll to count as
+ * theirs.
+ *
+ * Every deliberate scroll is preceded by a wheel, a key, or a finger — within
+ * a few milliseconds of it. A scroll with no input behind it came from the
+ * page: a preview image finishing its load and reflowing the pane, a row
+ * being brought into view by the selection the right-click itself made, the
+ * WebView settling after the popup appeared. Those are not the world moving
+ * out from under the menu, and closing on them is why the menu "disappears if
+ * you look at it".
+ */
+const INPUT_MS = 300;
 
 /** A command that can actually be invoked — what the shell hands over. */
 export interface RunnableCommand extends MenuCommand {
@@ -52,6 +78,10 @@ export class ContextMenu {
   private rows: HTMLButtonElement[] = [];
   private active = -1;
   private returnFocus: HTMLElement | null = null;
+  /** When the menu last opened, for {@link closeLater}. */
+  private openedAt = 0;
+  /** When the user last did something, for {@link closeLater}. */
+  private lastInput = 0;
 
   constructor() {
     this.root = document.createElement("div");
@@ -67,11 +97,31 @@ export class ContextMenu {
       if (e.target instanceof Node && this.root.contains(e.target)) return;
       this.close();
     }, true);
-    window.addEventListener("blur", () => this.close());
-    window.addEventListener("resize", () => this.close());
+    // `document.hasFocus()` because a window blur is also how the page reacts
+    // to focus moving to a plugin surface or the native title bar on Windows,
+    // and closing the menu the user just opened because the WebView shuffled
+    // focus internally is the "it disappears if I look at it" complaint.
+    window.addEventListener("blur", () => {
+      if (!document.hasFocus()) this.closeLater();
+    });
+    window.addEventListener("resize", () => this.closeLater());
+    // Capture, passive, and always on: the cost is a clock read per event and
+    // it is the only way to tell a scroll the user asked for from one the page
+    // performed on its own.
+    const touched = (): void => {
+      this.lastInput = Date.now();
+    };
+    for (const kind of ["wheel", "keydown", "pointerdown", "touchstart"] as const) {
+      window.addEventListener(kind, touched, { capture: true, passive: true });
+    }
     // Not `scroll` on window: the folder scrolls inside its own element, so the
-    // event never reaches window without capture.
-    window.addEventListener("scroll", () => this.close(), true);
+    // event never reaches window without capture. A scroll *inside* the menu is
+    // the menu's own overflow being used and must not close it.
+    window.addEventListener("scroll", (e) => {
+      if (e.target instanceof Node && this.root.contains(e.target)) return;
+      if (Date.now() - this.lastInput > INPUT_MS) return;
+      this.closeLater();
+    }, true);
     this.root.addEventListener("keydown", (e) => this.onKey(e));
   }
 
@@ -120,12 +170,33 @@ export class ContextMenu {
     }
 
     this.root.hidden = false;
+    this.openedAt = Date.now();
     placePopup(this.root, opts.x, opts.y, opts.above === undefined ? {} : { above: opts.above });
     // Focus the container rather than the first row: arrowing down to the first
     // row is the expected way in, and a menu that arrives with something already
     // highlighted invites an Enter that runs the wrong thing.
     this.root.tabIndex = -1;
     this.root.focus({ preventScroll: true });
+  }
+
+  /**
+   * Close, unless the menu only just opened.
+   *
+   * Opening a popup is itself a layout change: focusing it, or the scrollbar
+   * that appears next to it, or the on-screen keyboard retracting on Android,
+   * all fire `scroll` or `resize` in the same frame as the menu appearing. Each
+   * of those used to close it instantly, which read as a right-click that did
+   * nothing at all — press, flicker, gone — and is the reason this grace window
+   * exists. A deliberate scroll or resize is nowhere near this fast.
+   *
+   * Only the *ambient* triggers come through here. Escape and a pointer press
+   * outside are the user saying "close", and are obeyed immediately however
+   * soon they arrive.
+   */
+  private closeLater(): void {
+    if (!this.isOpen) return;
+    if (Date.now() - this.openedAt < SETTLE_MS) return;
+    this.close();
   }
 
   close(): void {
@@ -180,39 +251,43 @@ export class ContextMenu {
     return b;
   }
 
+  /**
+   * Every key the menu understands is stopped here as well as defaulted.
+   *
+   * Without the `stopPropagation` these bubble to the shell's own key handler
+   * while the menu is open: Down moves the menu's highlight *and* the folder's
+   * cursor, the folder scrolls the new cursor into view, and that scroll shut
+   * the menu. Arrowing to the second row and having the menu vanish is the
+   * same complaint from the keyboard side.
+   */
   private onKey(e: KeyboardEvent): void {
     switch (e.key) {
       case "Escape":
-        e.preventDefault();
-        e.stopPropagation();
         this.close();
         break;
       case "ArrowDown":
-        e.preventDefault();
         this.move(1);
         break;
       case "ArrowUp":
-        e.preventDefault();
         this.move(-1);
         break;
       case "Home":
-        e.preventDefault();
         this.active = -1;
         this.move(1);
         break;
       case "End":
-        e.preventDefault();
         this.active = this.rows.length;
         this.move(-1);
         break;
       case "Enter":
       case " ":
-        e.preventDefault();
         this.rows[this.active]?.click();
         break;
       default:
-        break;
+        return;
     }
+    e.preventDefault();
+    e.stopPropagation();
   }
 
   private move(dir: number): void {

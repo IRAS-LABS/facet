@@ -42,6 +42,7 @@ import "./styles/phone-viewer.css";
 import "./styles/phone-prefs.css";
 import "./styles/phone-editor.css";
 import "./styles/sign.css";
+import "./styles/save-bar.css";
 import "./styles/sign-view.css";
 // Last on purpose: skin.css overrides tokens the sheets above set.
 import "./styles/skin.css";
@@ -279,6 +280,7 @@ const openExternal = (path: string): Promise<void> =>
 
 const viewer = new Viewer({
   fileUrl,
+  readAll: async (path, max) => new Uint8Array(await readHead(path, max)),
   writeFile: (path, bytes, overwrite) =>
     native
       ? native.writeFile(path, bytes, overwrite)
@@ -305,6 +307,7 @@ const player = new MediaPlayer({ fileUrl, openExternal });
 const scene = new SceneView({
   fileUrl,
   openExternal,
+  readAll: async (path, max) => new Uint8Array(await readHead(path, max)),
   writeFile: (path, bytes, overwrite) =>
     native
       ? native.writeFile(path, bytes, overwrite)
@@ -570,6 +573,7 @@ const aedit = new AudioEditor({
  */
 const subs = new SubtitleView({
   fileUrl,
+  readAll: async (path, max) => new Uint8Array(await readHead(path, max)),
   writeFile: (path, bytes, overwrite) =>
     native
       ? native.writeFile(path, bytes, overwrite)

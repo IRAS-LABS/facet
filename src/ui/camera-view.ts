@@ -59,6 +59,7 @@ import {
   type Preset,
   type PresetBackend,
 } from "@core/capture/camera";
+import { writeFree } from "@core/save";
 
 /**
  * The device layer, injected.
@@ -753,10 +754,15 @@ export class CameraView {
   /**
    * Write it, show it, and say where it went.
    *
-   * `overwrite: false` always, and the name that comes *back* is the one
-   * reported — the shell picks `facet-… (2).jpg` when a second capture lands in
-   * the same second, and a camera that told you the wrong name would be a
-   * camera that appears to have lost a photo.
+   * Never over an existing file, and the name that comes *back* is the one
+   * reported — `writeFree` steps to `facet-… (2).jpg` when a second capture
+   * lands in the same second, and a camera that told you the wrong name would
+   * be a camera that appears to have lost a photo.
+   *
+   * It used to call `writeFile(…, false)` under a comment claiming the shell
+   * picked the next free name. Nothing did — `write_file` refuses a taken name
+   * and refuses it as an error — so the second of two shots inside one second
+   * was lost with "could not save" under it.
    */
   private async deliver(blob: Blob, ext: string): Promise<void> {
     const name = stampName(new Date(), ext);
@@ -764,7 +770,7 @@ export class CameraView {
     const path = join(folder, name);
     const bytes = new Uint8Array(await blob.arrayBuffer());
     try {
-      const written = await this.host.writeFile(path, bytes, false);
+      const written = await writeFree(this.host, path, bytes);
       this.say(`Saved ${base(written)} — ${(bytes.length / 1e6).toFixed(1)} MB`);
       this.host.refresh();
     } catch (err) {

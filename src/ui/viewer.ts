@@ -38,13 +38,23 @@ import { getRunner } from "@core/vision/onnx-runner";
 import { autoBlurStore } from "@core/phone/autoblur-prefs";
 import { Tesseract } from "@core/ocr/engine";
 
+import { baseName, suffixed } from "@core/save";
 import { EditRail, type RailStatus } from "./edit-rail";
+import { SaveBar } from "./save-bar";
 import type { PhoneTool } from "./phone/tools";
 import { loadPicture } from "@core/canvas/picture";
 
 export interface ViewerHost {
   /** Full-resolution URL for a path. */
   fileUrl(path: string): Promise<string>;
+  /**
+   * Read a file back whole.
+   *
+   * Only ever used to keep the previous version of a photo before writing over
+   * it — see `overwriteWithBackup`. The editor never reads a picture this way
+   * to *display* it; that is what `fileUrl` is for.
+   */
+  readAll(path: string, max: number): Promise<Uint8Array>;
   writeFile(path: string, bytes: Uint8Array, overwrite: boolean): Promise<string>;
   openExternal(path: string): Promise<void>;
   /**
@@ -286,8 +296,23 @@ export class Viewer {
   private redoStack: string[] = [];
   /** Whether this photo currently has a row in the durable store. */
   private saved = false;
+  /**
+   * Both endings, same as every other editor.
+   *
+   * This screen used to offer one button, "Save a copy", and nothing else —
+   * so the one thing a person doing a batch of blurs actually wants, replacing
+   * the photo they just fixed, meant saving a copy and then deleting the
+   * original by hand in the folder behind. See `@ui/save-bar`.
+   */
+  private readonly saveBar: SaveBar;
 
   constructor(private readonly host: ViewerHost) {
+    this.saveBar = new SaveBar({
+      host,
+      path: () => this.current()?.path ?? "",
+      bytes: () => this.pngBytes(),
+      done: () => this.host.refresh?.(),
+    });
     this.root = document.createElement("div");
     this.root.className = "viewer";
     this.root.hidden = true;
@@ -378,6 +403,16 @@ export class Viewer {
     this.root.querySelector(".viewer-restored")?.remove();
 
     this.title.textContent = `${entry.name}   ${formatSize(entry.size)}`;
+    // The canvas composites to PNG, so a JPEG opened here comes out as a PNG
+    // and cannot be written back over itself — the same rule, and the same
+    // sentence, as the signing panel.
+    const png = /\.png$/i.test(entry.path);
+    this.saveBar.setName(baseName(suffixed(entry.path, "-facet", "png")));
+    this.saveBar.allowOverwrite(
+      png,
+      png ? undefined : "An edited photo is saved as a PNG, so it cannot replace the original file.",
+    );
+    this.saveBar.say("");
     try {
       const url = await this.host.fileUrl(entry.path);
       const img = await loadPicture(url, "decode failed");
@@ -1107,13 +1142,7 @@ export class Viewer {
       this.btn("↶", "Undo  (ctrl+Z)", () => this.undo()),
       this.btn("↷", "Redo  (ctrl+shift+Z)", () => this.redo()),
     );
-    const save = document.createElement("button");
-    save.className = "vp-save";
-    save.type = "button";
-    save.textContent = "Save a copy";
-    save.title = "Writes <name>-facet.png next to the original. The original is never touched.";
-    save.addEventListener("click", () => void this.saveCopy(save));
-    this.panel.append(section("", actions), save);
+    this.panel.append(section("", actions), this.saveBar.root);
   }
 
   /**
@@ -1459,7 +1488,9 @@ export class Viewer {
         // calling the method keeps that feedback where it already is, instead
         // of growing a second, quieter path that says nothing.
         this.panel
-          .querySelector<HTMLButtonElement>(id === "ai.faces" ? ".vp-faces" : ".vp-save")
+          .querySelector<HTMLButtonElement>(
+            id === "ai.faces" ? ".vp-faces" : ".fct-savebar-btn.is-primary",
+          )
           ?.click();
     }
   }
@@ -1627,29 +1658,19 @@ export class Viewer {
 
   // ── Export ──────────────────────────────────────────────────────────────
 
-  private async saveCopy(btn: HTMLButtonElement): Promise<void> {
-    const entry = this.current();
-    if (!entry) return;
-    const was = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Saving…";
-    try {
-      const blob = await new Promise<Blob | null>((res) =>
-        this.canvas.toBlob((b) => res(b), "image/png"),
-      );
-      if (!blob) throw new Error("encode failed");
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      const dot = entry.path.lastIndexOf(".");
-      const stem = dot > 0 ? entry.path.slice(0, dot) : entry.path;
-      const out = await this.host.writeFile(`${stem}-facet.png`, bytes, false);
-      btn.textContent = `Saved  ${out.split("/").pop()}`;
-      this.host.refresh?.();
-    } catch (e) {
-      btn.textContent = `Failed: ${String(e).slice(0, 40)}`;
-    } finally {
-      btn.disabled = false;
-      window.setTimeout(() => { btn.textContent = was; }, 2600);
-    }
+  /**
+   * What is on screen, as PNG bytes.
+   *
+   * The canvas is already the edited picture — every blur, every adjustment is
+   * drawn into it — so there is no second render path to keep in step with the
+   * preview. Which also means what gets saved is exactly what was looked at.
+   */
+  private async pngBytes(): Promise<Uint8Array> {
+    const blob = await new Promise<Blob | null>((res) =>
+      this.canvas.toBlob((b) => res(b), "image/png"),
+    );
+    if (!blob) throw new Error("the picture could not be encoded");
+    return new Uint8Array(await blob.arrayBuffer());
   }
 
   // ── Keys ────────────────────────────────────────────────────────────────

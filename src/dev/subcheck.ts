@@ -579,6 +579,23 @@ const btn = (label: string): HTMLButtonElement | null =>
 const press = (label: string): void => btn(label)?.click();
 
 const noteOf = (): string => $(".subs-note")?.textContent ?? "";
+
+/**
+ * Save the way a person does: pick the format, then press the bar's own button.
+ *
+ * There used to be a "Save .srt" button that wrote the instant it was clicked.
+ * It is a save bar now, like every other editor — the format is a choice and
+ * the writing is a separate, named act, so replacing a sidecar you had edited
+ * by hand can be offered without it happening by accident.
+ */
+const saveAs = (format: "srt" | "vtt"): void => {
+  const pick = $<HTMLSelectElement>(".subs-fmt");
+  if (pick) {
+    pick.value = format;
+    pick.dispatchEvent(new Event("change"));
+  }
+  $<HTMLButtonElement>(".fct-savebar-btn.is-primary")?.click();
+};
 const statusOf = (): string => $(".subs-status")?.textContent ?? "";
 const rows = (): HTMLElement[] => all(".subs-row");
 const textsOf = (): string[] => all<HTMLTextAreaElement>(".subs-text").map((t) => t.value);
@@ -614,6 +631,12 @@ async function viewChecks(): Promise<void> {
     // Deliberately not a real video: nothing here needs pictures, and a fixture
     // that needs a decoder is a fixture that fails on somebody else's machine.
     fileUrl: () => Promise.resolve("data:video/mp4;base64,AAAAIGZ0eXBpc29t"),
+    readAll: (path) => {
+      const hit = [...disk].reverse().find((w) => w.path === path);
+      return hit
+        ? Promise.resolve(new TextEncoder().encode(hit.text))
+        : Promise.reject(new Error(`${path}: not found`));
+    },
     writeFile: (path, bytes) => {
       disk.push({ path, text: new TextDecoder().decode(bytes) });
       return Promise.resolve(path);
@@ -734,13 +757,13 @@ async function viewChecks(): Promise<void> {
   // ── Out to a file ─────────────────────────────────────────────────────────
   {
     disk.length = 0;
-    press("Save .srt");
+    saveAs("srt");
     await sleep(20);
     ok("a sidecar is written beside the film, not over it",
       disk[0]?.path === "C:/films/talk.srt", disk[0]?.path ?? "");
     ok("…and reads back as the same track",
       parseSubtitles(disk[0]?.text ?? "").length === view.track.length);
-    press("Save .vtt");
+    saveAs("vtt");
     await sleep(20);
     ok("WebVTT goes to its own extension", disk[1]?.path === "C:/films/talk.vtt");
     ok("…and says so on the first line",
@@ -798,6 +821,7 @@ async function viewChecks(): Promise<void> {
        better answer most of the time anyway. */
     const web = new SubtitleView({
       fileUrl: host.fileUrl,
+      readAll: host.readAll,
       writeFile: host.writeFile,
       refresh: () => undefined,
     });
@@ -817,7 +841,7 @@ async function viewChecks(): Promise<void> {
     ok("…and says what to do about it",
       ($(".subs-empty")?.textContent ?? "").includes("Import"),
       $(".subs-empty")?.textContent ?? "");
-    press("Save .srt");
+    saveAs("srt");
     await sleep(20);
     ok("…and refuses to write an empty file",
       noteOf().includes("nothing to save"), noteOf());

@@ -237,6 +237,52 @@
   opacity: 1;
 }
 
+/* Delete, on the mark itself.
+   The side panel has a Remove button and the keyboard has Delete, and both of
+   those were already there when the complaint was "I can't delete it" -- which
+   is the answer: a control that is across the room from the thing it acts on
+   is a control people do not find. This one is on the corner of the selected
+   mark, and it is the same button on a signature, a typed date and a cover. */
+.fct-signv-kill {
+  position: absolute;
+  top: calc(-10px * var(--fct-density));
+  right: calc(-10px * var(--fct-density));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 20px on the desktop, 28px at phone density -- a thumb target. */
+  width: calc(20px * var(--fct-density));
+  height: calc(20px * var(--fct-density));
+  padding: 0;
+  border: 1px solid var(--fct-accent);
+  border-radius: 50%;
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+.fct-signv-kill svg {
+  width: 12px;
+  height: 12px;
+}
+.fct-signv-mark.is-picked .fct-signv-kill {
+  opacity: 1;
+  pointer-events: auto;
+}
+.fct-signv-kill:hover {
+  border-color: var(--fct-danger, var(--fct-accent));
+  background: var(--fct-danger, var(--fct-accent));
+  color: var(--fct-accent-ink);
+}
+
+/* Typed text is an image with a transparent background, so it needs nothing
+   painted behind it -- only the same dashed outline every other mark gets, so
+   an empty-looking area is still findable when the ink is pale. */
+.fct-signv-mark.is-text {
+  outline-offset: 1px;
+}
+
 /* A cover. Filled from `mark.colour` inline, so nothing here paints it -- the
    rules are only about making an opaque black rectangle findable again once
    you have let go of it. */
@@ -300,24 +346,99 @@
   gap: var(--fct-sp-2);
 }
 
+/* The card is a frame around two things: the big area that places the
+   signature, and the two small tools that rename or delete it. They are
+   separate elements because a delete nested inside the place button would be a
+   button inside a button, which is invalid and behaves unpredictably. */
 .fct-signv-sig {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--fct-sp-1);
-  padding: var(--fct-sp-2);
   border: 1px solid var(--fct-border);
   border-radius: var(--fct-radius-sm);
   /* White, not the surface token: ink is drawn in ink colours and a dark card
      under a black signature shows nothing at all. */
   background: #fff;
-  cursor: pointer;
+  overflow: hidden;
 }
 .fct-signv-sig:hover {
   border-color: var(--fct-accent);
 }
-.fct-signv-sig svg,
-.fct-signv-sig img {
+
+.fct-signv-sigart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--fct-sp-1);
+  padding: var(--fct-sp-2);
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+
+/* The tools sit in the corner and fade up on hover, so a grid of signatures
+   reads as signatures rather than as a grid of little icons. On a touch screen
+   there is no hover, so they stay visible -- a delete you cannot reach is the
+   bug this whole row exists to fix. */
+.fct-signv-sigtools {
+  position: absolute;
+  top: calc(2px * var(--fct-density));
+  right: calc(2px * var(--fct-density));
+  display: flex;
+  gap: calc(2px * var(--fct-density));
+  opacity: 0;
+  transition: opacity var(--fct-t-fast);
+}
+.fct-signv-sig:hover .fct-signv-sigtools,
+.fct-signv-sig:focus-within .fct-signv-sigtools {
+  opacity: 1;
+}
+@media (hover: none) {
+  .fct-signv-sigtools {
+    opacity: 1;
+  }
+}
+
+.fct-signv-sigtool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(26px * var(--fct-density));
+  height: calc(26px * var(--fct-density));
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  /* Its own light background, because the card is forced white. */
+  background: rgb(255 255 255 / 0.9);
+  color: #444;
+  cursor: pointer;
+}
+.fct-signv-sigtool:hover {
+  color: #000;
+  border-color: var(--fct-accent);
+}
+.fct-signv-sigtool svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Rename in place: the card's contents are swapped for this field. */
+.fct-signv-rename {
+  width: 100%;
+  padding: var(--fct-sp-2);
+  border: 1px solid var(--fct-accent);
+  border-radius: var(--fct-radius-sm);
+  background: #fff;
+  color: #111;
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+
+/* Scoped to the place button, not to the card: the rename and delete icons are
+   also SVGs and must keep their own 14px. */
+.fct-signv-sigart svg,
+.fct-signv-sigart img {
   display: block;
   width: 100%;
   height: auto;
@@ -444,6 +565,24 @@
   color: var(--fct-text);
   font: inherit;
   font-size: var(--fct-fs-sm);
+}
+
+/* The typed-text field. Takes the rest of the row, because what goes in it is
+   a date or a name rather than a number. */
+.fct-signv-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--fct-sp-1) var(--fct-sp-2);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.fct-signv-text:focus {
+  outline: none;
+  border-color: var(--fct-accent);
 }
 
 /* ── Narrow ───────────────────────────────────────────────────────────────── */

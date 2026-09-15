@@ -56,6 +56,7 @@ import {
 } from "@core/ocr/page";
 import { mergePdfs } from "@core/ocr/pdf";
 import { loadPicture } from "@core/canvas/picture";
+import { writeFree } from "@core/save";
 
 export interface OcrHost {
   fileUrl(path: string): Promise<string>;
@@ -828,9 +829,11 @@ export class OcrView {
   private async write(name: string, bytes: Uint8Array): Promise<void> {
     const folder = this.path.replace(/[\\/][^\\/]+$/, "");
     try {
-      // `false`: never over the original. The panel writes beside it, and if
-      // the name is taken the host picks the next free one and says which.
-      const written = await this.host.writeFile(`${folder}/${name}`, bytes, false);
+      // Never over the original: the panel writes *beside* it, and if the
+      // name is taken `writeFree` steps to the next free one and the status
+      // line says which. (The host does not do that stepping itself — this
+      // used to say it did, and a second read of the same picture failed.)
+      const written = await writeFree(this.host, `${folder}/${name}`, bytes);
       this.host.refresh();
       this.say(`Saved as ${written.split(/[\\/]/).pop()}`);
     } catch (e) {

@@ -534,17 +534,81 @@ async function main(): Promise<void> {
     ok("clicking a row runs it", ran === "look");
     ok("…and closes", menu.isOpen === false);
 
-    // Closing on the world moving. A menu left floating over a folder that has
-    // been navigated away from would run its commands against the new one.
-    menu.open({ x: 40, y: 40, line: "*", commands: runnable });
-    window.dispatchEvent(new Event("resize"));
-    ok("a resize closes it", menu.isOpen === false);
+    /*
+     * Closing on the world moving — and NOT closing on the world settling.
+     *
+     * A menu left floating over a folder that has been navigated away from
+     * would run its commands against the new one, so a scroll or a resize the
+     * user asked for still shuts it. But opening a popup is itself a layout
+     * change: focusing it, the scrollbar appearing beside it, a preview image
+     * finishing its load in the pane, the row the right-click just selected
+     * being brought into view. Every one of those fires `scroll` or `resize`
+     * within a frame or two of the menu appearing, and closing on them is the
+     * bug this section exists for — "I right-click and try to click something
+     * and it disappears". Two guards separate the cases: a settle window after
+     * opening, and a requirement that a scroll have a real input behind it.
+     */
+    const settle = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+    // A pointer press outside is the user saying "close" and is obeyed at once,
+    // however soon it arrives — it is not an ambient event.
     menu.open({ x: 40, y: 40, line: "*", commands: runnable });
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    ok("a click outside closes it", menu.isOpen === false);
+    ok("a click outside closes it immediately", menu.isOpen === false);
+
     menu.open({ x: 40, y: 40, line: "*", commands: runnable });
+    window.dispatchEvent(new Event("resize"));
+    ok("the reflow that opening causes does not close it", menu.isOpen === true);
     document.dispatchEvent(new Event("scroll", { bubbles: true }));
-    ok("a scroll closes it", menu.isOpen === false);
+    ok("…nor does the scroll that comes with it", menu.isOpen === true);
+
+    await settle(400);
+    window.dispatchEvent(new Event("resize"));
+    ok("a resize a moment later does close it", menu.isOpen === false);
+
+    // A scroll with nothing behind it is the page moving itself — a lazy image
+    // reflowing the pane, say. Only a scroll with a wheel, a key or a finger
+    // just before it is the user scrolling away from the menu.
+    menu.open({ x: 40, y: 40, line: "*", commands: runnable });
+    await settle(400);
+    document.dispatchEvent(new Event("scroll", { bubbles: true }));
+    ok("a scroll the user did not start leaves it alone", menu.isOpen === true);
+
+    window.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    document.dispatchEvent(new Event("scroll", { bubbles: true }));
+    ok("a scroll right after a wheel closes it", menu.isOpen === false);
+
+    // Scrolling the menu's own overflow is using the menu, not leaving it.
+    menu.open({ x: 40, y: 40, line: "*", commands: runnable });
+    await settle(400);
+    window.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    menu.element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    ok("scrolling inside the menu never closes it", menu.isOpen === true);
+    menu.close();
+
+    // Arrowing through the menu must not also drive the folder underneath it.
+    // It used to: the shell moved its cursor, scrolled the new row into view,
+    // and that scroll shut the menu on the second press.
+    let leaked = 0;
+    const count = (): void => { leaked++; };
+    window.addEventListener("keydown", count);
+    menu.open({ x: 40, y: 40, line: "*", commands: runnable });
+    press("ArrowDown");
+    press("ArrowUp");
+    press("Escape");
+    window.removeEventListener("keydown", count);
+    ok("the keys the menu uses do not reach the shell", leaked === 0, `${leaked} leaked`);
+    ok("…and Escape still closed it", menu.isOpen === false);
+
+    // A window blur while the page still has focus is the WebView shuffling
+    // focus internally, not the user leaving.
+    menu.open({ x: 40, y: 40, line: "*", commands: runnable });
+    await settle(400);
+    window.dispatchEvent(new Event("blur"));
+    ok("a blur with the page still focused leaves it open",
+      document.hasFocus() ? menu.isOpen === true : true,
+      document.hasFocus() ? "" : "page not focused — check skipped");
+    menu.close();
 
     // The last row.
     let edited = 0;

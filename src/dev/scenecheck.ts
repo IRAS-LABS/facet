@@ -1112,9 +1112,9 @@ async function live(): Promise<void> {
   const url = URL.createObjectURL(new Blob([stl as BlobPart], { type: "model/stl" }));
   // Stands in for the desktop app's writer. Keeping the bytes is what lets the
   // panel's export be asserted end to end rather than only "the click threw no
-  // error" — and it returns a *different* name, the way a real `writeFile` does
-  // when the obvious one is taken, so the button is checked against what was
-  // actually written rather than what was asked for.
+  // error" — and it refuses a taken name, the way the real `write_file` does,
+  // so the name the bar reports is checked against what was actually written
+  // rather than what was asked for.
   const written: Array<{ path: string; bytes: Uint8Array }> = [];
   // Screenshots are kept apart, and the first name is refused the way the
   // desktop writer refuses a file that exists, so the viewer has to step on.
@@ -1128,6 +1128,12 @@ async function live(): Promise<void> {
   const view = new SceneView({
     fileUrl: (path) => Promise.resolve(urls.get(path) ?? url),
     openExternal: () => Promise.resolve(),
+    // Reads back what this same fake disk was given, so an overwrite's backup
+    // holds the previous bytes rather than whatever a stub felt like returning.
+    readAll: (path) => {
+      const hit = [...shots, ...written].reverse().find((w) => w.path === path);
+      return hit ? Promise.resolve(hit.bytes) : Promise.reject(new Error(`${path}: not found`));
+    },
     writeFile: (path, bytes) => {
       if (path.includes("-screenshot-")) {
         if (path.endsWith("-screenshot-1.png")) {
@@ -1137,8 +1143,23 @@ async function live(): Promise<void> {
         shots.push({ path, bytes: bytes.slice() });
         return Promise.resolve(path);
       }
+      /*
+       * Refuses a taken name rather than renaming past it, because that is
+       * what `write_file` in `fsx.rs` does — the stepping to "(2)" is
+       * `writeFree`'s job, not the backend's.
+       *
+       * This mock used to *return* a different name than it was given, which
+       * quietly asserted a contract the desktop app has never had; four
+       * producer panels were written against that fiction and lost a file
+       * whenever two saves landed in the same second. Treating the first name
+       * as taken makes the real stepping run here.
+       */
+      if (!/ \(\d+\)\.\w+$/.test(path)) {
+        refused.push(path);
+        return Promise.reject(new Error(`${path}: already exists`));
+      }
       written.push({ path, bytes: bytes.slice() });
-      return Promise.resolve(path.replace(/\.(\w+)$/, " (2).$1"));
+      return Promise.resolve(path);
     },
     prefs,
   });
@@ -1242,9 +1263,13 @@ async function live(): Promise<void> {
     ok("choosing STL warns that it cannot carry a material, before the save",
       (document.querySelector(".se-warn")?.textContent ?? "").includes("material"),
       document.querySelector(".se-warn")?.textContent ?? "(no warning shown)");
-    ok("…and shows the name it will write",
-      (document.querySelector(".se-out")?.textContent ?? "") === "tetra-facet.stl",
-      document.querySelector(".se-out")?.textContent ?? "");
+    const nameIn = document.querySelector(".se .fct-savebar-name") as HTMLInputElement | null;
+    ok("…and offers the name it will write",
+      (nameIn?.value ?? "") === "tetra-facet.stl", nameIn?.value ?? "(no save bar)");
+    // An STL export beside a .stl file is the one case where replacing the
+    // original is a sane thing to offer, so the dangerous button is there.
+    ok("…and replacing the original is offered, the formats being the same",
+      document.querySelector(".se .fct-savebar-btn.is-danger") !== null);
 
     // Turn it 90° about Y through the real number box, so what is asserted is
     // the panel's own plumbing and not `applyPlacement` a second time.
@@ -1258,16 +1283,18 @@ async function live(): Promise<void> {
       (document.querySelector(".se-foot")?.textContent ?? "").includes("edited"),
       document.querySelector(".se-foot")?.textContent ?? "");
 
-    (document.querySelector(".se-save") as HTMLButtonElement | null)?.click();
+    (document.querySelector(".se .fct-savebar-btn.is-primary") as HTMLButtonElement | null)?.click();
     await until(() => written.length > 0);
     ok("the export reaches the writer", written.length === 1, `${written.length} writes`);
 
     const out = written[0];
     ok("…under a name derived from the file, with the chosen extension",
-      out?.path.endsWith("tetra-facet.stl") ?? false, out?.path ?? "");
-    ok("…never overwriting: the button reports the name that was really written",
-      (document.querySelector(".se-save")?.textContent ?? "").includes("tetra-facet (2).stl"),
-      document.querySelector(".se-save")?.textContent ?? "");
+      out?.path.endsWith("tetra-facet (2).stl") ?? false, out?.path ?? "");
+    ok("…stepping past the taken name rather than failing on it",
+      refused.some((r) => r.endsWith("tetra-facet.stl")), refused.join(", "));
+    ok("…and the bar reports the name that was really written",
+      (document.querySelector(".se .fct-savebar-status")?.textContent ?? "").includes("tetra-facet (2).stl"),
+      document.querySelector(".se .fct-savebar-status")?.textContent ?? "");
 
     const saved = out ? sizeOf(new STLLoader().parse(bufferOf(out.bytes))) : new Vector3();
     /* The tetrahedron is 10 × 8.6 × 8 in the file, and the viewer is showing it

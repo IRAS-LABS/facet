@@ -35,6 +35,7 @@ import { imagesToPdf, type PdfImage } from "@core/scan/pdf";
 import { mergePdfs } from "@core/ocr/pdf";
 import { LANGUAGES, Tesseract, type Recogniser } from "@core/ocr/engine";
 import type { Point } from "@core/edit/blur";
+import { writeFree } from "@core/save";
 
 /** What the view needs from the world. */
 export interface ScanHost {
@@ -45,7 +46,8 @@ export interface ScanHost {
   };
   /** Where a finished scan is written. */
   folder(): string;
-  writeFile(path: string, bytes: Uint8Array, overwrite: boolean): Promise<unknown>;
+  /** Answers with the path actually written, which may be a stepped name. */
+  writeFile(path: string, bytes: Uint8Array, overwrite: boolean): Promise<string>;
   /** Tell the file list something appeared. */
   refresh?(): void;
   /**
@@ -679,13 +681,17 @@ export class ScanView {
           this.say(`Saving page ${i + 1} of ${this.pages.length}…`);
           const blob = await this.encode(this.pages[i]!);
           const name = this.pages.length === 1 ? `${stem}.jpg` : `${stem}-${pad(i + 1)}.jpg`;
-          await this.host.writeFile(`${folder}/${name}`, blob.bytes, false);
+          // `writeFree` throughout: two scans inside one second share a stem,
+          // and the backend refuses a taken name rather than stepping past it.
+          await writeFree(this.host, `${folder}/${name}`, blob.bytes);
         }
         this.say(`Saved ${this.pages.length} image${this.pages.length === 1 ? "" : "s"} to ${folder}`);
       } else if (this.searchIn.checked) {
         const bytes = await this.searchablePdf(stem);
-        await this.host.writeFile(`${folder}/${stem}.pdf`, bytes, false);
-        this.say(`Saved a searchable ${stem}.pdf to ${folder}`);
+        const out = await writeFree(this.host, `${folder}/${stem}.pdf`, bytes);
+        // The name that came back, not the one asked for: `writeFree` may have
+        // stepped past a stem a scan a second earlier had already taken.
+        this.say(`Saved a searchable ${out.split(/[\\/]/).pop()} to ${folder}`);
       } else {
         const parts: PdfImage[] = [];
         for (let i = 0; i < this.pages.length; i++) {
@@ -693,8 +699,8 @@ export class ScanView {
           parts.push(await this.encode(this.pages[i]!));
         }
         const bytes = await imagesToPdf(parts, { title: stem });
-        await this.host.writeFile(`${folder}/${stem}.pdf`, bytes, false);
-        this.say(`Saved ${stem}.pdf to ${folder}`);
+        const out = await writeFree(this.host, `${folder}/${stem}.pdf`, bytes);
+        this.say(`Saved ${out.split(/[\\/]/).pop()} to ${folder}`);
       }
       this.host.refresh?.();
     } catch (e) {

@@ -164,6 +164,8 @@ import { SceneEdit } from "@ui/scene-edit";
 export interface SceneHost {
   fileUrl(path: string): Promise<string>;
   openExternal(path: string): Promise<void>;
+  /** Read a model back whole, to keep as the backup an overwrite leaves behind. */
+  readAll(path: string, max: number): Promise<Uint8Array>;
   /** Where an export lands (item 6). Rejects in the browser build. */
   writeFile(path: string, bytes: Uint8Array, overwrite: boolean): Promise<string>;
   /**
@@ -365,6 +367,7 @@ export class SceneView {
       path: () => this.current()?.path ?? null,
       redraw: () => this.request(2),
       reframe: () => this.frameModel(),
+      readAll: (p, max) => this.host.readAll(p, max),
       writeFile: (p, b, o) => this.host.writeFile(p, b, o),
     });
 

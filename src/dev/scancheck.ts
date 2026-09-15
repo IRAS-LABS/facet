@@ -574,8 +574,11 @@ async function uiTests(): Promise<void> {
     source: { open: () => Promise.resolve(cam.stream) },
     folder: () => "/scans",
     writeFile: (path: string, bytes: Uint8Array) => {
+      // A taken name has to be refused the way the real backend refuses it, or
+      // the numbering `writeFree` does on a second scan is never exercised.
+      if (wrote.some((w) => w.path === path)) return Promise.reject(new Error(`${path}: already exists`));
       wrote.push({ path, bytes });
-      return Promise.resolve(undefined);
+      return Promise.resolve(path);
     },
     refresh: () => { refreshed++; },
   });

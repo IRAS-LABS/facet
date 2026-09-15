@@ -47,10 +47,13 @@ import {
 import { opaque } from "@core/edit/blur";
 import { flattenPdf } from "@core/sign/flatten";
 import { loadPicture } from "@core/canvas/picture";
-import { browserSigBackend, SignatureStore, type SigKind, type Signature } from "@core/sign/store";
+import { browserSigBackend, SignatureStore, type ImageArt, type SigKind, type Signature } from "@core/sign/store";
 import { textPaths } from "@core/sign/text";
+import { defaultTypeSpec, typeArt, TYPE_FACES, type TypeSpec } from "@core/sign/type";
+import { suffixed } from "@core/save";
 import { el, fill } from "./phone/dom";
 import { icon } from "./phone/icons";
+import { SaveBar } from "./save-bar";
 import { SignPad } from "./sign-pad";
 
 /** What the panel will open: anything you would reasonably sign. */
@@ -102,20 +105,37 @@ const PRESETS: readonly Preset[] = [
 /**
  * Something placed on a page. The unit of everything this panel does.
  *
- * One type for both because everything except what gets painted is shared --
- * the drag, the resize, the selection, the per-page filter and the export
- * ordering are the same job whether the box holds a signature or hides a bank
- * balance. `sigId` is empty for a cover; `colour` is unused for a signature.
+ * One type for all three because everything except what gets painted is shared
+ * -- the drag, the resize, the selection, the per-page filter and the export
+ * ordering are the same job whether the box holds a signature, types today's
+ * date or hides a bank balance.
+ *
+ * `colour` used to be documented here as "unused for a signature", which was
+ * the bug rather than the design: a signature saved in black could not be
+ * placed in blue on the one form that demands blue ink without editing the
+ * saved signature itself and breaking it everywhere else. It is now the
+ * placement's own colour, seeded from the signature's, and the preview and
+ * both exporters read it from here.
  */
-type MarkKind = "sig" | "redact";
+type MarkKind = "sig" | "redact" | "text";
 
 interface Mark {
   id: string;
   kind: MarkKind;
+  /** Empty for a cover and for typed text. */
   sigId: string;
   colour: string;
   page: number;
   place: Placement;
+  /** `kind: "text"` only — what was typed and how it is set. */
+  type?: TypeSpec;
+  /**
+   * `kind: "text"` only — the rendered pixels, cached so that dragging does
+   * not re-run the type setter sixty times a second. Re-made whenever the
+   * text, face or colour changes; never on a move or a resize, because the
+   * image is scaled into the placement rather than rendered at it.
+   */
+  art?: ImageArt;
 }
 
 /** The crop window being dragged, and where it applies. */
@@ -166,12 +186,21 @@ export class SignView {
   private readonly canvas = document.createElement("canvas");
   private readonly overlay = el("div.fct-signv-overlay");
   private readonly side = el("aside.fct-signv-side");
-  private readonly nameIn = el("input.fct-signv-name") as HTMLInputElement;
-  private readonly status = el("div.fct-signv-status");
+  private readonly saveBar: SaveBar;
 
   private readonly store: SignatureStore;
   private pad: SignPad | null = null;
   private unsub: (() => void) | null = null;
+
+  /**
+   * The last signature deleted from the library, kept for one Undo.
+   *
+   * Deleting a signature you spent a minute drawing, from a grid of thumbnails
+   * where two of them look alike, is the most plausible mis-click on this
+   * screen. A confirmation would stop it and would also stand between the user
+   * and the perfectly ordinary act of tidying up; an undo costs a variable.
+   */
+  private undoSig: Signature | null = null;
 
   private path = "";
   private isPdf = false;
@@ -245,18 +274,21 @@ export class SignView {
       this.iconBtn("x", "Close  (Esc)", () => this.close()),
     );
 
-    const foot = el("footer.fct-signv-foot",
-      undefined,
-      this.status,
-      el("div.fct-signv-spacer"),
-      this.nameIn,
-      el("button.fct-signv-save", { type: "button", text: "Save signed copy" }),
-    );
-    (foot.querySelector(".fct-signv-save") as HTMLElement | null)
-      ?.addEventListener("click", () => void this.save());
+    // Both endings, on every document. Which one is offered used to be decided
+    // by whichever screen you happened to be on; see `@ui/save-bar`.
+    this.saveBar = new SaveBar({
+      host,
+      path: () => this.path,
+      bytes: () => this.signedBytes(),
+      copyLabel: "Save a signed copy",
+      done: () => this.host.refresh(),
+    });
 
-    this.nameIn.placeholder = "signed file name";
-    this.root.append(head, el("div.fct-signv-body", undefined, this.stage, this.side), foot);
+    this.root.append(
+      head,
+      el("div.fct-signv-body", undefined, this.stage, this.side),
+      this.saveBar.root,
+    );
     this.root.tabIndex = -1;
     this.root.addEventListener("keydown", (e) => this.onKey(e));
     // A click on bare page deselects, which is how you get the handles out of
@@ -300,7 +332,17 @@ export class SignView {
 
     const name = path.split(/[\\/]/).pop() ?? path;
     this.titleEl.textContent = name;
-    this.nameIn.value = name.replace(/\.([^.]+)$/, "-signed.$1");
+    // A picture always comes out as a PNG: the page is composited on a canvas,
+    // and re-encoding somebody's JPEG scan a second time would quietly cost
+    // them detail. That means the name changes extension, and that in turn
+    // means this file cannot be written back over itself.
+    const png = !this.isPdf;
+    this.saveBar.setName(suffixed(name, "-signed", png ? "png" : undefined));
+    this.saveBar.allowOverwrite(
+      this.isPdf || /\.png$/i.test(path),
+      png ? "A signed picture is saved as a PNG, so it cannot replace the original file." : undefined,
+    );
+    this.undoSig = null;
     this.say("");
 
     this.unsub?.();
@@ -467,12 +509,25 @@ export class SignView {
 
       if (mark.kind === "redact") {
         const node = el("div.fct-signv-mark.is-redact", { "data-id": mark.id });
-        if (mark.id === this.picked) node.classList.add("is-picked");
-        node.style.opacity = String(mark.place.opacity);
         node.style.background = mark.colour;
-        node.append(el("div.fct-signv-grip", { title: "Drag to resize" }));
-        this.position(node, mark.place);
-        this.wire(node, mark, { id: mark.id, free: true });
+        this.dressMark(node, mark, true);
+        kids.push(node);
+        continue;
+      }
+
+      if (mark.kind === "text") {
+        const node = el("div.fct-signv-mark.is-text", { "data-id": mark.id });
+        const art = mark.art ?? this.renderType(mark);
+        if (art) {
+          const img = new Image();
+          img.src = art.data;
+          img.className = "fct-signv-art";
+          node.append(img);
+        }
+        // Free-form: typed text is set at one size and stretched into the box,
+        // so letting the box change shape would squash the letters. Same reason
+        // a signature is locked, so it is locked the same way.
+        this.dressMark(node, mark, false);
         kids.push(node);
         continue;
       }
@@ -480,8 +535,6 @@ export class SignView {
       const sig = this.store.get(mark.sigId);
       if (!sig) continue;
       const node = el("div.fct-signv-mark", { "data-id": mark.id });
-      if (mark.id === this.picked) node.classList.add("is-picked");
-      node.style.opacity = String(mark.place.opacity);
 
       if (sig.art.source === "image") {
         const img = new Image();
@@ -490,11 +543,12 @@ export class SignView {
         node.append(img);
       } else {
         const art = artPaths(sig.art);
-        if (art) node.innerHTML = artToSvg(art, sig.colour, 400);
+        // `mark.colour`, not `sig.colour`: the ink is a property of this
+        // placement, so the same saved signature can be black here and blue on
+        // the form that insists on blue.
+        if (art) node.innerHTML = artToSvg(art, mark.colour, 400);
       }
-      node.append(el("div.fct-signv-grip", { title: "Drag to resize" }));
-      this.position(node, mark.place);
-      this.wire(node, mark, { id: mark.id, free: false });
+      this.dressMark(node, mark, false);
       kids.push(node);
     }
 
@@ -507,6 +561,107 @@ export class SignView {
     }
 
     fill(this.overlay, ...kids);
+  }
+
+  /**
+   * The parts every mark on the page gets: selection, opacity, a resize grip,
+   * a delete button, and the pointer wiring.
+   *
+   * It is one function because the complaint that started this was "I can't
+   * delete it and if I do initials I can delete it" — three render branches
+   * that each decided for themselves what handles to put on a mark is exactly
+   * how one kind ends up deletable and another does not. Now there is one
+   * place for that decision and it cannot disagree with itself.
+   */
+  private dressMark(node: HTMLElement, mark: Mark, free: boolean): void {
+    if (mark.id === this.picked) node.classList.add("is-picked");
+    node.style.opacity = String(mark.place.opacity);
+
+    // Visible only on the selected mark (CSS), so the page is not covered in
+    // little crosses — but always in the DOM, so selecting anything at all
+    // puts a delete within one click of the thing being deleted rather than
+    // across the panel in a list.
+    const kill = el("button.fct-signv-kill", { type: "button", title: "Remove this (Delete)" }, icon("x"));
+    kill.addEventListener("pointerdown", (e) => e.stopPropagation());
+    kill.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.removeMark(mark.id);
+    });
+    node.append(el("div.fct-signv-grip", { title: "Drag to resize" }), kill);
+
+    this.position(node, mark.place);
+    this.wire(node, mark, { id: mark.id, free });
+  }
+
+  /** Take a mark off the page. The one path all four delete affordances use. */
+  private removeMark(id: string): void {
+    const before = this.marks.length;
+    this.marks = this.marks.filter((m) => m.id !== id);
+    if (this.marks.length === before) return;
+    if (this.picked === id) this.picked = null;
+    this.paintMarks();
+    this.buildSide();
+    this.say("removed");
+  }
+
+  /** Re-run the type setter for a text mark and cache the pixels on it. */
+  private renderType(mark: Mark): ImageArt | null {
+    if (!mark.type) return null;
+    const art = typeArt(mark.type);
+    // Deleted rather than set to `undefined`: `exactOptionalPropertyTypes` is
+    // on, and an explicit `undefined` is not the same as an absent key.
+    if (art) mark.art = art;
+    else delete mark.art;
+    return art;
+  }
+
+  /**
+   * Drop a typed mark on the page, pre-filled with today's date.
+   *
+   * Pre-filled rather than empty because the overwhelmingly common case is a
+   * date beside a signature, and an empty box that has to be found, clicked
+   * and typed into is three steps to reach the thing that was wanted anyway.
+   * The text is selected in the side panel, so replacing it is one action.
+   */
+  private addText(): void {
+    const spec = defaultTypeSpec();
+    const art = typeArt(spec);
+    const aspect = art && art.h > 0 ? art.w / art.h : 4;
+    const w = Math.min(this.pageW * 0.4, Math.max(90, this.pageW * 0.22));
+    const mark: Mark = {
+      id: newId(),
+      kind: "text",
+      sigId: "",
+      colour: spec.colour,
+      page: this.at,
+      place: placement({ x: this.pageW - w - 56, y: 150, w, h: w / aspect, opacity: 1 }),
+      type: spec,
+      ...(art ? { art } : {}),
+    };
+    this.marks.push(mark);
+    this.picked = mark.id;
+    this.paintMarks();
+    this.buildSide();
+    this.say("type what you want, then drag it into place");
+    this.side.querySelector<HTMLInputElement>(".fct-signv-text")?.select();
+  }
+
+  /**
+   * Re-render a text mark after an edit, keeping its width and its left edge.
+   *
+   * The height follows the new aspect rather than being kept, because a longer
+   * word in a fixed box is a squashed word. Keeping the left edge and the
+   * baseline-ish top means typing does not walk the mark across the page.
+   */
+  private retype(mark: Mark, patch: Partial<TypeSpec>): void {
+    mark.type = { ...(mark.type ?? defaultTypeSpec()), ...patch };
+    if (patch.colour !== undefined) mark.colour = patch.colour;
+    const art = this.renderType(mark);
+    if (art && art.h > 0) {
+      const h = mark.place.w / (art.w / art.h);
+      mark.place = { ...mark.place, h, y: mark.place.y + mark.place.h - h };
+    }
+    this.paintMarks();
   }
 
   /** A cover, dropped where you can see it, sized to be obviously draggable. */
@@ -697,84 +852,32 @@ export class SignView {
     }
     const grid = el("div.fct-signv-sigs");
     for (const sig of sigs) {
-      const card = el("button.fct-signv-sig", { type: "button", title: `Place ${sig.name}` });
-      const art = sig.art.source === "image" ? null : artPaths(sig.art);
-      if (art) card.innerHTML = artToSvg(art, sig.colour, 200);
-      else if (sig.art.source === "image") {
-        const img = new Image();
-        img.src = sig.art.data;
-        card.append(img);
-      }
-      card.append(el("span.fct-signv-signame", undefined, sig.name));
-      card.addEventListener("click", () => this.placeSig(sig));
-      grid.append(card);
+      grid.append(this.sigCard(sig));
     }
     kids.push(grid);
+
+    // The undo sits under the grid rather than in a toast, because a toast
+    // that has already faded is the same as no undo at all and this one has to
+    // survive the user looking away to check what they just lost.
+    if (this.undoSig) {
+      const gone = this.undoSig;
+      kids.push(el("div.fct-signv-btns", undefined,
+        this.textBtn(`Undo — put “${gone.name}” back`, "undo", () => this.restoreSig(gone))));
+    }
 
     kids.push(el("div.fct-signv-btns",
       undefined,
       this.textBtn("Draw signature", "signature", () => this.draw("signature")),
       this.textBtn("Draw initials", "signature", () => this.draw("initials")),
     ));
+    kids.push(el("div.fct-signv-btns",
+      undefined,
+      this.textBtn("Type text or a date", "type", () => this.addText()),
+    ));
 
-    // Selected mark
+    // Selected mark — one editor, three kinds, in the same order every time.
     const mark = this.pickedMark();
-    if (mark && mark.kind === "redact") {
-      kids.push(el("h3.fct-signv-h", undefined, "Selected cover"));
-      kids.push(this.slider("Width", mark.place.w, 8, Math.round(this.pageW), 1, (v) => {
-        mark.place = { ...mark.place, w: v };
-        this.paintMarks();
-      }, (v) => `${Math.round(v)}`));
-      kids.push(this.slider("Height", mark.place.h, 8, Math.round(this.pageH), 1, (v) => {
-        mark.place = { ...mark.place, h: v, y: mark.place.y + mark.place.h - v };
-        this.paintMarks();
-      }, (v) => `${Math.round(v)}`));
-      const ink = el("input.fct-signv-colour", { type: "color", value: mark.colour }) as HTMLInputElement;
-      ink.addEventListener("input", () => {
-        mark.colour = ink.value;
-        this.paintMarks();
-      });
-      kids.push(el("div.fct-signv-row", undefined, el("span.fct-signv-label", undefined, "Fill"), ink));
-      kids.push(el("div.fct-signv-btns",
-        undefined,
-        this.textBtn("Another cover", "plus", () => this.addRedaction()),
-        this.textBtn("Remove", "trash", () => {
-          this.marks = this.marks.filter((m) => m.id !== mark.id);
-          this.picked = null;
-          this.paintMarks();
-          this.buildSide();
-        }),
-      ));
-    } else if (mark) {
-      const sig = this.store.get(mark.sigId);
-      kids.push(el("h3.fct-signv-h", undefined, sig ? `Placed: ${sig.name}` : "Placed"));
-      kids.push(this.slider("Width", mark.place.w, 20, Math.round(this.pageW), 1, (v) => {
-        const h = (v / mark.place.w) * mark.place.h;
-        mark.place = { ...mark.place, w: v, h };
-        this.paintMarks();
-      }, (v) => `${Math.round(v)}`));
-      kids.push(this.slider("Rotate", mark.place.rotate, -180, 180, 1, (v) => {
-        mark.place = { ...mark.place, rotate: v };
-        this.paintMarks();
-      }, (v) => `${Math.round(v)}°`));
-      kids.push(this.slider("Opacity", mark.place.opacity, 0.05, 1, 0.01, (v) => {
-        mark.place = { ...mark.place, opacity: v };
-        this.paintMarks();
-      }, (v) => `${Math.round(v * 100)}%`));
-      kids.push(el("div.fct-signv-btns",
-        undefined,
-        this.textBtn("Duplicate", "copy", () => {
-          this.marks.push({ ...mark, id: newId(), place: { ...mark.place, y: mark.place.y - mark.place.h - 12 } });
-          this.paintMarks();
-        }),
-        this.textBtn("Remove", "trash", () => {
-          this.marks = this.marks.filter((m) => m.id !== mark.id);
-          this.picked = null;
-          this.paintMarks();
-          this.buildSide();
-        }),
-      ));
-    }
+    if (mark) kids.push(...this.markEditor(mark));
 
     // Redact & crop
     kids.push(el("h3.fct-signv-h", undefined, "Black out & crop"));
@@ -970,11 +1073,230 @@ export class SignView {
     fill(this.side, ...kids);
   }
 
+  /**
+   * One saved signature in the library: place it, rename it, delete it.
+   *
+   * It used to be a bare button that could only be placed, which is why the
+   * library could grow to its 24-entry cap and then silently start dropping
+   * the least-used one — the only way to remove a signature was to make
+   * twenty-four better ones. Rename matters for the same reason delete does:
+   * "Signature 3" and "Signature 4" are indistinguishable in a thumbnail grid.
+   */
+  private sigCard(sig: Signature): HTMLElement {
+    const card = el("div.fct-signv-sig", { "data-sig": sig.id });
+
+    const place = el("button.fct-signv-sigart", { type: "button", title: `Place ${sig.name}` });
+    const art = sig.art.source === "image" ? null : artPaths(sig.art);
+    if (art) place.innerHTML = artToSvg(art, sig.colour, 200);
+    else if (sig.art.source === "image") {
+      const img = new Image();
+      img.src = sig.art.data;
+      place.append(img);
+    }
+    place.append(el("span.fct-signv-signame", undefined, sig.name));
+    place.addEventListener("click", () => this.placeSig(sig));
+
+    const tools = el("div.fct-signv-sigtools");
+    const rename = el("button.fct-signv-sigtool", { type: "button", title: "Rename" }, icon("edit"));
+    rename.addEventListener("click", () => this.renameSig(sig));
+    const drop = el("button.fct-signv-sigtool", { type: "button", title: "Delete this signature" }, icon("trash"));
+    drop.addEventListener("click", () => this.deleteSig(sig));
+    tools.append(rename, drop);
+
+    card.append(place, tools);
+    return card;
+  }
+
+  /**
+   * Rename in place — the card becomes a text field until Enter or blur.
+   *
+   * In place rather than a prompt because `window.prompt` is a modal browser
+   * dialog, and this app deliberately does not raise those: on the Android
+   * build it is a system alert over the webview, and it is exactly the kind of
+   * thing that leaves the page unresponsive if it is dismissed oddly.
+   */
+  private renameSig(sig: Signature): void {
+    const card = this.side.querySelector<HTMLElement>(`.fct-signv-sig[data-sig="${sig.id}"]`);
+    const field = el("input.fct-signv-rename", { value: sig.name }) as HTMLInputElement;
+    const commit = (): void => {
+      const name = field.value.trim();
+      if (name.length > 0 && name !== sig.name) this.store.update(sig.id, { name });
+      this.buildSide();
+    };
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") commit();
+      if (e.key === "Escape") this.buildSide();
+      e.stopPropagation();
+    });
+    field.addEventListener("blur", commit);
+    if (card) {
+      fill(card, field);
+      field.focus();
+      field.select();
+    }
+  }
+
+  /**
+   * Delete a saved signature, keeping it for one Undo.
+   *
+   * Marks already on the page that used it are left alone: they hold the
+   * signature's id, `paintMarks` skips a mark whose signature has gone, and
+   * silently deleting somebody's placed signature because they tidied the
+   * library would be a far worse surprise than a blank spot. The undo puts
+   * both back together — see {@link restoreSig}.
+   */
+  private deleteSig(sig: Signature): void {
+    this.undoSig = sig;
+    this.store.remove(sig.id);
+    this.paintMarks();
+    this.buildSide();
+    this.say(`deleted “${sig.name}” — Undo is under the list`);
+  }
+
+  /**
+   * Put a deleted signature back, and re-point anything that was using it.
+   *
+   * `store.add` mints a new id (it has to: an import could collide with a live
+   * one), so every mark still carrying the old id would render as nothing.
+   * Re-pointing them is two lines and is the difference between an undo and an
+   * apology.
+   */
+  private restoreSig(gone: Signature): void {
+    const back = this.store.add({
+      name: gone.name, kind: gone.kind, art: gone.art, colour: gone.colour, aspect: gone.aspect,
+    });
+    for (const m of this.marks) {
+      if (m.kind === "sig" && m.sigId === gone.id) m.sigId = back.id;
+    }
+    this.undoSig = null;
+    this.paintMarks();
+    this.buildSide();
+    this.say(`“${back.name}” is back`);
+  }
+
+  /**
+   * The controls for whatever is selected — the same controls in the same
+   * order, whether it is a signature, a typed date or a cover.
+   *
+   * Before this there were two branches with different capabilities: a cover
+   * could be recoloured and could not be rotated, a signature could be rotated
+   * and could not be recoloured, and only one of them could be duplicated. The
+   * shape of the panel told you nothing about what a mark could do, so every
+   * kind had to be learned separately.
+   */
+  private markEditor(mark: Mark): HTMLElement[] {
+    const kids: HTMLElement[] = [];
+    const sig = mark.kind === "sig" ? this.store.get(mark.sigId) : undefined;
+    const title = mark.kind === "redact"
+      ? "Selected cover"
+      : mark.kind === "text"
+        ? "Selected text"
+        : sig ? `Placed: ${sig.name}` : "Placed signature";
+    kids.push(el("h3.fct-signv-h", undefined, title));
+
+    if (mark.kind === "text") {
+      const spec = mark.type ?? defaultTypeSpec();
+      const field = el("input.fct-signv-text", { value: spec.text, placeholder: "type here" }) as HTMLInputElement;
+      field.addEventListener("input", () => this.retype(mark, { text: field.value }));
+      // Keys are swallowed so Delete inside the field edits the text instead of
+      // deleting the mark being edited, which is the sort of thing that only
+      // happens once before the tool is abandoned.
+      field.addEventListener("keydown", (e) => e.stopPropagation());
+      kids.push(el("div.fct-signv-row", undefined, el("span.fct-signv-label", undefined, "Text"), field));
+
+      const faces = el("div.fct-signv-chips");
+      for (const f of TYPE_FACES) {
+        const chip = el("button.fct-signv-chip", {
+          type: "button", "aria-pressed": spec.face === f.id ? "true" : "false",
+        }, f.label);
+        chip.style.fontFamily = f.stack;
+        chip.addEventListener("click", () => {
+          this.retype(mark, { face: f.id });
+          this.buildSide();
+        });
+        faces.append(chip);
+      }
+      kids.push(faces);
+
+      const style = el("div.fct-signv-chips");
+      for (const [key, label] of [["bold", "Bold"], ["italic", "Italic"]] as ReadonlyArray<["bold" | "italic", string]>) {
+        const chip = el("button.fct-signv-chip", {
+          type: "button", "aria-pressed": spec[key] ? "true" : "false",
+        }, label);
+        chip.addEventListener("click", () => {
+          this.retype(mark, { [key]: !spec[key] } as Partial<TypeSpec>);
+          this.buildSide();
+        });
+        style.append(chip);
+      }
+      kids.push(style);
+    }
+
+    // Colour. Offered for every kind that has one to offer: the cover's fill,
+    // the typed ink, and — the thing that was missing — the ink of this
+    // particular placement of a signature. A photographed signature is the one
+    // exception, because its colours are in its pixels.
+    const recolourable = mark.kind !== "sig" || (sig !== undefined && sig.art.source !== "image");
+    if (recolourable) {
+      const ink = el("input.fct-signv-colour", { type: "color", value: mark.colour }) as HTMLInputElement;
+      ink.addEventListener("input", () => {
+        if (mark.kind === "text") this.retype(mark, { colour: ink.value });
+        else {
+          mark.colour = ink.value;
+          this.paintMarks();
+        }
+      });
+      kids.push(el("div.fct-signv-row", undefined,
+        el("span.fct-signv-label", undefined, mark.kind === "redact" ? "Fill" : "Ink"), ink));
+    }
+
+    const free = mark.kind === "redact";
+    kids.push(this.slider("Size", mark.place.w, 8, Math.round(this.pageW), 1, (v) => {
+      // A cover is whatever shape the thing it hides is; a signature and a
+      // typed word keep their proportions or the letters distort.
+      const h = free ? mark.place.h : (v / mark.place.w) * mark.place.h;
+      mark.place = { ...mark.place, w: v, h, y: mark.place.y + mark.place.h - h };
+      this.paintMarks();
+    }, (v) => `${Math.round(v)}`));
+    if (free) {
+      kids.push(this.slider("Height", mark.place.h, 8, Math.round(this.pageH), 1, (v) => {
+        mark.place = { ...mark.place, h: v, y: mark.place.y + mark.place.h - v };
+        this.paintMarks();
+      }, (v) => `${Math.round(v)}`));
+    }
+    kids.push(this.slider("Rotate", mark.place.rotate, -180, 180, 1, (v) => {
+      mark.place = { ...mark.place, rotate: v };
+      this.paintMarks();
+    }, (v) => `${Math.round(v)}°`));
+    kids.push(this.slider("Opacity", mark.place.opacity, 0.05, 1, 0.01, (v) => {
+      mark.place = { ...mark.place, opacity: v };
+      this.paintMarks();
+    }, (v) => `${Math.round(v * 100)}%`));
+
+    kids.push(el("div.fct-signv-btns",
+      undefined,
+      this.textBtn("Duplicate", "copy", () => {
+        const copy: Mark = {
+          ...mark,
+          id: newId(),
+          place: { ...mark.place, y: mark.place.y - mark.place.h - 12 },
+          ...(mark.type ? { type: { ...mark.type } } : {}),
+        };
+        this.marks.push(copy);
+        this.picked = copy.id;
+        this.paintMarks();
+        this.buildSide();
+      }),
+      this.textBtn("Remove", "trash", () => this.removeMark(mark.id)),
+    ));
+    return kids;
+  }
+
   /** Re-read the numbers next to a slider after a drag moved the mark. */
   private syncFields(): void {
     const mark = this.pickedMark();
     if (!mark) return;
-    const w = this.side.querySelector<HTMLInputElement>('input[data-key="Width"]');
+    const w = this.side.querySelector<HTMLInputElement>('input[data-key="Size"]');
     if (w) w.value = String(mark.place.w);
   }
 
@@ -992,36 +1314,39 @@ export class SignView {
 
   // ── Saving ────────────────────────────────────────────────────────────────
 
-  private async save(): Promise<void> {
-    if (this.busy) return;
-    const name = this.nameIn.value.trim();
-    if (!name) {
-      this.say("give the copy a name first", true);
-      return;
-    }
+  /**
+   * The finished document, whichever kind it is.
+   *
+   * The save bar owns *where* it goes — copy beside the original or in place of
+   * it, with a backup either way — and this owns only what the bytes are. That
+   * split is why "Save a copy" and "Overwrite original" cannot end up producing
+   * different documents.
+   */
+  private signedBytes(): Promise<Uint8Array> {
+    if (this.busy) return Promise.reject(new Error("already saving"));
     this.busy = true;
-    this.say("writing…");
-    try {
-      const bytes = this.isPdf ? await this.signedPdf() : await this.signedImage();
-      if (bytes.length === 0) throw new Error("nothing was produced");
-      const dir = this.path.slice(0, Math.max(this.path.lastIndexOf("/"), this.path.lastIndexOf("\\")));
-      const out = await this.host.writeFile(`${dir}/${name}`, bytes, false);
-      this.host.refresh();
-      this.say(`saved ${out.split(/[\\/]/).pop() ?? out}`);
-    } catch (err) {
-      this.say(err instanceof Error ? err.message : String(err), true);
-    } finally {
+    const work = this.isPdf ? this.signedPdf() : this.signedImage();
+    return work.finally(() => {
       this.busy = false;
-    }
+    });
   }
 
   private async signedPdf(): Promise<Uint8Array> {
     const src = await this.host.readAll(this.path, MAX_BYTES);
     const stamps: StampRequest[] = [];
     for (const mark of this.marks) {
+      if (mark.kind === "text") {
+        // The cache is normally warm; re-rendering here covers the mark that
+        // was typed and never re-drawn because nothing about it changed after.
+        const art = mark.art ?? this.renderType(mark);
+        if (art) stamps.push({ art, colour: mark.colour, place: mark.place, page: mark.page });
+        continue;
+      }
+      if (mark.kind !== "sig") continue;
       const sig = this.store.get(mark.sigId);
       if (!sig) continue;
-      stamps.push({ art: sig.art, colour: sig.colour, place: mark.place, page: mark.page });
+      // `mark.colour`, so the file matches the preview — see `paintMarks`.
+      stamps.push({ art: sig.art, colour: mark.colour, place: mark.place, page: mark.page });
     }
 
     const marks: Watermark[] = [];
@@ -1174,21 +1499,31 @@ export class SignView {
       }
     }
 
+    const asImage = async (raster: ImageArt, place: Placement): Promise<void> => {
+      const node = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const im = new Image();
+        im.addEventListener("load", () => resolve(im));
+        im.addEventListener("error", () => reject(new Error("a saved signature would not load")));
+        im.src = raster.data;
+      });
+      drawImageStampOnCanvas(ctx, node, { w: raster.w, h: raster.h }, place, this.pageH);
+    };
+
     for (const mark of this.marks) {
+      if (mark.page !== 0) continue;
+      if (mark.kind === "text") {
+        const art = mark.art ?? this.renderType(mark);
+        if (art) await asImage(art, mark.place);
+        continue;
+      }
+      if (mark.kind !== "sig") continue;
       const sig = this.store.get(mark.sigId);
-      if (!sig || mark.page !== 0) continue;
+      if (!sig) continue;
       if (sig.art.source === "image") {
-        const raster = sig.art;
-        const node = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const im = new Image();
-          im.addEventListener("load", () => resolve(im));
-          im.addEventListener("error", () => reject(new Error("a saved signature would not load")));
-          im.src = raster.data;
-        });
-        drawImageStampOnCanvas(ctx, node, { w: raster.w, h: raster.h }, mark.place, this.pageH);
+        await asImage(sig.art, mark.place);
       } else {
         const art = artPaths(sig.art);
-        if (art) drawStampOnCanvas(ctx, art, sig.colour, mark.place, this.pageH);
+        if (art) drawStampOnCanvas(ctx, art, mark.colour, mark.place, this.pageH);
       }
     }
 
@@ -1259,8 +1594,7 @@ export class SignView {
   }
 
   private say(text: string, bad = false): void {
-    this.status.textContent = text;
-    this.status.classList.toggle("is-bad", bad && text.length > 0);
+    this.saveBar.say(text, bad);
   }
 
   private onKey(e: KeyboardEvent): void {
@@ -1273,14 +1607,15 @@ export class SignView {
       e.stopPropagation();
       return;
     }
-    if ((e.key === "Delete" || e.key === "Backspace") && this.picked) {
-      this.marks = this.marks.filter((m) => m.id !== this.picked);
-      this.picked = null;
-      this.paintMarks();
-      this.buildSide();
+    // Not while a field has the focus, or Backspace deletes the mark instead
+    // of the character just typed into its own text box.
+    const inField = document.activeElement instanceof HTMLInputElement;
+    if ((e.key === "Delete" || e.key === "Backspace") && this.picked && !inField) {
+      this.removeMark(this.picked);
       e.preventDefault();
       return;
     }
+    if (inField) return;
     if (this.isPdf && (e.key === "PageDown" || e.key === "ArrowRight")) void this.turn(1);
     if (this.isPdf && (e.key === "PageUp" || e.key === "ArrowLeft")) void this.turn(-1);
   }

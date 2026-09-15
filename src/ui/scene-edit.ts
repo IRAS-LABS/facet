@@ -43,6 +43,8 @@ import {
   type ExportFormat,
 } from "@core/model3d/edit";
 
+import { SaveBar } from "./save-bar";
+
 export interface SceneEditHost {
   /** The file's own contents — never the stand. Null when nothing is loaded. */
   model(): Object3D | null;
@@ -52,6 +54,8 @@ export interface SceneEditHost {
   redraw(): void;
   /** Put the model back on screen after a transform has moved it out of view. */
   reframe(): void;
+  /** Read the file back whole, to keep as the backup an overwrite leaves behind. */
+  readAll(path: string, max: number): Promise<Uint8Array>;
   writeFile(path: string, bytes: Uint8Array, overwrite: boolean): Promise<string>;
 }
 
@@ -73,8 +77,22 @@ export class SceneEdit {
    */
   private measured = new Vector3(1, 1, 1);
   private format: ExportFormat = "glb";
+  /**
+   * Both endings, same as every other editor — see `@ui/save-bar`.
+   *
+   * Built once and moved into each rebuilt panel rather than rebuilt with it,
+   * because the panel is rebuilt on every format change and a status line that
+   * said "saved" would disappear the moment you looked at the dropdown.
+   */
+  private readonly saveBar: SaveBar;
 
   constructor(private readonly host: SceneEditHost) {
+    this.saveBar = new SaveBar({
+      host,
+      path: () => this.host.path() ?? "",
+      bytes: () => this.exportBytes(),
+      copyLabel: "Export a copy",
+    });
     this.root = document.createElement("aside");
     this.root.className = "se";
     this.root.hidden = true;
@@ -365,56 +383,35 @@ export class SceneEdit {
 
     const path = this.host.path();
     if (path) {
-      const name = document.createElement("p");
-      name.className = "se-hint se-out";
-      name.textContent = baseName(outName(path, this.format));
-      name.title = outName(path, this.format);
-      g.append(name);
+      this.saveBar.setName(baseName(outName(path, this.format)));
+      /*
+       * Replacing the file is only offered when the export would be the same
+       * kind of file that was opened.
+       *
+       * Exporting an OBJ over `chair.glb` would leave an OBJ wearing a GLB's
+       * name, which every other program on the machine would then fail to open
+       * for a reason none of them could explain. The format dropdown is right
+       * above this, so the button appearing and disappearing as it changes is
+       * itself the explanation.
+       */
+      const same = path.toLowerCase().endsWith(`.${exportKind(this.format).ext}`);
+      this.saveBar.allowOverwrite(
+        same,
+        same ? undefined : `This exports a .${exportKind(this.format).ext}, so it cannot replace the file you opened.`,
+      );
     }
-
-    const save = document.createElement("button");
-    save.type = "button";
-    save.className = "se-save";
-    save.textContent = "Export a copy";
-    save.addEventListener("click", () => void this.save(save));
-    g.append(save);
+    g.append(this.saveBar.root);
     return g;
   }
 
-  /**
-   * Write the file.
-   *
-   * `overwrite: false` without exception. The export name is derived from the
-   * source name, so the second export of the same model targets the same path,
-   * and an export is the one thing in this viewer that Escape cannot undo —
-   * `writeFile` picks a free name and tells us which, and that name goes on the
-   * button so nobody has to guess where it went.
-   */
-  private async save(btn: HTMLButtonElement): Promise<void> {
+  /** The edited model in the chosen format. The save bar does the writing. */
+  private async exportBytes(): Promise<Uint8Array> {
     const model = this.host.model();
-    const path = this.host.path();
-    if (!model || !path) return;
-
-    const was = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "Saving…";
-    try {
-      // An empty STL is 84 valid bytes that every program opens and shows
-      // nothing — a file that looks like FACET wrote garbage.
-      if (!hasGeometry(model)) throw new Error("nothing to export");
-      const bytes = await encode(model, this.format);
-      const written = await this.host.writeFile(outName(path, this.format), bytes, false);
-      btn.textContent = `Saved  ${baseName(written)}`;
-    } catch (err) {
-      btn.textContent = `Failed: ${message(err).slice(0, 48)}`;
-    } finally {
-      btn.disabled = false;
-      window.setTimeout(() => {
-        // The button may have been rebuilt while the write was in flight.
-        const live = this.body.querySelector(".se-save");
-        if (live) live.textContent = was;
-      }, 2600);
-    }
+    if (!model) throw new Error("nothing is loaded");
+    // An empty STL is 84 valid bytes that every program opens and shows
+    // nothing — a file that looks like FACET wrote garbage.
+    if (!hasGeometry(model)) throw new Error("nothing to export");
+    return encode(model, this.format);
   }
 
   private renderFooter(): void {
@@ -569,10 +566,4 @@ function trim(v: number): string {
 function baseName(path: string): string {
   const sep = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return sep >= 0 ? path.slice(sep + 1) : path;
-}
-
-function message(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  return "Unknown error.";
 }

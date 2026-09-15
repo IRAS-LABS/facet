@@ -591,6 +591,7 @@ export async function mountPip(host: HTMLElement, bridge: PipBridge): Promise<Pi
       sv = new SceneView({
         fileUrl: (p) => bridge.fileUrl(p),
         openExternal: (p) => bridge.openExternal(p),
+        readAll: async (p, max) => new Uint8Array(await bridge.readHead(p, max)),
         writeFile: (p, b, o) => bridge.writeFile(p, b, o),
       });
       return sv;

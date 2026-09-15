@@ -74,8 +74,12 @@ export interface SubtitleJob {
   subtitles: Look & { text: string };
 }
 
+import { SaveBar } from "./save-bar";
+
 export interface SubtitleHost {
   fileUrl(path: string): Promise<string>;
+  /** Read a sidecar back whole, to keep as the backup an overwrite leaves behind. */
+  readAll(path: string, max: number): Promise<Uint8Array>;
   /** Returns the path actually written, which may differ if one was taken. */
   writeFile(path: string, bytes: Uint8Array, overwrite?: boolean): Promise<string>;
   refresh(): void;
@@ -154,6 +158,10 @@ export class SubtitleView {
   private readonly picker: HTMLInputElement;
 
   private path = "";
+  /** Which subtitle format the save bar is offering. */
+  private format: SubtitleFormat = "srt";
+  /** Both endings, same as every other editor — see `@ui/save-bar`. */
+  private readonly saveBar: SaveBar;
   private cues: Cue[] = [];
   private segments: readonly Segment[] | null = null;
   private style: CueOptions = { ...STYLE };
@@ -166,6 +174,18 @@ export class SubtitleView {
   private offDone: (() => void) | null = null;
 
   constructor(private readonly host: SubtitleHost) {
+    this.saveBar = new SaveBar({
+      host,
+      // The sidecar, not the film. See `offerName`.
+      path: () => beside(this.path, this.format),
+      bytes: () => this.subtitleBytes(),
+      copyLabel: "Save a copy",
+      // One status line per panel. The bar has its own, but this screen already
+      // has a note that everything else reports through, and two places to look
+      // for "did that work?" is one too many.
+      say: (text, bad) => this.say(text, bad),
+      done: () => this.host.refresh(),
+    });
     this.root.hidden = true;
 
     // ── Head ───────────────────────────────────────────────────────────────
@@ -187,10 +207,28 @@ export class SubtitleView {
     importBtn.title = "Open an existing .srt or .vtt";
     importBtn.addEventListener("click", () => this.picker.click());
 
-    const srtBtn = el("button", "", "Save .srt");
-    srtBtn.addEventListener("click", () => void this.save("srt"));
-    const vttBtn = el("button", "", "Save .vtt");
-    vttBtn.addEventListener("click", () => void this.save("vtt"));
+    /*
+     * The format is picked here and the saving happens at the foot of the
+     * panel, in the same bar as every other editor.
+     *
+     * It used to be two buttons that each wrote immediately, which meant this
+     * was the one screen in the app where "save" could quietly replace a
+     * sidecar you had edited by hand, with no warning and no way back.
+     */
+    const fmt = document.createElement("select");
+    fmt.className = "subs-fmt";
+    fmt.title = "Which subtitle format to write";
+    for (const id of ["srt", "vtt"] as const) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = `.${id}`;
+      fmt.append(opt);
+    }
+    fmt.value = this.format;
+    fmt.addEventListener("change", () => {
+      this.format = fmt.value as SubtitleFormat;
+      this.offerName();
+    });
 
     const tidy = el("button", "", "Tidy lines");
     tidy.title = "Re-wrap every cue to the current line width";
@@ -204,8 +242,7 @@ export class SubtitleView {
 
     tools.append(
       importBtn,
-      srtBtn,
-      vttBtn,
+      fmt,
       tidy,
       el("span", "subs-spacer"),
       this.shifter(),
@@ -276,7 +313,7 @@ export class SubtitleView {
     const body = el("div", "subs-body");
     body.append(screen, this.list);
 
-    this.root.append(head, tools, look, this.bar, body, this.status);
+    this.root.append(head, tools, look, this.bar, body, this.saveBar.root, this.status);
     this.root.addEventListener("keydown", (e) => this.onKey(e));
     document.body.append(this.root);
   }
@@ -321,6 +358,12 @@ export class SubtitleView {
 
     this.title.textContent = nameOf(path);
     this.title.title = path;
+    // Opened on a .vtt, offer .vtt — the format a person arrived with is the
+    // one they meant, and defaulting to .srt would quietly convert it.
+    if (extOf(path) === "vtt") this.format = "vtt";
+    const fmt = this.root.querySelector<HTMLSelectElement>(".subs-fmt");
+    if (fmt) fmt.value = this.format;
+    this.offerName();
     this.root.hidden = false;
     this.bar.hidden = true;
     this.stopBtn.hidden = true;
@@ -781,20 +824,24 @@ export class SubtitleView {
     }
   }
 
-  private async save(format: SubtitleFormat): Promise<void> {
-    if (this.cues.length === 0) {
-      this.say("There is nothing to save yet.", true);
-      return;
-    }
-    const text = toSubtitles(this.cues, format);
-    const want = beside(this.path, format);
-    try {
-      const written = await this.host.writeFile(want, new TextEncoder().encode(text));
-      this.host.refresh();
-      this.say(`Saved as ${nameOf(written)}`);
-    } catch (e) {
-      this.say(e instanceof Error ? e.message : "That could not be saved.", true);
-    }
+  /** The cues as a subtitle file. The save bar does the writing. */
+  private subtitleBytes(): Promise<Uint8Array> {
+    if (this.cues.length === 0) return Promise.reject(new Error("There is nothing to save yet."));
+    return Promise.resolve(new TextEncoder().encode(toSubtitles(this.cues, this.format)));
+  }
+
+  /**
+   * Put the sidecar's name in the bar, and say what replacing it would mean.
+   *
+   * The target is the sidecar beside the video, never the video itself: this
+   * panel is usually opened on an `.mp4`, and an "Overwrite original" that
+   * aimed at `path()` would write SRT text over somebody's film.
+   */
+  private offerName(): void {
+    if (!this.path) return;
+    this.saveBar.setName(nameOf(beside(this.path, this.format)));
+    this.saveBar.allowOverwrite(true);
+    this.saveBar.say("");
   }
 
   /**

@@ -59,6 +59,8 @@ const PHOTO: FileEntry = {
 
 const viewer = new Viewer({
   fileUrl: () => Promise.resolve(PNG),
+  // This pass is about the undo store, not about saving; nothing here writes.
+  readAll: (p) => Promise.reject(new Error(`${p}: not found`)),
   writeFile: (p) => Promise.resolve(p),
   openExternal: () => Promise.resolve(),
 });

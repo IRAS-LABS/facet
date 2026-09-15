@@ -62,6 +62,7 @@ import {
   type Sources,
 } from "@core/capture/recorder";
 import { durationBytes, findDuration, withDuration, type DurationSlot } from "@core/capture/webm-duration";
+import { writeFree } from "@core/save";
 
 /**
  * The device layer, injected — same arrangement as the camera and for the same
@@ -874,10 +875,17 @@ export class RecorderView {
         if (this.outPath === null) {
           const folder = this.host.folder();
           const wanted = join(folder, takeName(this.mime.startsWith("video") ? "video" : "audio", new Date(), extOfMime(this.mime)));
-          // The name that comes *back*: the backend steps to "(2)" when the
-          // name is taken, and appending to the name we asked for would append
-          // to somebody else's file.
-          this.outPath = await this.host.writeFile(wanted, bytes, false);
+          /*
+           * The name that comes *back*, never the one asked for: appending to
+           * the name we wanted would append to somebody else's file.
+           *
+           * `writeFree`, not `writeFile(…, false)`. The backend does not step
+           * to "(2)" — it refuses a taken name — so a take begun in the same
+           * second as the last one failed here, and a failed first write sends
+           * the whole recording down the memory-buffer path below. An hour of
+           * screen capture held in the heap because two takes shared a second.
+           */
+          this.outPath = await writeFree(this.host, wanted, bytes);
           this.ledger.path = this.outPath;
           // The header is all in the first chunk. Found now, filled in at stop.
           this.durationSlot = findDuration(bytes);

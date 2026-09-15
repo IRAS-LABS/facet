@@ -44,6 +44,7 @@ import {
   type ScribeOptions,
 } from "@core/speech/scribe";
 import { settleDuration } from "./media";
+import { writeFree } from "@core/save";
 
 /**
  * The models, injected — same arrangement as the camera's device layer and for
@@ -644,11 +645,9 @@ export class TranscribeView {
     const folder = this.path.replace(/[\\/][^\\/]+$/, "");
     const target = `${folder}/${name}`;
     try {
-      const written = await this.host.writeFile(
-        target,
-        new TextEncoder().encode(this.text()),
-        false,
-      );
+      // `writeFree`, so transcribing the same recording twice lands as
+      // "… (2).txt" rather than failing on a name that is taken.
+      const written = await writeFree(this.host, target, new TextEncoder().encode(this.text()));
       this.host.refresh();
       this.say(`Saved as ${written.split(/[\\/]/).pop()}`);
     } catch (e) {

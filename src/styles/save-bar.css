@@ -1,0 +1,101 @@
+/* The shared save bar (`@ui/save-bar`).
+   Deliberately plain: it is a strip at the bottom of a panel that already has
+   its own visual language, so it takes its colours from the tokens and adds no
+   personality of its own. The only thing it insists on is that the destructive
+   button never looks like the safe one. */
+
+.fct-savebar {
+  display: flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  background: var(--fct-surface);
+  border-top: 1px solid var(--fct-border);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.fct-savebar-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fct-savebar-status {
+  font-size: var(--fct-fs-sm);
+  color: var(--fct-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.fct-savebar-status.is-bad {
+  color: var(--fct-danger, var(--fct-accent));
+}
+
+.fct-savebar-name {
+  flex: 0 1 calc(260px * var(--fct-density));
+  min-width: calc(120px * var(--fct-density));
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+}
+.fct-savebar-name::placeholder {
+  color: var(--fct-text-muted);
+}
+
+.fct-savebar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fct-sp-2);
+  flex: 0 0 auto;
+  /* 36px tall on a phone, because this row is reached with a thumb. */
+  min-height: calc(36px * var(--fct-density));
+  padding: var(--fct-sp-2) var(--fct-sp-3);
+  border: 1px solid var(--fct-border);
+  border-radius: var(--fct-radius-sm);
+  background: var(--fct-surface-raised);
+  color: var(--fct-text);
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--fct-t-fast), border-color var(--fct-t-fast);
+}
+.fct-savebar-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.fct-savebar-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fct-savebar-btn.is-primary {
+  border-color: var(--fct-accent);
+  background: var(--fct-accent);
+  color: var(--fct-accent-ink);
+}
+.fct-savebar-btn.is-primary:hover:not(:disabled) {
+  background: var(--fct-accent-hover);
+  border-color: var(--fct-accent-hover);
+}
+
+/* Not red until it is armed. An always-red button beside a blue one reads as
+   two flavours of "go"; a button that turns red at the moment it becomes
+   destructive reads as a warning, which is what it is. */
+.fct-savebar-btn.is-danger {
+  color: var(--fct-text-dim);
+}
+.fct-savebar-btn.is-danger:hover:not(:disabled) {
+  color: var(--fct-text);
+  border-color: var(--fct-border-strong);
+}
+.fct-savebar-btn.is-danger.is-armed {
+  border-color: var(--fct-danger, var(--fct-accent));
+  background: var(--fct-danger, var(--fct-accent));
+  color: var(--fct-accent-ink);
+}
