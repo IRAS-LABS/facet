@@ -23,6 +23,15 @@
  * lettering on a mug reads one way while framing and the other way in the
  * folder. Here the toggle moves both, so someone who wants the unmirrored
  * image turns it off and frames the shot the way it will be saved.
+ *
+ * It still *starts* mirrored on a front camera, because every phone ever made
+ * does and a selfie preview that does not is read as a fault rather than as a
+ * position. Touching the toggle once hands the choice back for good.
+ *
+ * **Orientation is asked for, not assumed.** A phone held upright that asks
+ * for a 16:9 *landscape* frame gets the sensor's own orientation back and
+ * previews on its side. `videoConstraints` takes `portrait` and swaps the
+ * edges, and the surface re-opens the device when the phone is turned.
  */
 
 /** What the look is made of. Every field maps to one CSS filter function. */
@@ -379,13 +388,31 @@ export const COUNTDOWNS: readonly number[] = [0, 3, 5, 10];
  * a specific camera from the list, silently opening a *different* one because
  * the chosen is busy is the one substitution that is never acceptable.
  */
-export function videoConstraints(deviceId: string | null, height: number): MediaTrackConstraints {
-  const c: MediaTrackConstraints = {
-    width: { ideal: Math.round((height * 16) / 9) },
-    height: { ideal: height },
-    frameRate: { ideal: 30 },
-  };
+export type Facing = "user" | "environment";
+
+export interface FrameWanted {
+  /** Ask for a tall frame rather than a wide one. */
+  portrait?: boolean;
+  /** Which lens, when no specific device was chosen. */
+  facing?: Facing | null;
+}
+
+export function videoConstraints(
+  deviceId: string | null,
+  height: number,
+  opts: FrameWanted = {},
+): MediaTrackConstraints {
+  // `height` names the quality -- 1080 is "1080p" -- so it is the *short* edge
+  // in portrait and the long one in landscape.
+  const other = Math.round((height * 16) / 9);
+  const c: MediaTrackConstraints = opts.portrait
+    ? { width: { ideal: height }, height: { ideal: other } }
+    : { width: { ideal: other }, height: { ideal: height } };
+  c.frameRate = { ideal: 30 };
   if (deviceId) c.deviceId = { exact: deviceId };
+  // `ideal`, not `exact`: a laptop with one webcam has no "environment" camera
+  // and `exact` there is an OverconstrainedError and a black preview.
+  else if (opts.facing) c.facingMode = { ideal: opts.facing };
   return c;
 }
 

@@ -53,6 +53,7 @@ import {
   withPreset,
   withoutPreset,
   writePresets,
+  type Facing,
   type GridKind,
   type Look,
   type PhotoFormat,
@@ -133,6 +134,12 @@ export class CameraView {
   private stream: MediaStream | null = null;
   private devices: MediaDeviceInfo[] = [];
   private deviceId: string | null = null;
+  /** Which lens to ask for when no specific device is pinned. */
+  private facing: Facing | null = null;
+  /** Set the moment the mirror toggle is touched; after that it is theirs. */
+  private mirrorTouched = false;
+  /** Re-opens the device when the phone is turned. */
+  private orient: (() => void) | null = null;
   private prefs: CameraPrefs = { ...FALLBACK };
   private look: Look = cloneLook(NEUTRAL);
   private presets: Preset[] = [];
@@ -305,7 +312,10 @@ export class CameraView {
     this.say("Opening the camera…");
     try {
       this.stream = await this.host.source.open({
-        video: videoConstraints(this.deviceId, this.prefs.height),
+        video: videoConstraints(this.deviceId, this.prefs.height, {
+          portrait: isPortrait(),
+          facing: this.facing,
+        }),
         // Sound is asked for up front, not at the moment Record is pressed:
         // the permission prompt belongs at the point someone opened a camera,
         // not in the half-second they were trying to catch something.
@@ -323,11 +333,61 @@ export class CameraView {
       /* autoplay refusals are not fatal — the stream is live either way */
     }
     await this.listDevices();
+    this.syncMirror();
+    this.watchOrientation();
     this.sayLive();
+  }
+
+  /**
+   * A phone that is turned needs the device re-opened, not just re-laid-out.
+   * The frame's aspect is fixed when the track is created, so a stream opened
+   * portrait stays portrait after a turn to landscape and letterboxes into
+   * two black bars. Debounced, because the event fires mid-rotation.
+   */
+  private watchOrientation(): void {
+    if (this.orient || !isPhone()) return;
+    let timer = 0;
+    let was = isPortrait();
+    const onTurn = (): void => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const now = isPortrait();
+        if (now === was || !this.stream) return;
+        was = now;
+        void this.start();
+      }, 400);
+    };
+    this.orient = onTurn;
+    window.addEventListener("orientationchange", onTurn);
+    window.addEventListener("resize", onTurn);
+  }
+
+  private unwatchOrientation(): void {
+    if (!this.orient) return;
+    window.removeEventListener("orientationchange", this.orient);
+    window.removeEventListener("resize", this.orient);
+    this.orient = null;
+  }
+
+  /**
+   * The front camera opens mirrored. Not a preference imposed on the file --
+   * the toggle still moves both -- but the state a selfie preview has to start
+   * in to read as working. Once the toggle is touched this stops interfering.
+   */
+  private syncMirror(): void {
+    if (this.mirrorTouched) return;
+    const facing = this.stream?.getVideoTracks()[0]?.getSettings().facingMode;
+    if (facing !== "user" && facing !== "environment") return;
+    this.facing = facing;
+    const want = facing === "user";
+    if (this.prefs.mirror === want) return;
+    this.prefs.mirror = want;
+    this.applyLook();
   }
 
   private stop(): void {
     this.stopDrawing();
+    this.unwatchOrientation();
     // Every track, not just the video one: a stopped camera with a live
     // microphone is still a recording device with a light on somewhere.
     for (const track of this.stream?.getTracks() ?? []) track.stop();
@@ -391,6 +451,7 @@ export class CameraView {
   }
 
   private toggleMirror(): void {
+    this.mirrorTouched = true;
     this.prefs.mirror = !this.prefs.mirror;
     this.applyLook();
     this.say(this.prefs.mirror ? "Mirrored — the file matches the screen" : "Not mirrored");
@@ -908,6 +969,23 @@ function join(folder: string, name: string): string {
 
 function base(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+/**
+ * Upright, by the window rather than by `screen.orientation`.
+ *
+ * `screen.orientation` reports the *device*, which on a tablet in a landscape
+ * stand running a portrait app is the wrong answer, and it is missing from
+ * enough WebViews to need this fallback anyway. What the preview has to match
+ * is the shape of the box it is drawn into.
+ */
+function isPortrait(): boolean {
+  return window.innerHeight >= window.innerWidth;
+}
+
+/** True only inside the phone shell, which is the only thing that gets turned. */
+function isPhone(): boolean {
+  return document.body.classList.contains("fct-phone");
 }
 
 /**
