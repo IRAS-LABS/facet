@@ -32,6 +32,7 @@ import { mergeHot, mergeIndex, reuseDays } from "@core/phone/merge";
 import {
   byAlbum,
   byDay,
+  byNewest,
   itemFromRow,
   isHiddenPath,
   itemsFromCache,
@@ -646,6 +647,8 @@ export class MediaStore {
    * a few dozen stats: deep cold folders are covered by the reconcile.
    */
   private watchDirs(): string[] {
+    // Sorted on the way out. `watch_stamp` no longer cares, but the list is a
+    // set and saying so here means a reader never has to go and check that.
     const dirs = [...this.roots];
     const seen = new Set(dirs);
     for (const it of this.snap.everything.slice(0, 300)) {
@@ -655,7 +658,7 @@ export class MediaStore {
         dirs.push(it.folder);
       }
     }
-    return dirs;
+    return dirs.sort();
   }
 
   /**
@@ -700,9 +703,7 @@ export class MediaStore {
     // Re-sorted rather than merge-inserted: the list is newest-first and a
     // restore can land anywhere in it. A one-off sort of a few thousand rows
     // is microseconds, and it is the same ordering rule the scan applies.
-    const everything = [...this.snap.everything, ...restored].sort(
-      (a, b) => (b.modified ?? -Infinity) - (a.modified ?? -Infinity),
-    );
+    const everything = [...this.snap.everything, ...restored].sort(byNewest);
     this.commit(everything, trash);
   }
 

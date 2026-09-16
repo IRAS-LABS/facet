@@ -505,11 +505,24 @@ fn scan_media_blocking(
     // the directory order happened to be. `None` (an OS that won't report a
     // mtime) sorts last rather than first, so an undateable file cannot claim
     // the top of the grid.
+    //
+    // Ties break on the path, and that part is not cosmetic. Two files with
+    // the same mtime -- a copied folder, an unzipped archive, a synced
+    // directory, `public/voice` and the `dist/voice` built from it -- used to
+    // keep whichever order the threads above happened to finish in, so two
+    // walks of an unchanged disk returned two different lists. Everything
+    // downstream that compares one walk against the last then saw a change
+    // that never happened: the day sections lost their identity and repainted,
+    // and the automatic rescan watched a directory list it had itself
+    // reordered, decided the disk had moved, and walked the whole library
+    // again -- every four seconds, indefinitely, on a machine where nothing
+    // was happening. A total order costs one string compare per tie.
     hits.sort_by(|a, b| {
         b.modified
             .unwrap_or(f64::MIN)
             .partial_cmp(&a.modified.unwrap_or(f64::MIN))
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.path.cmp(&b.path))
     });
 
     // The per-directory allowance can keep more than `limit` in total (each
@@ -527,6 +540,7 @@ fn scan_media_blocking(
             .unwrap_or(f64::MIN)
             .partial_cmp(&a.modified.unwrap_or(f64::MIN))
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.path.cmp(&b.path))
     });
 
     Ok(MediaScan { hits, dirs_visited, truncated, trash })
@@ -611,6 +625,13 @@ pub async fn empty_trash(paths: Vec<String>) -> Result<(), String> {
 
 /// One cheap number that changes when any of these directories does.
 ///
+/// Order in, order out, was the bug: this hashes the path strings as well as
+/// the mtimes, so handing it the same folders in a different order answered a
+/// different number and the caller read that as "something moved". It is a
+/// set, so it is sorted and deduplicated here -- the answer now depends on
+/// which directories are watched and when they last changed, and on nothing
+/// else. Callers are free to build the list however is convenient.
+///
 /// The automatic-rescan primitive. Samsung's gallery gets push notifications
 /// from Android's MediaStore; a WebView app gets nothing, and inotify does not
 /// reliably cross the FUSE mount other apps write through. What does work is
@@ -620,8 +641,10 @@ pub async fn empty_trash(paths: Vec<String>) -> Result<(), String> {
 /// and a changed stamp means "walk again". Thirty stats every few seconds is
 /// nothing; the full walk only runs when something really happened.
 #[tauri::command]
-pub async fn watch_stamp(paths: Vec<String>) -> Result<String, String> {
+pub async fn watch_stamp(mut paths: Vec<String>) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        paths.sort();
+        paths.dedup();
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         let mut mix = |bytes: &[u8]| {
             for b in bytes {
@@ -1385,6 +1408,87 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Two walks of a disk nobody touched must come back identical.
+    ///
+    /// They did not. The walk runs on several threads and their results are
+    /// concatenated, so files sharing an mtime -- which is ordinary: a copied
+    /// folder, an unzipped archive, a file and the build output beside it --
+    /// landed in whatever order the threads finished in. The automatic rescan
+    /// derives the folders it watches from this order, hashes them, and reads
+    /// a different hash as "the disk moved", so it re-walked the whole library
+    /// every four seconds on an idle machine. Ties break on the path now.
+    #[test]
+    fn two_walks_of_an_unchanged_disk_agree() {
+        let dir = scratch("stable-order");
+        // One mtime, many files, spread over folders so the walkers split them.
+        let stamp = std::time::SystemTime::now();
+        for folder in ["public", "dist", "assets", "vendor"] {
+            fs::create_dir_all(dir.join(folder)).unwrap();
+            for n in 0..12 {
+                let f = dir.join(folder).join(format!("frame{n}.jpg"));
+                fs::write(&f, b"x").unwrap();
+                // std, no new crate: one mtime shared by every file is the
+                // whole point of the test.
+                fs::File::options().write(true).open(&f).unwrap().set_modified(stamp).unwrap();
+            }
+        }
+
+        let walk = || {
+            scan_media_blocking(
+                vec![norm(&dir)],
+                vec!["jpg".into()],
+                8,
+                10_000,
+                10_000,
+            )
+            .unwrap()
+            .hits
+            .into_iter()
+            .map(|h| h.path)
+            .collect::<Vec<_>>()
+        };
+
+        let first = walk();
+        assert_eq!(first.len(), 48, "all the files should be found");
+        for _ in 0..4 {
+            assert_eq!(walk(), first, "the same disk walked twice gave two orders");
+        }
+    }
+
+    /// The rescan primitive answers about a *set* of folders.
+    ///
+    /// It hashes the path strings as well as the mtimes, so the same folders
+    /// in a different order used to answer a different number and the caller
+    /// read that as a change on disk. The caller built its list from the walk
+    /// above, so the two bugs fed each other.
+    #[test]
+    fn the_watch_stamp_does_not_care_what_order_it_is_asked_in() {
+        let dir = scratch("stamp-order");
+        let mut dirs = Vec::new();
+        for folder in ["a", "b", "c", "d"] {
+            fs::create_dir_all(dir.join(folder)).unwrap();
+            dirs.push(norm(&dir.join(folder)));
+        }
+
+        let stamp = |paths: Vec<String>| {
+            tauri::async_runtime::block_on(watch_stamp(paths)).unwrap()
+        };
+
+        let want = stamp(dirs.clone());
+        let mut shuffled = dirs.clone();
+        shuffled.reverse();
+        assert_eq!(stamp(shuffled), want, "reversing the list is not a change");
+        shuffled = vec![dirs[2].clone(), dirs[0].clone(), dirs[3].clone(), dirs[1].clone()];
+        assert_eq!(stamp(shuffled), want, "reordering the list is not a change");
+        let mut dupes = dirs.clone();
+        dupes.push(dirs[1].clone());
+        assert_eq!(stamp(dupes), want, "naming a folder twice is not a change");
+
+        // And a folder that really moves still moves the number.
+        fs::write(dir.join("a").join("new.txt"), b"x").unwrap();
+        assert_ne!(stamp(dirs), want, "a new file must change the stamp");
     }
 
     /// The check that stands between a drag and a disk full of one folder.

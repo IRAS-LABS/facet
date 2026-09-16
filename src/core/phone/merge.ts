@@ -16,7 +16,7 @@
  * Pure functions, no DOM, so a harness can pin the rules down.
  */
 
-import type { DaySection, GalleryItem } from "./gallery";
+import { byNewest, type DaySection, type GalleryItem } from "./gallery";
 
 /** What `mergeHot` found out about the partial pass. */
 export interface HotMerge {
@@ -81,7 +81,7 @@ export function mergeHot(
   if (added === 0 && removed === 0) return { everything, added, removed };
 
   // Both lists are newest-first; one linear merge keeps them that way.
-  const incoming = [...fresh.values()].sort((a, b) => (b.modified ?? -Infinity) - (a.modified ?? -Infinity));
+  const incoming = [...fresh.values()].sort(byNewest);
   const out: GalleryItem[] = [];
   let i = 0;
   let j = 0;
@@ -90,7 +90,7 @@ export function mergeHot(
     const b = incoming[j];
     if (a === undefined) { out.push(b as GalleryItem); j += 1; continue; }
     if (b === undefined) { out.push(a); i += 1; continue; }
-    if ((b.modified ?? -Infinity) > (a.modified ?? -Infinity)) { out.push(b); j += 1; }
+    if (byNewest(b, a) < 0) { out.push(b); j += 1; }
     else { out.push(a); i += 1; }
   }
   return { everything: out, added, removed };
@@ -142,7 +142,7 @@ export function mergeIndex(
     }
   }
   const removed = everything.length - (out.length - added);
-  out.sort((a, b) => (b.modified ?? -Infinity) - (a.modified ?? -Infinity));
+  out.sort(byNewest);
 
   if (added === 0 && removed === 0 && changed === 0) {
     let same = out.length === everything.length;

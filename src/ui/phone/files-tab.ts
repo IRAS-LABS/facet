@@ -14,6 +14,7 @@
  */
 
 import type { FileEntry } from "@core/explorer/types";
+import { byNewest } from "@core/phone/gallery";
 import { bytes, el, fill, shortDate } from "./dom";
 import { ThumbLoader } from "./thumbs";
 import { btn, iconBtn } from "./photos-tab";
@@ -450,7 +451,7 @@ function mergeHits(indexed: readonly FileEntry[], walked: readonly FileEntry[]):
   const out = [...indexed];
   for (const w of walked) if (!seen.has(w.path)) out.push(w);
   if (out.length === indexed.length) return out;
-  return out.sort((a, b) => (b.modified ?? -Infinity) - (a.modified ?? -Infinity));
+  return out.sort(byNewest);
 }
 
 function toEntry(hit: { name: string; path: string; size: number; modified: number | null }): FileEntry {

@@ -197,6 +197,33 @@ function toItem(hit: RawMediaHit): GalleryItem {
 }
 
 /**
+ * The roll's order, newest first, as a *total* order.
+ *
+ * The tie-break on path is the whole point. Mtime ties are ordinary -- a
+ * copied folder, an unzipped archive, a file and the build output made from
+ * it all carry the same millisecond -- and a comparator that returns 0 for
+ * them leaves the order to whatever the input happened to be. The walk's
+ * input is several threads' results concatenated; the index's is a database's.
+ * The two disagreed, so the same unchanged library came back in two different
+ * orders depending on which answered, and every consumer that compares this
+ * list against the last one it saw read that as a change: day sections lost
+ * the object identity that lets the grid leave their tiles alone, and the
+ * automatic rescan re-walked eleven thousand files every four seconds because
+ * the folder list it watches is derived from this order.
+ *
+ * Undated files sort last, not first, so a file the OS will not date cannot
+ * claim the top of the grid.
+ */
+export function byNewest(
+  a: { path: string; modified?: number },
+  b: { path: string; modified?: number },
+): number {
+  const d = (b.modified ?? -Infinity) - (a.modified ?? -Infinity);
+  if (d !== 0 && !Number.isNaN(d)) return d;
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+}
+
+/**
  * Run the scan and hand back items, newest first.
  *
  * Rust has already sorted by date, so this does not re-sort: the order arrives
