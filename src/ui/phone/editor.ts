@@ -222,7 +222,7 @@ function plainPct(v: number): string {
 
 /** What the stage does with a drag right now. */
 type Gesture =
-  | "none" | "draw" | "paint" | "move"
+  | "none" | "draw" | "paint" | "move" | "region-corner"
   | "crop-new" | "crop-move" | "crop-corner"
   | "text-move";
 
@@ -309,6 +309,20 @@ export class PhoneEditor {
   private kind: FileKind = "image";
 
   private group: RailId = "adjust";
+  /** The file the sticky group belongs to. See `begin`. */
+  private lastName = "";
+  /**
+   * The regions the last Faces or Auto run added.
+   *
+   * A run that finds twelve faces adds twelve regions, and every dial in
+   * this panel used to write to exactly one of them -- so changing the look
+   * from a black bar to a blur changed one face out of twelve and appeared,
+   * reasonably, to do nothing at all. While the selection is still one of
+   * the found regions, a change here means the whole find. Touch any single
+   * region -- on the picture or in Layers -- and it goes back to meaning
+   * that one, because by then you have said which one you mean.
+   */
+  private batch: string[] = [];
 
   private regions: BlurRegion[] = [];
   private selected: string | null = null;
@@ -593,6 +607,7 @@ export class PhoneEditor {
     this.warnedSeeThrough = false;
     this.regions = [];
     this.selected = null;
+    this.batch = [];
     this.markerId = null;
     this.nextId = 1;
     this.history = [];
@@ -614,7 +629,15 @@ export class PhoneEditor {
     this.titleEl.textContent = name || "Edit";
     this.paintHistory();
     this.draw();
-    // Sticky group, like before: the last thing you did is the likely next.
+    // Sticky group, but only within one file. `begin` resets every other
+    // piece of editor state and this one was missed, so tapping Edit on a
+    // fresh photo landed in whatever panel the *previous* photo was left in --
+    // the editor remembering a session that was already over. Reopening the
+    // same file (after a save, say) still keeps its place.
+    if (name !== this.lastName) {
+      this.group = "adjust";
+      this.lastName = name;
+    }
     this.open(this.group);
   }
 
@@ -668,6 +691,25 @@ export class PhoneEditor {
 
   showBlurPanel(): void {
     this.open("blur");
+  }
+
+  /**
+   * A back press inside the editor: unwind one layer of sheet.
+   *
+   * The strip is a stack the shell could not see. A slider, the layers list,
+   * a swatch, the discard question -- each replaces the group's own chips and
+   * each has its own little back chevron, and the hardware back press knew
+   * about none of them. Backing out of the strength slider went straight to
+   * "discard 3 edits?", two screens past where anyone meant to stop.
+   *
+   * False when the strip is already showing the group's own options, which is
+   * the caller's cue that there is nothing left to unwind and the next thing
+   * to close is the editor itself.
+   */
+  backOut(): boolean {
+    if (this.stripKey === this.group || this.stripKey === `host:${this.group}`) return false;
+    this.open(this.group);
+    return true;
   }
 
   /**
@@ -980,17 +1022,28 @@ export class PhoneEditor {
     return el("span.phe-cap", { text, "aria-hidden": true });
   }
 
-  /** Where the chip strip is scrolled to, carried across every rebuild. */
-  private stripLeft = 0;
-  private stripTop = 0;
+  /**
+   * Where each sheet was scrolled to, by sheet.
+   *
+   * One shared offset was wrong the moment a sheet opened another one. Going
+   * from the blur row into the auto-blur sheet carried the blur row's offset
+   * across, and the auto sheet's first two chips -- Back, and Go -- were
+   * already off the left-hand edge when it appeared. Every sheet keeps its
+   * own place instead, so a new one starts where it starts and coming back to
+   * an old one lands where you left it.
+   */
+  private stripAt = new Map<string, { left: number; top: number }>();
+
+  /** Which sheet is in the strip right now, so the next rebuild knows whose offset it is saving. */
+  private stripKey = "";
 
   /**
-   * Set by `open` to make the next rebuild start at the left.
+   * Set by `open` to forget where this sheet was.
    *
-   * A rail switch is a different set of chips, so the old offset would mean
-   * nothing in it. This cannot be `stripLeft = 0` in `open`, because the
+   * A rail switch starts its group's sheet fresh rather than where that group
+   * was left last time. This cannot clear the entry in `open`, because the
    * rebuild that follows reads the offset back off the strip still on screen
-   * and would put the old number straight back.
+   * and would write the old number straight back.
    */
   private stripReset = false;
 
@@ -1007,21 +1060,24 @@ export class PhoneEditor {
    * Only `open` starts at the left, because a rail switch really is a
    * different set of chips and the old offset would mean nothing in it.
    */
-  private setStrip(...kids: (Node | string)[]): void {
+  private setStrip(key: string, ...kids: (Node | string)[]): void {
     // Read the offset back only from a strip that could actually hold one.
     // The slider takes the whole row and has nothing to scroll, so its
     // scrollLeft is always 0 -- and remembering *that* on the way in is how
     // the offset was still being lost on the way back out. Changing Strength
     // and returning to the chips went through exactly that path.
     if (this.stripReset) {
-      this.stripLeft = 0;
-      this.stripTop = 0;
+      this.stripAt.clear();
       this.stripReset = false;
-    } else {
-      if (this.strip.scrollWidth - this.strip.clientWidth > 2) this.stripLeft = this.strip.scrollLeft;
+    } else if (this.stripKey) {
+      const at = this.stripAt.get(this.stripKey) ?? { left: 0, top: 0 };
+      if (this.strip.scrollWidth - this.strip.clientWidth > 2) at.left = this.strip.scrollLeft;
       // Same rule for the tall panel, which scrolls the other way.
-      if (this.strip.scrollHeight - this.strip.clientHeight > 2) this.stripTop = this.strip.scrollTop;
+      if (this.strip.scrollHeight - this.strip.clientHeight > 2) at.top = this.strip.scrollTop;
+      this.stripAt.set(this.stripKey, at);
     }
+    this.stripKey = key;
+    const want = this.stripAt.get(key) ?? { left: 0, top: 0 };
     fill(this.strip, ...kids);
     const single = kids.length === 1 && kids[0] instanceof HTMLElement && kids[0].classList.contains("phe-slider");
     this.el.classList.toggle("phe-single", single);
@@ -1029,9 +1085,9 @@ export class PhoneEditor {
     // Reading scrollWidth forces the layout the restore needs: assigning
     // scrollLeft before the new chips have been measured clamps it to 0.
     void this.strip.scrollWidth;
-    this.strip.scrollLeft = this.stripLeft;
+    this.strip.scrollLeft = want.left;
     // Tall panel: the chips wrap and scroll vertically instead.
-    if (this.el.classList.contains("phe-tall")) this.strip.scrollTop = this.stripTop;
+    if (this.el.classList.contains("phe-tall")) this.strip.scrollTop = want.top;
     this.hintScroll(this.strip);
     // The rail's active button may just have been scrolled into view.
     this.hintScroll(this.rail);
@@ -1138,7 +1194,7 @@ export class PhoneEditor {
       last = now;
     });
 
-    this.setStrip(row);
+    this.setStrip(`slider:${o.label}`, row);
   }
 
   /** A yes/no in the strip. Picture stays visible; no modal anywhere. */
@@ -1147,7 +1203,7 @@ export class PhoneEditor {
     y.addEventListener("click", onYes);
     const n = el<"button">("button.phe-chip", { type: "button", text: no });
     n.addEventListener("click", () => this.open(this.group));
-    this.setStrip(el("span.phe-question", { text: question }), y, n);
+    this.setStrip("ask", el("span.phe-question", { text: question }), y, n);
   }
 
   // ── Adjust ──────────────────────────────────────────────────────────────
@@ -1166,7 +1222,7 @@ export class PhoneEditor {
     frag.append(this.chip("Reset", () => this.resetLight(), {
       icon: "clear", tool: "light.reset", disabled: lightIsNeutral(this.light),
     }));
-    this.setStrip(frag);
+    this.setStrip("adjust", frag);
   }
 
   private adjustSlider(field: keyof Adjust): void {
@@ -1225,7 +1281,7 @@ export class PhoneEditor {
       disabled: this.look.id === null,
       value: `${Math.round(this.look.amount * 100)}%`,
     }));
-    this.setStrip(frag);
+    this.setStrip("filters", frag);
   }
 
   private pickPreset(id: string | null): void {
@@ -1321,7 +1377,7 @@ export class PhoneEditor {
     frag.append(this.chip("Done", () => { this.commitCrop(); this.showCrop(); }, {
       icon: "check", disabled: !this.cropPending(),
     }));
-    this.setStrip(frag);
+    this.setStrip("crop", frag);
   }
 
   /** "Original" is the source's own ratio, which only exists once we have one. */
@@ -1439,6 +1495,13 @@ export class PhoneEditor {
     const frag = document.createDocumentFragment();
     const have = { native: this.host.native, ffmpeg: this.host.ffmpeg };
 
+    // First, not fifth. Finding the things for you is what this panel is for;
+    // the shape and the dials are for correcting what it found.
+    frag.append(this.caption("Find it for me"));
+    frag.append(this.chip("Faces", () => void this.blurFaces(), { icon: "face", tool: "ai.faces" }));
+    frag.append(this.chip("Everything", () => this.showAutoSheet(), { icon: "sparkles", tool: "ai.auto" }));
+    frag.append(this.divider());
+
     frag.append(this.caption("Where"));
     for (const { tool, enabled, why } of groupTools("shape", this.kind, have).filter((g) => g.applies)) {
       const id = tool.id.slice(11) as ShapeKind;
@@ -1491,10 +1554,6 @@ export class PhoneEditor {
       value: (t ? t.colorAmount : this.arm.colorAmount) > 0 ? plainPct(t ? t.colorAmount : this.arm.colorAmount) : "Off",
     }));
     frag.append(this.divider());
-    frag.append(this.caption("Find it for me"));
-    frag.append(this.chip("Faces", () => void this.blurFaces(), { icon: "face", tool: "ai.faces" }));
-    frag.append(this.chip("Everything", () => this.showAutoSheet(), { icon: "sparkles", tool: "ai.auto" }));
-    frag.append(this.divider());
     frag.append(this.caption("Layers"));
     frag.append(this.chip("Invert", () => this.patch("Invert", (r) => { r.invert = !r.invert; }), {
       icon: "invert", tool: "blur.invert", on: !!t?.invert, disabled: !t,
@@ -1516,7 +1575,7 @@ export class PhoneEditor {
       frag.append(this.divider());
       for (const { tool, enabled, why } of clip) frag.append(this.toolChip(tool, enabled, why));
     }
-    this.setStrip(frag);
+    this.setStrip("blur", frag);
   }
 
   private setShape(shape: ShapeKind): void {
@@ -1527,6 +1586,7 @@ export class PhoneEditor {
       r.label = "Everything";
       this.regions.push(r);
       this.selected = r.id;
+      this.batch = [];
       this.commit(was);
       this.host.say("Whole picture blurred — draw a shape and tap Invert to punch a hole");
     } else {
@@ -1566,14 +1626,15 @@ export class PhoneEditor {
     min: number, max: number, step: number,
     format: (v: number) => string,
   ): void {
-    const t = this.blurTarget();
+    const targets = this.blurTargets();
+    const t = targets[0];
     this.slider({
       label,
       value: t ? t[field] : this.arm[field],
       min, max, step, format,
       onInput: (v) => {
         this.arm[field] = v;
-        if (t) t[field] = v;
+        for (const r of targets) r[field] = v;
         // Every look here is for hiding something. Below full opacity the
         // original shows through, which is easy to miss on a phone screen.
         if (field === "opacity" && v < 1 && !this.warnedSeeThrough) {
@@ -1651,7 +1712,7 @@ export class PhoneEditor {
         preview: false,
       }), { icon: "gauge", value: plainPct(t ? t.colorAmount : this.arm.colorAmount) }));
     }
-    this.setStrip(frag);
+    this.setStrip(`swatch:${what}`, frag);
   }
 
   private setColor(what: "blur" | "draw" | "text" | "frame", hex: string): void {
@@ -1709,6 +1770,7 @@ export class PhoneEditor {
       // Detector labels are lower case ("plate 2"); the list reads as names.
       const b = this.chip(r.label.charAt(0).toUpperCase() + r.label.slice(1), () => {
         this.selected = r.id;
+        this.batch = [];
         this.showLayers();
         this.draw();
       }, { on: r.id === this.selected });
@@ -1739,7 +1801,7 @@ export class PhoneEditor {
       });
       frag.append(el("span.phe-layer", {}, b, eye, x));
     }
-    this.setStrip(frag);
+    this.setStrip("layers", frag);
   }
 
   private clearAll(): void {
@@ -1772,6 +1834,8 @@ export class PhoneEditor {
       r.id = `face-${this.nextId++}`;
     }
     this.regions.push(...fresh);
+    this.batch = fresh.map((r) => r.id);
+    this.selected = fresh[fresh.length - 1]?.id ?? null;
     this.commit(was);
     this.host.say(`${fresh.length} ${fresh.length === 1 ? "face" : "faces"} blurred`);
     if (this.group === "blur") this.showBlur();
@@ -1826,7 +1890,7 @@ export class PhoneEditor {
         why: tool?.hint ?? CATEGORY_NAMES[c].title,
       }));
     }
-    this.setStrip(frag);
+    this.setStrip("auto-sheet", frag);
   }
 
   /** Reflect `autoPick` on the chips already in the strip; no rebuild, no scroll reset. */
@@ -1907,6 +1971,7 @@ export class PhoneEditor {
       }
       const was = this.snap(label);
       this.regions.push(...fresh);
+      this.batch = fresh.map((r) => r.id);
       this.selected = fresh[fresh.length - 1]?.id ?? null;
       this.commit(was);
       this.host.say(`${summarise(result.detections)} — blurred${result.notes.length ? ` · ${result.notes[0]}` : ""}`);
@@ -1994,7 +2059,7 @@ export class PhoneEditor {
       this.commit(was);
       this.showDraw();
     }, { icon: "trash", disabled: !drawn }));
-    this.setStrip(frag);
+    this.setStrip("draw", frag);
   }
 
   /** Marker layers carry a "pen" id; blur tools and Layers leave them alone. */
@@ -2096,7 +2161,7 @@ export class PhoneEditor {
       this.commit(was);
       this.showText();
     }, { icon: "trash", disabled: !t }));
-    this.setStrip(frag);
+    this.setStrip("text", frag);
   }
 
   private textTarget(): TextItem | undefined {
@@ -2200,7 +2265,7 @@ export class PhoneEditor {
     }
     frag.append(this.divider());
     frag.append(this.chip("Colour", () => this.showSwatches("frame"), { icon: "palette" }));
-    this.setStrip(frag);
+    this.setStrip("frame", frag);
   }
 
   private drawFrame(): void {
@@ -2233,7 +2298,7 @@ export class PhoneEditor {
     for (const { tool, enabled, why } of groupTools(group, this.kind, have).filter((g) => g.applies)) {
       frag.append(this.toolChip(tool, enabled, why));
     }
-    this.setStrip(frag);
+    this.setStrip(`host:${group}`, frag);
   }
 
   private showAuto(): void {
@@ -2256,7 +2321,7 @@ export class PhoneEditor {
       }
       frag.append(this.toolChip(tool, enabled, why));
     }
-    this.setStrip(frag);
+    this.setStrip("auto", frag);
   }
 
   /** One tap: a gentle lift that suits most phone photographs. */
@@ -2303,7 +2368,7 @@ export class PhoneEditor {
       if (tool.id === "out.save" || tool.id === "out.share" || tool.id === "out.quality" || tool.id === "out.frame") continue;
       frag.append(this.toolChip(tool, enabled, why));
     }
-    this.setStrip(frag);
+    this.setStrip("share", frag);
   }
 
   /** Every catalogue tool not placed in a group above. Keeps all 59 reachable. */
@@ -2319,7 +2384,7 @@ export class PhoneEditor {
         frag.append(this.toolChip(tool, enabled, why));
       }
     }
-    this.setStrip(frag);
+    this.setStrip("more", frag);
   }
 
   private toolChip(tool: PhoneTool, enabled: boolean, why: string): HTMLButtonElement {
@@ -2571,7 +2636,7 @@ export class PhoneEditor {
         on: at === i + 1,
       }));
     }
-    this.setStrip(frag);
+    this.setStrip("history", frag);
   }
 
   // ── Interaction on the picture ──────────────────────────────────────────
@@ -2600,6 +2665,32 @@ export class PhoneEditor {
       for (const cy of [c.y, c.y + c.h]) {
         if (Math.abs(x - cx) < tol && Math.abs(y - cy) < tol) {
           return { x: cx === c.x ? c.x + c.w : c.x, y: cy === c.y ? c.y + c.h : c.y };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A corner of the selected region under the finger, given back as the corner
+   * that stays put while the opposite one follows the drag.
+   *
+   * Only the selected region has handles. Handles on all of them would turn a
+   * picture with a dozen auto-found faces into a minefield where no drag means
+   * what it looks like, and selecting is one tap.
+   *
+   * The reach shrinks with the region, so a small blur is not all handle with
+   * no middle left to grab and move.
+   */
+  private regionCornerAt(x: number, y: number): { x: number; y: number } | null {
+    const r = this.regions.find((q) => q.id === this.selected);
+    if (!r || this.isPen(r) || r.shape === "full" || r.shape === "brush") return null;
+    const b = r.rect;
+    const tol = Math.max(0.02, Math.min(0.05, Math.min(Math.abs(b.w), Math.abs(b.h)) * 0.4));
+    for (const cx of [b.x, b.x + b.w]) {
+      for (const cy of [b.y, b.y + b.h]) {
+        if (Math.abs(x - cx) < tol && Math.abs(y - cy) < tol) {
+          return { x: cx === b.x ? b.x + b.w : b.x, y: cy === b.y ? b.y + b.h : b.y };
         }
       }
     }
@@ -2694,10 +2785,25 @@ export class PhoneEditor {
       return;
     }
 
+    // A corner of the selection resizes it, and this has to be asked before
+    // the move test, because a corner is inside the region too. Without it
+    // there was no way to resize a blur on the phone at all -- every corner
+    // drag moved it -- so a box that came out too small had to be deleted and
+    // drawn again.
+    const grip = this.regionCornerAt(x, y);
+    if (grip) {
+      this.pendingSnap = this.snap("Resize");
+      this.batch = [];
+      this.anchor = grip;
+      this.gesture = "region-corner";
+      return;
+    }
+
     const hit = regionAt(this.regions.filter((r) => !this.isPen(r)), { x, y });
     if (hit && hit.shape !== "full") {
       this.pendingSnap = this.snap("Move");
       this.selected = hit.id;
+      this.batch = [];
       this.origin = { x: x - hit.rect.x, y: y - hit.rect.y };
       this.gesture = "move";
       return;
@@ -2712,6 +2818,7 @@ export class PhoneEditor {
     r.rect = { x, y, w: 0, h: 0 };
     this.regions.push(r);
     this.selected = r.id;
+    this.batch = [];
     this.origin = { x, y };
     this.gesture = "draw";
   }
@@ -2792,6 +2899,20 @@ export class PhoneEditor {
       return;
     }
 
+    if (this.gesture === "region-corner") {
+      // Same shape as `draw`, anchored on the corner that did not move, so
+      // dragging a corner past its opposite flips the box rather than
+      // collapsing it -- which is what a corner handle does everywhere else.
+      r.rect = {
+        x: Math.min(this.anchor.x, x),
+        y: Math.min(this.anchor.y, y),
+        w: Math.abs(x - this.anchor.x),
+        h: Math.abs(y - this.anchor.y),
+      };
+      this.drawSoon();
+      return;
+    }
+
     if (this.gesture === "move") {
       r.rect = { ...r.rect, x: x - this.origin.x, y: y - this.origin.y };
       this.drawSoon();
@@ -2842,12 +2963,43 @@ export class PhoneEditor {
       return;
     }
 
+    if (g === "region-corner") {
+      const r = this.blurTarget();
+      // Squashed to nothing is not a region any more, and leaving an invisible
+      // one behind is worse than losing it: it still blurs, just nowhere you
+      // can see or grab. The undo step puts it back at its old size.
+      if (r && (r.rect.w < 0.01 || r.rect.h < 0.01)) {
+        if (before) this.restore(before);
+        this.showBlur();
+        this.draw();
+        return;
+      }
+      if (before) this.commit(before);
+      this.showBlur();
+      return;
+    }
+
     if (g === "move") {
       if (before) this.commit(before);
     }
   }
 
   // ── Internals ───────────────────────────────────────────────────────────
+
+  /**
+   * Every region a setting applies to.
+   *
+   * The whole of the last detector run while its selection stands, one
+   * region once a region has been picked by hand. See `batch`.
+   */
+  private blurTargets(): BlurRegion[] {
+    if (this.batch.length > 1 && this.selected && this.batch.includes(this.selected)) {
+      const live = this.regions.filter((r) => this.batch.includes(r.id) && !this.isPen(r));
+      if (live.length > 1) return live;
+    }
+    const one = this.blurTarget();
+    return one ? [one] : [];
+  }
 
   /** The blur region a setting applies to: the selected one, else the newest. */
   private blurTarget(): BlurRegion | undefined {
@@ -2872,17 +3024,21 @@ export class PhoneEditor {
     r.label = "Painted";
     this.regions.push(r);
     this.selected = r.id;
+    this.batch = [];
     return r;
   }
 
   private patch(label: string, fn: (r: BlurRegion) => void): void {
-    const r = this.blurTarget();
-    if (!r) {
+    const targets = this.blurTargets();
+    if (targets.length === 0) {
       this.host.say("Add a blur first");
       return;
     }
     const was = this.snap(label);
-    fn(r);
+    for (const r of targets) fn(r);
+    // Said out loud, because the alternative is a tap that changes twelve
+    // things on a screen showing three of them.
+    if (targets.length > 1) this.host.say(`${label} — all ${targets.length}`);
     this.commit(was);
     if (this.group === "blur") this.showBlur();
   }
@@ -3008,6 +3164,35 @@ export class PhoneEditor {
     ctx.lineWidth = line;
     ctx.setLineDash([line * 4, line * 3]);
     ctx.strokeRect(box.x * w, box.y * h, box.w * w, box.h * h);
+
+    // Corners you can see, because a handle nobody knows about is not a
+    // feature. Blurs only: a caption is moved and re-typed, not stretched.
+    if (this.group === "blur") {
+      ctx.setLineDash([]);
+      const g = Math.max(line * 3, Math.round(Math.min(w, h) / 44));
+      const x0 = box.x * w;
+      const y0 = box.y * h;
+      const x1 = x0 + box.w * w;
+      const y1 = y0 + box.h * h;
+      ctx.lineWidth = line * 1.5;
+      ctx.lineCap = "round";
+      // An L in each corner rather than a dot, so it reads as the corner
+      // itself and does not hide what is under it.
+      for (const [cx, cy, sx, sy] of [
+        [x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1],
+      ] as Array<[number, number, number, number]>) {
+        ctx.beginPath();
+        ctx.moveTo(cx + sx * g, cy);
+        ctx.lineTo(cx, cy);
+        ctx.lineTo(cx, cy + sy * g);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = line * 3;
+        ctx.stroke();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = line * 1.5;
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 }

@@ -281,8 +281,48 @@ export class MockFs implements FsAdapter {
   }
   async thumbStore(): Promise<void> {}
 
-  async readHead(): Promise<number[]> { return []; }
-  async readRange(): Promise<number[]> { return []; }
+  /**
+   * Bytes for a path that never had any.
+   *
+   * These three used to answer empty like everything else here, and the cost of
+   * that was the hex inspector: with nothing to read it was the one panel that
+   * could not be opened in a browser tab at all, so its layout was only ever
+   * seen on a real phone -- which is to say, by the user, after shipping.
+   *
+   * A synthetic tree may as well have synthetic bytes. They are derived from
+   * the path and the offset, so a file reads the same on every reload and a
+   * window read twice agrees with itself. Noise rather than a forged header:
+   * nothing here should be mistaken for a real PNG.
+   */
+  private synth(path: string, offset: number, len: number): number[] {
+    let seed = 2166136261;
+    for (let i = 0; i < path.length; i++) {
+      seed = Math.imul(seed ^ path.charCodeAt(i), 16777619);
+    }
+    const out: number[] = [];
+    for (let i = 0; i < len; i++) {
+      let x = (seed ^ (offset + i)) >>> 0;
+      x = (x ^ (x << 13)) >>> 0;
+      x = x ^ (x >>> 17);
+      x = (x ^ (x << 5)) >>> 0;
+      out.push(x & 0xff);
+    }
+    return out;
+  }
+
+  async readHead(path: string, max: number): Promise<number[]> {
+    // Capped well below what the structure walker would ask for: a prefix is
+    // all a prefix promises, and four million array entries of noise is a
+    // browser tab hanging for nothing.
+    return this.synth(path, 0, Math.min(max, 64 * 1024));
+  }
+
+  async readRange(path: string, offset: number, len: number): Promise<number[]> {
+    return this.synth(path, offset, Math.min(len, 1024 * 1024));
+  }
+
+  // No size to count back from, so no honest offset to report. Empty says
+  // "nothing known about the end of this file", which is true.
   async readTail(): Promise<[number[], number]> { return [[], 0]; }
   async fileUrl(): Promise<string> { return ""; }
 

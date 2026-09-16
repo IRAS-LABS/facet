@@ -37,8 +37,11 @@ export interface InspectHost {
   readTail(path: string, len: number): Promise<[number[], number]>;
 }
 
-/** Bytes per row. Sixteen, because every hex dump ever written uses sixteen. */
-const COLS = 16;
+/** Bytes per row. Sixteen, because every hex dump ever written uses sixteen -- 
+ *  and fewer only when sixteen of them will not fit on the screen. */
+const MAX_COLS = 16;
+/** Below this a dump stops being a dump. */
+const MIN_COLS = 4;
 /** Read granularity. Big enough that scrolling does not thrash the IPC hop. */
 const CHUNK = 64 * 1024;
 /** Windows kept before the oldest is dropped — 4 MB of file, at most. */
@@ -70,6 +73,10 @@ export class Inspector {
   private size = 0;
   private cursor = 0;
   private rowH = 18;
+  /** Bytes per line. Measured against the real width — see `fitCols`. */
+  private cols = MAX_COLS;
+  /** Last width fitted for, so a resize that changed nothing repaints nothing. */
+  private fittedFor = 0;
 
   private readonly chunks = new Map<number, Uint8Array>();
   private readonly inflight = new Set<number>();
@@ -126,20 +133,28 @@ export class Inspector {
     this.scroll.append(this.spacer);
     this.scroll.addEventListener("scroll", () => this.paint());
 
-    // Pinch to change the type size. A hex dump on a phone is 16 columns of
+    // Pinch to change the type size. A hex dump on a phone is a wall of
     // monospace against a screen 6.7 inches wide, and it was the one document
     // in the app you could open, could not read, and could do nothing about.
     // The font rather than a transform because this view is virtualised: it
     // builds the rows you can see and lies about the rest with a spacer, all
     // from `rowH`, which `measureRow` measures. Grow the type and the measure
     // tells the truth again; scale the layer and it does not.
-    attachTextZoom(this.scroll, this.root, {
-      remeasure: () => {
-        this.measureRow();
-        this.spacer.style.height = `${this.spacerHeight()}px`;
-        this.paint();
-      },
-    });
+    const refit = (): void => {
+      this.measureRow();
+      this.spacer.style.height = `${this.spacerHeight()}px`;
+      this.paint();
+    };
+
+    attachTextZoom(this.scroll, this.root, { remeasure: refit });
+
+    // A turned phone is a different width and the byte count has to follow it.
+    // Gated on the width we last fitted for: `refit` changes the spacer height,
+    // and without the gate the observer would chase its own tail.
+    new ResizeObserver(() => {
+      if (this.root.hidden || this.scroll.clientWidth === this.fittedFor) return;
+      refit();
+    }).observe(this.scroll);
 
     this.values.className = "hx-values";
     this.note.className = "hx-note";
@@ -397,7 +412,7 @@ export class Inspector {
    * always going to be.
    */
   private spacerHeight(): number {
-    return Math.min(Math.ceil(this.size / COLS) * this.rowH, 20_000_000);
+    return Math.min(Math.ceil(this.size / this.cols) * this.rowH, 20_000_000);
   }
 
   /** Rows that fit, floored at one so the arithmetic below cannot divide by nothing. */
@@ -413,7 +428,7 @@ export class Inspector {
    * be clamped the two are the same number.
    */
   private firstRow(): number {
-    const total = Math.ceil(this.size / COLS);
+    const total = Math.ceil(this.size / this.cols);
     const span = Math.max(0, this.spacerHeight() - this.scroll.clientHeight);
     if (span <= 0) return 0;
     const frac = Math.min(1, Math.max(0, this.scroll.scrollTop / span));
@@ -430,8 +445,63 @@ export class Inspector {
    * number this measures, which is why the zoom can be a font size and does
    * not have to be a transform.
    */
+  /**
+   * How many bytes fit on one line.
+   *
+   * Sixteen is the convention and it wants about 560 px: eight offset digits,
+   * sixteen hex pairs with their spacing, sixteen ASCII glyphs, and the gutters
+   * between the three columns. A phone is 384 px, and the phone shell refuses
+   * sideways scrolling on purpose -- a horizontal swipe on Android is the back
+   * gesture -- so the right-hand half of every row, the entire ASCII column
+   * included, was simply unreachable. Eight bytes fit; four always do.
+   *
+   * Measured rather than chosen at a CSS breakpoint, because pinch-zoom moves
+   * the type size underneath us and the answer has to move with it.
+   */
+  private fitCols(): void {
+    const room = this.scroll.clientWidth;
+    if (room <= 0) return;
+    let cols = MAX_COLS;
+    while (cols > MIN_COLS && this.probeWidth(cols) > room) cols >>= 1;
+    this.cols = cols;
+    this.fittedFor = room;
+  }
+
+  /** Width of one full row at `cols`, laid out for real and then thrown away. */
+  private probeWidth(cols: number): number {
+    const row = document.createElement("div");
+    row.className = "hx-row";
+    row.style.position = "absolute";
+    row.style.visibility = "hidden";
+    row.style.width = "max-content";
+    const off = document.createElement("span");
+    off.className = "hx-off";
+    off.textContent = "00000000";
+    const hex = document.createElement("span");
+    hex.className = "hx-hex";
+    const asc = document.createElement("span");
+    asc.className = "hx-asc";
+    for (let i = 0; i < cols; i++) {
+      const h = document.createElement("i");
+      h.className = "k-unknown";
+      h.textContent = "ff";
+      if (i === cols >> 1) h.classList.add("hx-gap");
+      hex.append(h);
+      const a = document.createElement("i");
+      a.className = "k-unknown";
+      a.textContent = "M";
+      asc.append(a);
+    }
+    row.append(off, hex, asc);
+    this.rowLayer.append(row);
+    const w = row.getBoundingClientRect().width;
+    row.remove();
+    return w;
+  }
+
   private measureRow(): void {
     this.rowLayer.style.transform = "translateY(0)";
+    this.fitCols();
     const probe = document.createElement("div");
     probe.className = "hx-row";
     probe.textContent = "0";
@@ -442,21 +512,21 @@ export class Inspector {
 
   private paint(): void {
     if (!this.isOpen || !this.entry) return;
-    const total = Math.ceil(this.size / COLS);
+    const total = Math.ceil(this.size / this.cols);
     const first = this.firstRow();
     const pad = Math.min(2, first);
     const from = first - pad;
     const last = Math.min(total, first + this.pageRows() + 2);
     this.cursorRegion = this.regionAt(this.cursor);
 
-    this.need(from * COLS, last * COLS);
+    this.need(from * this.cols, last * this.cols);
     // Rows are pinned to the viewport, not to the spacer, because on a clamped
     // spacer a row's pixel position and its offset in the file are no longer
     // the same thing.
     this.rowLayer.style.transform = `translateY(${this.scroll.scrollTop - pad * this.rowH}px)`;
 
     const rows: HTMLElement[] = [];
-    for (let r = from; r < last; r++) rows.push(this.row(r * COLS));
+    for (let r = from; r < last; r++) rows.push(this.row(r * this.cols));
     this.rowLayer.replaceChildren(...rows);
     this.paintValues();
   }
@@ -474,7 +544,7 @@ export class Inspector {
     const asc = document.createElement("span");
     asc.className = "hx-asc";
 
-    for (let i = 0; i < COLS; i++) {
+    for (let i = 0; i < this.cols; i++) {
       const at = base + i;
       if (at >= this.size) break;
       const v = this.at(at);
@@ -489,9 +559,9 @@ export class Inspector {
       const h = document.createElement("i");
       h.className = `${cls}${sel}`;
       h.textContent = v < 0 ? "--" : v.toString(16).padStart(2, "0");
-      // The gutter between the eighth and ninth byte is the one visual aid a
-      // dump genuinely needs; it is how you count to eleven without counting.
-      if (i === 8) h.classList.add("hx-gap");
+      // The gutter at the half-way byte is the one visual aid a dump genuinely
+      // needs; it is how you count to eleven without counting.
+      if (i === this.cols >> 1) h.classList.add("hx-gap");
       h.addEventListener("mousedown", () => this.setCursor(at));
       hex.append(h);
 
@@ -534,11 +604,11 @@ export class Inspector {
   /** Move the cursor and bring it on screen, centring only when it is not. */
   private jump(off: number): void {
     this.cursor = Math.max(0, Math.min(off, Math.max(0, this.size - 1)));
-    const row = Math.floor(this.cursor / COLS);
+    const row = Math.floor(this.cursor / this.cols);
     const first = this.firstRow();
     const rows = this.pageRows();
     if (row < first + 1 || row > first + rows - 2) {
-      const total = Math.ceil(this.size / COLS);
+      const total = Math.ceil(this.size / this.cols);
       const want = Math.max(0, row - Math.floor(rows / 2));
       const span = Math.max(0, this.spacerHeight() - this.scroll.clientHeight);
       const reach = Math.max(1, total - rows);
@@ -663,10 +733,10 @@ export class Inspector {
       case "Escape": this.close(); return true;
       case "ArrowRight": this.jump(this.cursor + 1); return true;
       case "ArrowLeft": this.jump(this.cursor - 1); return true;
-      case "ArrowDown": this.jump(this.cursor + COLS); return true;
-      case "ArrowUp": this.jump(this.cursor - COLS); return true;
-      case "PageDown": this.jump(this.cursor + rows * COLS); return true;
-      case "PageUp": this.jump(this.cursor - rows * COLS); return true;
+      case "ArrowDown": this.jump(this.cursor + this.cols); return true;
+      case "ArrowUp": this.jump(this.cursor - this.cols); return true;
+      case "PageDown": this.jump(this.cursor + rows * this.cols); return true;
+      case "PageUp": this.jump(this.cursor - rows * this.cols); return true;
       case "Home": this.jump(0); return true;
       case "End": this.jump(this.size - 1); return true;
       case "/": this.find.focus(); this.find.select(); return true;

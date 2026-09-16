@@ -478,9 +478,13 @@ export class PhoneShell {
   private wireBack(): void {
     history.pushState({ fct: "phone" }, "");
     window.addEventListener("popstate", () => {
+      // Topmost first. A panel -- hex, details, the table -- opens *over* the
+      // viewer at z-index 40 and up, and asking the viewer first meant a back
+      // press inside the hex dump closed the photo editor underneath it while
+      // the dump stayed on screen looking like nothing had happened.
       const consumed =
-        this.viewer.back() ||
         closeTopPanel() ||
+        this.viewer.back() ||
         (this.tabs.get(this.current)?.back?.() ?? false);
 
       // "Home" is whichever tab the person chose to open on, not Photos by

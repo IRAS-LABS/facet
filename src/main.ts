@@ -816,17 +816,18 @@ const previews = new PreviewService({
 });
 
 /**
- * The hex inspector. Native only — it is built on windowed reads, and without
- * them the honest options are to load a whole disk image into a browser tab or
- * to lie about the bytes. Neither belongs in a tool people open when they have
- * stopped trusting what everything else told them.
+ * The hex inspector. Built on windowed reads — a 40 GB disk image is never
+ * loaded, only the few kilobytes you are looking at.
+ *
+ * Through `phoneFs` rather than `native`, so the mock answers in a browser tab.
+ * It used to refuse there, and the price was that the only way to see this panel
+ * laid out on a phone-sized screen was to build an APK and open it on a phone.
+ * The mock's bytes are synthetic and say so; its whole tree is.
  */
 const inspector = new Inspector({
-  readRange: (path, offset, len) =>
-    native ? native.readRange(path, offset, len) : Promise.reject(new Error("needs the desktop app")),
-  readHead,
-  readTail: (path, len) =>
-    native ? native.readTail(path, len) : Promise.reject(new Error("needs the desktop app")),
+  readRange: (path, offset, len) => phoneFs.readRange(path, offset, len),
+  readHead: (path, max) => phoneFs.readHead(path, max),
+  readTail: (path, len) => phoneFs.readTail(path, len),
 });
 
 /**

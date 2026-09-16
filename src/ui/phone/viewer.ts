@@ -503,6 +503,10 @@ export class PhoneViewer {
   /** A back press. True if the viewer consumed it. */
   back(): boolean {
     if (this.el.hidden) return false;
+    // A sheet open in the editor's strip is a layer of its own, and it comes
+    // off first. `close` cannot do this for us: it is also what the viewer's
+    // own Close control calls, and that one means leave, not go back one.
+    if (this.editing && this.editor.backOut()) return true;
     this.close();
     return true;
   }
@@ -1561,6 +1565,24 @@ export class PhoneViewer {
     this.el.classList.remove("editing");
   }
 
+  /**
+   * A path as a run of nodes with a break offered after every separator.
+   *
+   * `overflow-wrap: anywhere` alone breaks wherever the line runs out, which
+   * on a phone's two hundred pixels cut "fixtures" into "f" and "ixtures" --
+   * a path is read by its segments and that is the one place it must not
+   * break. `<wbr>` offers the separators first; the CSS rule stays as the
+   * last resort for a single segment longer than the column.
+   */
+  private pathParts(path: string): Node[] {
+    const out: Node[] = [];
+    for (const [i, seg] of path.split(/(?<=[\/\\])/).entries()) {
+      if (i > 0) out.push(el("wbr"));
+      out.push(document.createTextNode(seg));
+    }
+    return out;
+  }
+
   /** File facts, in the same sheet the tools use. */
   private showInfo(): void {
     const entry = this.current;
@@ -1579,7 +1601,12 @@ export class PhoneViewer {
 
     const list = el("dl.phv-facts");
     for (const [k, v] of facts) {
-      list.append(el("div.phv-fact", {}, el("dt", { text: k }), el("dd", { text: v })));
+      // Name and Folder are the two that are somebody's typing rather than
+      // ours, and the two that have separators worth breaking at.
+      const dd = k === "Folder" || k === "Name"
+        ? el("dd", {}, ...this.pathParts(v))
+        : el("dd", { text: v });
+      list.append(el("div.phv-fact", {}, el("dt", { text: k }), dd));
     }
 
     // Read afterwards, and appended when it lands: the sheet must open at a
