@@ -182,14 +182,25 @@ const SHAPE_NAMES: Partial<Record<ShapeKind, string>> = {
 type StripSize = "row" | "hidden" | number;
 const STRIP_KEY = "facet.phe.strip";
 
-function loadStripSize(): StripSize {
+/**
+ * The size the handle was last dragged to, or null if it never was.
+ *
+ * Null is not the same as "row", and the difference is the whole point. A
+ * first open used to get one row, and the blur group has twenty-five chips in
+ * it -- two of them fit, the other twenty-three were behind a sideways scroll
+ * nobody had a reason to suspect, so every blur style, the strength, the
+ * feather, the layer list and Clear all read as features that did not exist.
+ * A caller that gets null opens the panel as tall as the group needs instead.
+ */
+function loadStripSize(): StripSize | null {
   try {
     const v = localStorage.getItem(STRIP_KEY);
     if (v === "hidden") return "hidden";
+    if (v === "row") return "row";
     const n = Number(v);
-    return v !== null && Number.isFinite(n) && n > 0 ? Math.round(n) : "row";
+    return v !== null && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
   } catch {
-    return "row";
+    return null;
   }
 }
 
@@ -446,7 +457,6 @@ export class PhoneEditor {
    * tapping the handle also opened whatever option landed there.
    */
   private wireStripSize(grab: HTMLElement): void {
-    this.applyStripSize(loadStripSize());
     let startY = 0;
     let startH = 0;
     let moved = false;
@@ -456,6 +466,12 @@ export class PhoneEditor {
       const room = this.el.parentElement?.clientHeight || window.innerHeight;
       return Math.max(rowH(), Math.round(room * 0.55) - this.rail.offsetHeight);
     };
+    // Never dragged: start at the ceiling, not the floor. This is free for the
+    // small groups -- `syncStripVar` already trims a tall panel down to what is
+    // actually in it, so a lone slider still gets one row and the picture keeps
+    // the rest. It is only the crowded groups that come out different, and they
+    // are the ones that were unusable.
+    this.applyStripSize(loadStripSize() ?? most());
     grab.addEventListener("pointerdown", (ev) => {
       id = ev.pointerId;
       startY = ev.clientY;
