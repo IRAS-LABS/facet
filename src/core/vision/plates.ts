@@ -13,6 +13,7 @@
 
 import { decodePlates, iou, letterbox, unletterbox, cropRgba, type Det } from "./onnx";
 import { MODEL_SIZE, type OnnxRunner } from "./onnx-runner";
+import { sweep, type CropFn } from "./tiles";
 
 export interface PlateOptions {
   conf: number;
@@ -22,6 +23,17 @@ export interface PlateOptions {
   minVehicle: number;
   /** Cap on vehicle crops per frame, largest first. */
   maxVehicles: number;
+  /**
+   * The source at its own resolution, and how much of it was thrown away.
+   *
+   * Without these a vehicle crop is cut out of the same shrunken buffer the
+   * full pass already ran on, so the second look is the first look enlarged
+   * and finds nothing new -- which is what was happening. With them the crop
+   * carries real detail, and the frame itself is tiled as well.
+   */
+  crop?: CropFn | undefined;
+  scale?: number | undefined;
+  onStep?: ((done: number, total: number) => void) | undefined;
 }
 
 export const PLATE_DEFAULTS: PlateOptions = { conf: 0.4, vehicles: [], minVehicle: 96, maxVehicles: 8 };
@@ -51,10 +63,19 @@ export async function detectPlates(
   opts: Partial<PlateOptions> = {},
 ): Promise<{ plates: Det[]; ms: number; runs: number }> {
   const o = { ...PLATE_DEFAULTS, ...opts };
-  const full = await runOnce(runner, rgba, width, height, o.conf);
-  const found: Det[] = [...full.dets];
-  let ms = full.ms;
-  let runs = 1;
+  let ms = 0;
+  let runs = 0;
+  const frame = { rgba, width, height, scale: o.scale, crop: o.crop };
+  const found: Det[] = await sweep(
+    frame,
+    async (p) => {
+      const r = await runOnce(runner, p.rgba, p.width, p.height, o.conf);
+      ms += r.ms;
+      runs++;
+      return r.dets;
+    },
+    { onStep: o.onStep },
+  );
   const cars = [...o.vehicles]
     .filter((v) => Math.min(v.w, v.h) >= o.minVehicle)
     .sort((a, b) => b.w * b.h - a.w * a.h)
@@ -62,6 +83,18 @@ export async function detectPlates(
   for (const v of cars) {
     // A crop that is most of the frame gains nothing over the full pass.
     if (v.w * v.h > 0.6 * width * height) continue;
+    // The source's own pixels where they can be had; the shrunken buffer
+    // only as a fallback, for a caller that had nothing better to offer.
+    const native = o.crop?.({ x: v.x, y: v.y, w: v.w, h: v.h }) ?? null;
+    if (native) {
+      const r = await runOnce(runner, native.rgba, native.width, native.height, o.conf);
+      ms += r.ms;
+      runs++;
+      const kx = v.w / native.width;
+      const ky = v.h / native.height;
+      for (const d of r.dets) found.push({ ...d, x: d.x * kx + v.x, y: d.y * ky + v.y, w: d.w * kx, h: d.h * ky });
+      continue;
+    }
     const crop = cropRgba(rgba, width, height, v);
     const r = await runOnce(runner, crop.data, crop.width, crop.height, o.conf);
     ms += r.ms;

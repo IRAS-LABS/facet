@@ -15,7 +15,7 @@ import { newRegion, regionAt, type BlurRegion } from "@core/edit/blur";
 import type { OcrPage } from "@core/ocr/page";
 import { AUTO_CATEGORIES, CATEGORY_NAMES, type AutoBlurConfig, type AutoCategory } from "./autoblur-config";
 import { detectCards } from "./cards";
-import { detectCoco, screenKind } from "./coco";
+import { detectCocoTiled, screenKind, type CocoResult } from "./coco";
 import { detectCodes } from "./codes";
 import { DEFAULTS, detectFaces, type Box } from "./detect";
 import { iou, padDet, type Det } from "./onnx";
@@ -24,6 +24,7 @@ import { COCO } from "./onnx";
 import { detectPlates } from "./plates";
 import { windshieldBoxes } from "./windshields";
 import { detectTerminals, looksLikeScreenshot } from "./terminals";
+import { sweep, type CropFn } from "./tiles";
 import { textHitBoxes } from "./textrules";
 import { detectFacesNet } from "./yunet";
 
@@ -42,6 +43,16 @@ export interface DetectInput {
   mime?: string;
   /** Called at most once, only when a category that reads text is on. */
   ocr?: () => Promise<OcrPage | null>;
+  /**
+   * Source pixels per pixel of `rgba`, and a way back to them.
+   *
+   * Together these are what lets the model-backed stages look twice at a
+   * photo too large to fit through a 416 px square in one piece -- see
+   * `tiles.ts`. Left out, every stage behaves exactly as it did: one pass
+   * over the frame it was handed.
+   */
+  scale?: number | undefined;
+  crop?: CropFn | undefined;
 }
 
 export interface DetectOptions {
@@ -95,20 +106,47 @@ export async function detectAll(
   const steps = cats.length + (cats.some(wantsOcr) ? 1 : 0);
   let step = 0;
   const tick = (m: string): void => progress(Math.min(0.95, step++ / Math.max(1, steps)), m);
+  // A tiled stage is ten model runs where it used to be one, and on a phone
+  // that is long enough that a bar which does not move looks like a hang.
+  const sweepStep =
+    (label: string) =>
+    (done: number, total: number): void => {
+      if (total > 1) {
+        progress(Math.min(0.95, (step - 1 + done / total) / Math.max(1, steps)), label + " " + done + " of " + total);
+      }
+    };
+  /**
+   * A category's `minSize`, which is documented in source pixels, as a length
+   * in the working-copy pixels every box here is measured in.
+   *
+   * The two were being compared directly, and on anything large they are not
+   * the same thing: a 4,000 px photo arrives downscaled 2.5x, so the 16 px
+   * floor under faces was really a 40 px one and quietly discarded every face
+   * small enough to be the reason the tiling exists. A face pinned to the wall
+   * in a photo of a wall is 15 source pixels, found at 0.90, and thrown away.
+   */
+  const shrink = input.scale ?? 1;
+  const floorOf = (cc: { minSize: number }): number => cc.minSize / shrink;
+
   let gr: Uint8ClampedArray | null = null;
   const grayOnce = (): Uint8ClampedArray => (gr ??= gray(rgba, width, height));
 
   // Shared COCO pass.
-  let coco: Awaited<ReturnType<typeof detectCoco>> | null = null;
+  let coco: CocoResult | null = null;
   if (runner && cats.some(wantsCoco)) {
     bail(opts.signal);
     tick("Looking for screens…");
     const t0 = performance.now();
     try {
-      coco = await detectCoco(runner, rgba, width, height, {
-        conf: Math.min(cfg.categories.screens.conf, cfg.categories.terminals.conf),
-        phones: cfg.screensIncludePhones,
-      });
+      coco = await detectCocoTiled(
+        runner,
+        input,
+        {
+          conf: Math.min(cfg.categories.screens.conf, cfg.categories.terminals.conf),
+          phones: cfg.screensIncludePhones,
+        },
+        sweepStep("Looking for screens…"),
+      );
     } catch (e) {
       out.notes.push(`screen detector failed: ${(e as Error).message}`);
     }
@@ -139,7 +177,14 @@ export async function detectAll(
         let boxes: Det[] = [];
         if (runner && cfg.faceModel) {
           try {
-            boxes = (await detectFacesNet(runner, rgba, width, height, { conf: cc.conf })).faces;
+            // Tiled: a face in the third row of a crowd is a dozen pixels
+            // across by the time a 4,000 px photo has been squeezed into
+            // YuNet's 640, and was being missed for exactly that reason.
+            boxes = await sweep(
+              input,
+              (p) => detectFacesNet(runner, p.rgba, p.width, p.height, { conf: cc.conf }).then((r) => r.faces),
+              { onStep: sweepStep("Looking for faces…") },
+            );
             out.faceEngine = "yunet";
           } catch (e) {
             out.notes.push(`face model failed (${(e as Error).message}); used the cascade`);
@@ -150,13 +195,13 @@ export async function detectAll(
           boxes = found.map((b) => ({ ...b, cls: 0 }));
           out.faceEngine = "cascade";
         }
-        for (const b of boxes) if (Math.min(b.w, b.h) >= cc.minSize) out.detections.push({ category: c, label: "face", box: b });
+        for (const b of boxes) if (Math.min(b.w, b.h) >= floorOf(cc)) out.detections.push({ category: c, label: "face", box: b });
         break;
       }
       case "screens": {
         if (!coco) break;
         for (const b of coco.screens) {
-          if (b.score < cc.conf || Math.min(b.w, b.h) < cc.minSize) continue;
+          if (b.score < cc.conf || Math.min(b.w, b.h) < floorOf(cc)) continue;
           out.detections.push({ category: c, label: screenKind(b.cls), box: b });
         }
         break;
@@ -167,7 +212,7 @@ export async function detectAll(
         const shot = looksLikeScreenshot(width, height, input.mime);
         const judged = detectTerminals(grayOnce(), width, height, screens, page, { screenshot: shot });
         for (const j of judged) {
-          if (!j.terminal || Math.min(j.box.w, j.box.h) < cc.minSize) continue;
+          if (!j.terminal || Math.min(j.box.w, j.box.h) < floorOf(cc)) continue;
           out.detections.push({ category: c, label: "terminal", box: { ...j.box, score: j.score } });
         }
         break;
@@ -176,8 +221,18 @@ export async function detectAll(
         if (!runner) break;
         tick("Looking for plates…");
         try {
-          const r = await detectPlates(runner, rgba, width, height, { conf: cc.conf, vehicles: coco?.vehicles ?? [] });
-          for (const b of r.plates) if (Math.min(b.w, b.h) >= cc.minSize) out.detections.push({ category: c, label: "plate", box: b });
+          const r = await detectPlates(runner, rgba, width, height, {
+            conf: cc.conf,
+            vehicles: coco?.vehicles ?? [],
+            // The two halves of the same fix: tile the whole frame, and take
+            // each vehicle crop from the source rather than from the 1600 px
+            // copy it used to be cut out of -- which is why the second pass
+            // never found anything the first one had not.
+            crop: input.crop,
+            scale: input.scale,
+            onStep: sweepStep("Looking for plates…"),
+          });
+          for (const b of r.plates) if (Math.min(b.w, b.h) >= floorOf(cc)) out.detections.push({ category: c, label: "plate", box: b });
         } catch (e) {
           out.notes.push(`plate detector failed: ${(e as Error).message}`);
         }
@@ -190,7 +245,7 @@ export async function detectAll(
         if (!coco) break;
         tick("Covering windscreens…");
         const moto = COCO.indexOf("motorcycle");
-        for (const b of windshieldBoxes(coco.vehicles, width, height, moto, { conf: cc.conf, minVehicle: cc.minSize })) {
+        for (const b of windshieldBoxes(coco.vehicles, width, height, moto, { conf: cc.conf, minVehicle: floorOf(cc) })) {
           out.detections.push({ category: c, label: "windscreen", box: b });
         }
         break;
@@ -199,7 +254,7 @@ export async function detectAll(
         tick("Looking for codes…");
         const r = await detectCodes(rgba, width, height);
         for (const b of r.codes) {
-          if (Math.min(b.w, b.h) < cc.minSize) continue;
+          if (Math.min(b.w, b.h) < floorOf(cc)) continue;
           out.detections.push({ category: c, label: b.cls === 0 ? "QR code" : "barcode", box: b });
         }
         break;
@@ -208,7 +263,7 @@ export async function detectAll(
         if (!page) break;
         tick("Looking for cards…");
         for (const b of detectCards(page)) {
-          if (b.score < cc.conf || Math.min(b.w, b.h) < cc.minSize) continue;
+          if (b.score < cc.conf || Math.min(b.w, b.h) < floorOf(cc)) continue;
           out.detections.push({ category: c, label: "card", box: b });
         }
         break;
@@ -217,7 +272,7 @@ export async function detectAll(
         if (!page) break;
         tick("Matching text…");
         for (const h of textHitBoxes(page, cfg.text)) {
-          if (Math.min(h.det.w, h.det.h) < cc.minSize) continue;
+          if (Math.min(h.det.w, h.det.h) < floorOf(cc)) continue;
           out.detections.push({ category: c, label: h.rule, box: h.det });
         }
         break;

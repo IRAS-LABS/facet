@@ -25,6 +25,41 @@ export interface PreparedInput extends DetectInput {
 }
 
 /**
+ * A rectangle of the *source*, at the source's own resolution.
+ *
+ * The working copy above is capped at 1600 px, which is what every detector
+ * sees and why a number plate on a 4,000 px photo arrives at a 384 px model
+ * about a dozen pixels wide. This is the way back to the pixels that were
+ * thrown away: `tiles.ts` asks for ninths of the frame, the plate stage asks
+ * for the car it found. Coordinates in, and out, are working-copy pixels;
+ * what comes back is as sharp as the source has to offer, capped so that one
+ * crop can never be larger than one frame.
+ */
+function cropSource(
+  src: CanvasImageSource,
+  width: number,
+  height: number,
+  r: { x: number; y: number; w: number; h: number },
+  scale: number,
+  maxSide: number,
+): { rgba: Uint8ClampedArray; width: number; height: number } | null {
+  const sx = Math.max(0, Math.min(width - 1, Math.round(r.x * scale)));
+  const sy = Math.max(0, Math.min(height - 1, Math.round(r.y * scale)));
+  const sw = Math.max(1, Math.min(width - sx, Math.round(r.w * scale)));
+  const sh = Math.max(1, Math.min(height - sy, Math.round(r.h * scale)));
+  const k = Math.min(1, maxSide / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * k));
+  const h = Math.max(1, Math.round(sh * k));
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
+  return { rgba: ctx.getImageData(0, 0, w, h).data, width: w, height: h };
+}
+
+/**
  * Draw a source into a canvas no larger than `maxSide` and pull RGBA out.
  * The OCR callback reads the same canvas, so word boxes and model boxes
  * share one coordinate space.
@@ -47,6 +82,11 @@ export function prepareInput(
   ctx.drawImage(src, 0, 0, w, h);
   const rgba = ctx.getImageData(0, 0, w, h).data;
   const out: PreparedInput = { rgba, width: w, height: h, scale: 1 / k, canvas };
+  // Only worth offering when something was actually given up. At k === 1 the
+  // working copy is the source, and a crop of it is the same pixels twice.
+  if (k < 1) {
+    out.crop = (r: { x: number; y: number; w: number; h: number }) => cropSource(src, width, height, r, 1 / k, maxSide);
+  }
   if (opts.mime) out.mime = opts.mime;
   const ocr = opts.ocr;
   if (ocr) out.ocr = () => ocrOf(ocr, canvas, opts.ocrLanguage);

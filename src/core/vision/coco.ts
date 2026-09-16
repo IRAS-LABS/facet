@@ -13,6 +13,7 @@
 
 import { COCO, decodeYolox, letterbox, unletterbox, type Det } from "./onnx";
 import { MODEL_SIZE, type OnnxRunner } from "./onnx-runner";
+import { sweep, type Frame } from "./tiles";
 
 const IDX = (name: (typeof COCO)[number]): number => COCO.indexOf(name);
 
@@ -48,11 +49,46 @@ export async function detectCoco(
   // A lower floor for the raw pass so the vehicle stage sees marginal cars.
   const raw = decodeYolox(out.data, size, 80, Math.min(conf, 0.25), 0.45);
   const all = raw.map((d) => unletterbox(d, lb.ratio, width, height));
+  return split(all, opts, ms);
+}
+
+/** The interesting classes, out of everything the model returned. */
+function split(all: Det[], opts: { conf?: number; phones?: boolean }, ms: number): CocoResult {
+  const conf = opts.conf ?? 0.35;
   const wanted = new Set<number>([SCREEN_CLASSES.tv, SCREEN_CLASSES.laptop]);
   if (opts.phones ?? true) wanted.add(SCREEN_CLASSES.phone);
-  const screens = all.filter((d) => wanted.has(d.cls) && d.score >= conf);
-  const vehicles = all.filter((d) => VEHICLE_CLASSES.has(d.cls));
-  return { screens, vehicles, all, ms };
+  return {
+    screens: all.filter((d) => wanted.has(d.cls) && d.score >= conf),
+    vehicles: all.filter((d) => VEHICLE_CLASSES.has(d.cls)),
+    all,
+    ms,
+  };
+}
+
+/**
+ * The same detector, run over the frame and over overlapping pieces of it at
+ * the source's own resolution.
+ *
+ * It matters twice over here. A television at the back of a room is a small
+ * box in a big photo; and this is also the stage the plate and windscreen
+ * stages are built on, so a car this pass misses costs its number plate and
+ * its windscreen too -- both are derived from these boxes rather than found
+ * on their own. On a frame small enough that nothing was thrown away this is
+ * one run, exactly as before.
+ */
+export async function detectCocoTiled(
+  runner: OnnxRunner,
+  frame: Frame,
+  opts: { conf?: number; phones?: boolean } = {},
+  onStep?: ((done: number, total: number) => void) | undefined,
+): Promise<CocoResult> {
+  const t0 = performance.now();
+  const all = await sweep(
+    frame,
+    (p) => detectCoco(runner, p.rgba, p.width, p.height, opts).then((r) => r.all),
+    { sameClass: true, onStep },
+  );
+  return split(all, opts, performance.now() - t0);
 }
 
 /** "screen" or "phone" for a COCO class index. */

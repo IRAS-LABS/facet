@@ -111,7 +111,12 @@ const cat = (kind: BlurKind, amount: number, pad: number, minSize: number, conf:
  */
 export const AUTO_DEFAULTS: AutoBlurConfig = Object.freeze({
   categories: {
-    faces: cat("redact", 0.05, 0.35, 16, 0.6),
+    // 12 source pixels, not 16: on the office test picture the face in a
+    // photograph pinned to the wall is fifteen pixels across and the model
+    // finds it at 0.90. Sixteen threw it away by one pixel. Small is not the
+    // same as unrecognisable -- the picture is four thousand wide and anyone
+    // can zoom in -- and the 0.6 confidence floor is what keeps the noise out.
+    faces: cat("redact", 0.05, 0.35, 12, 0.6),
     // 0.45, not 0.4: on the office test picture a power strip on the floor scored 0.42 as a plate; real plates score 0.8+.
     plates: cat("redact", 0.06, 0.15, 12, 0.45),
     // Off by default, and the only category that is. It covers a band across
