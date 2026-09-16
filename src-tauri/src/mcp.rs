@@ -61,7 +61,7 @@ const SPOKEN: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn base64(raw: &[u8]) -> String {
+pub(crate) fn base64(raw: &[u8]) -> String {
     let mut out = String::with_capacity(raw.len().div_ceil(3) * 4);
     for chunk in raw.chunks(3) {
         let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
@@ -148,7 +148,7 @@ fn catalogue() -> Value {
         "required": ["x", "y", "w", "h"]
     });
 
-    json!([
+    let mut tools = json!([
         {
             "name": "facet_places",
             "description": "The starting points on this machine: every mounted drive, plus the user's Desktop, Documents, Downloads, Pictures, Music and Videos, each with the path to hand to facet_list_dir. Call this first when you do not know where to look.",
@@ -295,18 +295,35 @@ fn catalogue() -> Value {
                 "required": ["inputs", "output"]
             }
         }
-    ])
+    ]);
+    // The tools that drive FACET's own window rather than files on disk. They
+    // live in their own module because they are a different kind of thing: a
+    // file tool answers from disk, a UI tool needs a window to be open and a
+    // debugging port to have been asked for.
+    if let Some(list) = tools.as_array_mut() {
+        list.extend(crate::ui::catalogue());
+    }
+    tools
 }
 
 /// The result of one `tools/call`, before it is wrapped for the wire.
-enum Answer {
+pub(crate) enum Answer {
     /// Anything describable. Serialised as pretty JSON, which is what a model
     /// reads best and what a person debugging the session reads at all.
     Json(Value),
     Jpeg(Vec<u8>),
+    /// An image that arrived already encoded — a screenshot comes off the wire
+    /// as base64 and decoding it here only to encode it again would be work
+    /// done twice to arrive at the same string.
+    Image { b64: String, mime: &'static str },
 }
 
 fn call(name: &str, args: &Map<String, Value>) -> Result<Answer, String> {
+    // `facet_ui_*` first, and by prefix rather than by name, so adding a tool
+    // over there never needs an edit over here.
+    if let Some(answer) = crate::ui::call(name, args) {
+        return answer;
+    }
     match name {
         "facet_places" => Ok(Answer::Json(json!({
             "drives": crate::fsx::list_roots(),
@@ -514,6 +531,10 @@ fn respond(msg: &Value) -> Option<Value> {
                         "data": base64(&bytes),
                         "mimeType": "image/jpeg",
                     }] }),
+                )),
+                Ok(Answer::Image { b64, mime }) => Some(ok(
+                    id,
+                    json!({ "content": [{ "type": "image", "data": b64, "mimeType": mime }] }),
                 )),
             }
         }

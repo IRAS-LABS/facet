@@ -37,6 +37,13 @@ mod pip_layout;
 // below, before any window exists.
 #[cfg(desktop)]
 mod mcp;
+// Desktop only: the MCP server's eyes and hands. `cdp` is a small WebSocket
+// client for the Chrome DevTools Protocol; `ui` is the tools built on it, so
+// that the same model that changes a panel can open it and look at it.
+#[cfg(desktop)]
+mod cdp;
+#[cfg(desktop)]
+mod ui;
 
 /// The `--req N` of a command line that failed to parse, so the error can
 /// still be reported against the number the caller is waiting for.
@@ -74,6 +81,22 @@ pub fn run() {
         let mut args = std::env::args().skip(1);
         if args.next().as_deref() == Some("mcp") {
             std::process::exit(mcp::serve());
+        }
+    }
+
+    // A debugging port into the window, and only when something has asked for
+    // one by name. `facet_ui_open` sets this and a double-click never does, so
+    // an ordinary FACET has no port for anything to attach to -- which matters,
+    // because whatever can reach that port can read the screen and run script
+    // in the page. WebView2 takes it as a command-line argument through this
+    // environment variable, read once when the web view is created, so it has
+    // to be set before the builder and cannot be turned on later.
+    #[cfg(all(desktop, windows))]
+    if let Ok(port) = std::env::var("FACET_UI_PORT") {
+        if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+            let mut args = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+            args.push_str(&format!(" --remote-debugging-port={port}"));
+            std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args.trim());
         }
     }
 
