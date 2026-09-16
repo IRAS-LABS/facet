@@ -21,8 +21,17 @@
   It is kept because it also works on a locked-down machine.
 
 .PARAMETER Release
-  Build the release variant. The resulting APK is unsigned; add your own
-  signing config in src-tauri/gen/android/app/build.gradle.kts.
+  Build the release variant.
+
+  It is signed if a signing key is configured, and unsigned if not -- the build
+  never fails for want of one. Gradle looks for a keystore.properties at
+  $env:FACET_SIGNING, or at ~/.facet-signing/keystore.properties; see the
+  comment at the top of src-tauri/gen/android/app/build.gradle.kts. Neither the
+  keystore nor its password is in this repository, and neither should ever be
+  put here.
+
+  An unsigned APK cannot be installed by adb or by a phone. Android has no
+  concept of an unsigned app; the signature is the identity.
 #>
 param(
     [switch]$Release,
@@ -107,6 +116,39 @@ function Get-Apk {
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
 }
 
+# Who signed the APK, straight out of the file.
+#
+# Printed on every build because "release APK" and "installable APK" are not
+# the same thing and look identical in the outputs folder. An unsigned one
+# fails at `adb install` with INSTALL_PARSE_FAILED_NO_CERTIFICATES, which is a
+# long way from the build that produced it.
+function Show-Signing($apk) {
+    $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { "$env:LOCALAPPDATA\Android\Sdk" }
+    $signer = Get-ChildItem -Path (Join-Path $sdk 'build-tools') -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        ForEach-Object { Join-Path $_.FullName 'apksigner.bat' } |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $signer) {
+        Write-Host "signing: unknown (no apksigner in the SDK build-tools)" -ForegroundColor DarkYellow
+        return
+    }
+    $out = & $signer verify --print-certs $apk.FullName 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "signing: UNSIGNED - this APK cannot be installed" -ForegroundColor Red
+        Write-Host "  set up ~/.facet-signing/keystore.properties and rebuild" -ForegroundColor Red
+        $global:LASTEXITCODE = 0
+        return
+    }
+    $subject = ($out -split "`n" | Where-Object { $_ -match 'Signer #1 certificate DN' } | Select-Object -First 1)
+    $sha = ($out -split "`n" | Where-Object { $_ -match 'Signer #1 certificate SHA-256 digest' } | Select-Object -First 1)
+    Write-Host "signing: signed" -ForegroundColor Green
+    if ($subject) { Write-Host ("  " + $subject.Trim()) -ForegroundColor DarkGray }
+    # The fingerprint is the thing to check against a previous release: a
+    # different one means a different key, which means no phone with the old
+    # build on it can take the update.
+    if ($sha) { Write-Host ("  " + $sha.Trim()) -ForegroundColor DarkGray }
+}
+
 function Show-Apk($apk) {
     Write-Host ""
     Write-Host "APK: $($apk.FullName)" -ForegroundColor Green
@@ -114,6 +156,7 @@ function Show-Apk($apk) {
     # nothing changed, so an unchanged rebuild legitimately leaves the old mtime.
     # Treating "not newer than the run" as failure fails a perfectly good build.
     Write-Host ("size: {0:N1} MB   built: {1:yyyy-MM-dd HH:mm}" -f ($apk.Length / 1MB), $apk.LastWriteTime) -ForegroundColor Green
+    Show-Signing $apk
 }
 
 $abiMap = @{
