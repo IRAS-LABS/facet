@@ -139,7 +139,14 @@ export class SearchTab implements PhoneTab {
     if (hits.length === 0) {
       fill(this.results, el("div.ph-note", {},
         el("p.ph-note-title", { text: "No matches" }),
-        el("p.ph-note-body", { text: "Try part of a file name, or a folder like “Snapchat”." }),
+        // Advice about typing is no help to someone who only tapped chips --
+        // it describes a box they never used and leaves the actual cause,
+        // the filters, unmentioned.
+        el("p.ph-note-body", {
+          text: this.query === ""
+            ? "Nothing matches those filters. Tap one again to turn it off."
+            : "Try part of a file name, or a folder like “Snapchat”.",
+        }),
       ));
       return;
     }
@@ -161,9 +168,19 @@ export class SearchTab implements PhoneTab {
     const week = Date.now() - 7 * 86_400_000;
     const terms = this.query.split(/\s+/).filter(Boolean);
 
+    // "Photos" and "Videos" are two answers to one question -- what kind of
+    // thing is this -- so picking both has to mean either, not both at once.
+    // ANDing them is unsatisfiable: nothing is an image and a video, so two
+    // taps that each widen the search would together return nothing at all.
+    const kinds = new Set<GalleryItem["kind"]>();
+    if (this.active.has("photos")) kinds.add("image");
+    if (this.active.has("videos")) kinds.add("video");
+
     return items.filter((it) => {
-      if (this.active.has("photos") && it.kind !== "image") return false;
-      if (this.active.has("videos") && it.kind !== "video") return false;
+      if (kinds.size > 0 && !kinds.has(it.kind)) return false;
+      // The rest genuinely narrow, and compose: a large screenshot from this
+      // week is all three at once, and screen recordings are videos, so
+      // "Videos" with "Screenshots" is a question worth being able to ask.
       if (this.active.has("week") && (it.modified ?? 0) < week) return false;
       if (this.active.has("large") && (it.size ?? 0) < 25_000_000) return false;
       if (this.active.has("screenshots") && !/screen ?(shot|record)/i.test(`${it.folder}/${it.name}`)) {
