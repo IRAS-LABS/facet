@@ -39,7 +39,16 @@ export class Palette {
   private shown: Scored[] = [];
   private active = 0;
 
-  constructor(private readonly source: () => Command[]) {
+  /**
+   * `typed` is asked about the query itself before the list is searched, so
+   * something that is not a command -- a path, most obviously -- can still be
+   * offered. It returns commands, so the palette does not have to know what
+   * kind of thing was recognised.
+   */
+  constructor(
+    private readonly source: () => Command[],
+    private readonly typed?: (query: string) => Command[],
+  ) {
     this.root = document.createElement("div");
     this.root.className = "pal";
     this.root.hidden = true;
@@ -130,14 +139,19 @@ export class Palette {
 
   private render(): void {
     const q = this.input.value.trim();
+    // What was typed comes first and is never scored against: it is not a
+    // guess about what was meant, it is the thing itself.
+    const own: Scored[] = q === "" ? [] : (this.typed?.(q) ?? []).map((cmd) => ({ cmd, score: Infinity, hits: [] }));
     this.shown =
       q === ""
         ? this.commands.slice(0, 60).map((cmd) => ({ cmd, score: 0, hits: [] }))
-        : this.commands
-            .map((cmd) => score(cmd, q))
-            .filter((s): s is Scored => s !== null)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, 60);
+        : own.concat(
+            this.commands
+              .map((cmd) => score(cmd, q))
+              .filter((s): s is Scored => s !== null)
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 60 - own.length),
+          );
 
     this.list.replaceChildren();
     if (this.shown.length === 0) {

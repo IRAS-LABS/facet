@@ -869,6 +869,56 @@ function popOut(paths: readonly string[]): void {
 }
 
 /**
+ * Go to a path someone typed, pasted or dropped in.
+ *
+ * A file is not a dead end: its folder is opened with the file picked out,
+ * which is what "go to this" means when the this is a file.
+ */
+async function showPath(path: string): Promise<void> {
+  if (path === cwd) return;
+  const before = cwd;
+  await navigate(path);
+  if (cwd !== before) return;
+  // The listing failed, so it is a file, a typo, or somewhere unreadable.
+  // Try the folder it would live in before giving up.
+  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  if (cut <= 0) return;
+  const dir = /^[A-Za-z]:$/.test(path.slice(0, cut)) ? path.slice(0, cut) + "\\" : path.slice(0, cut);
+  await navigate(dir);
+  if (cwd === dir) browser.selectPaths([path]);
+}
+
+/** Does this look like somewhere on disk, rather than words to search for? */
+function looksLikePath(q: string): boolean {
+  return /^([A-Za-z]:[\\/]|\\\\|\/|~[\\/]|content:\/\/|\/storage\/)/.test(q);
+}
+
+/**
+ * The query as a place, when the query is one.
+ *
+ * The palette offers "a command, a folder, a theme", and a pasted path is the
+ * most obvious folder there is -- it used to answer "Nothing matches", which
+ * is the one answer that is plainly wrong.
+ */
+function typedPath(q: string): Command[] {
+  const raw = q.trim().replace(/^"(.*)"$/, "$1");
+  if (!looksLikePath(raw)) return [];
+  const home = places.find((p) => p.id === "home")?.path;
+  const full = raw.startsWith("~") && home !== undefined ? home + raw.slice(1) : raw;
+  // One separator, so the breadcrumb and the tree agree with the address bar.
+  const path = IS_ANDROID ? full : full.replace(/\\/g, "/").replace(/(.)\/+$/, "$1");
+  return [
+    {
+      id: "go:typed",
+      title: "Go to " + path,
+      hint: "typed path",
+      group: "Go",
+      run: () => void showPath(path),
+    },
+  ];
+}
+
+/**
  * "Show in FACET" from a pop-out, or `facet explore <paths>` from outside:
  * go to the first file's folder and select what is there. Selected rather
  * than opened, because the person asking already has it open in the pop-out.
@@ -3203,7 +3253,7 @@ function baseName(path: string): string {
   return name === "" ? clean : name;
 }
 
-const palette = new Palette(commands);
+const palette = new Palette(commands, typedPath);
 
 // ── Settings ──────────────────────────────────────────────────────────────
 
