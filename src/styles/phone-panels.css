@@ -397,18 +397,78 @@ body.fct-phone .fct-phone-panel input[type="color"] {
 /* ── Hex: three desktop columns do not fit on a phone ──────────────────────
    `300px | 1fr | 260px` is 560px of hard minimum on a 384px screen, and the
    values pane was simply off the right edge with no way to reach it. Stacked,
-   the dump keeps the room and the two side panels take a capped slice each. */
+   the dump keeps the room and the two side panels take a capped slice each.
+
+   Stacked was not enough on its own. Three panes sharing 740px left the dump
+   370px -- nine rows of eight bytes, seventy-two bytes of a ninety-kilobyte
+   file on screen at once -- while the structure tree and the byte inspector
+   held 371px between them whether or not anyone was reading either. Both now
+   fold behind a header and both start folded, so the dump gets 650px and
+   sixteen rows and neither pane is more than one tap away. A flex column
+   rather than fixed rows precisely so the dump absorbs whatever the other two
+   are not using, in any of the four combinations. */
 body.fct-phone .fct-phone-panel .hx-main {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 0.9fr) minmax(0, 2fr) minmax(0, 1.1fr);
+  display: flex;
+  flex-direction: column;
 }
 body.fct-phone .fct-phone-panel .hx-tree {
+  flex: 0 1 auto;
+  min-height: 120px;
+  max-height: 26%;
   border-right: none;
   border-bottom: 1px solid var(--fct-border);
 }
+/* Basis 0, not auto. The dump's own content is a whole file tall, so an auto
+   basis made it the one pane with a claim on the space and the other two
+   shrank to seventeen and twenty-five pixels when unfolded -- open, and still
+   unreadable. From zero it grows into what the other two leave. */
+body.fct-phone .fct-phone-panel .hx-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+}
 body.fct-phone .fct-phone-panel .hx-side {
+  flex: 0 1 auto;
+  min-height: 120px;
+  max-height: 26%;
   border-left: none;
   border-top: 1px solid var(--fct-border);
+}
+body.fct-phone .fct-phone-panel .hx-main.hx-folded-tree .hx-tree,
+body.fct-phone .fct-phone-panel .hx-main.hx-folded-side .hx-side {
+  display: none;
+}
+
+/* The two fold headers. Desktop keeps all three panes side by side with room
+   for them, so it never shows these and never reads the classes they toggle. */
+.hx-fold {
+  display: none;
+}
+body.fct-phone .fct-phone-panel .hx-fold {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--fct-sp-3);
+  border: none;
+  border-top: 1px solid var(--fct-border);
+  background: var(--fct-bg-2);
+  color: var(--fct-fg-2);
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+/* A chevron, so a folded pane reads as something to open rather than as a
+   heading with nothing underneath it. */
+body.fct-phone .fct-phone-panel .hx-fold::after {
+  content: "B4";
+  margin-left: auto;
+  opacity: 0.7;
+}
+body.fct-phone .fct-phone-panel .hx-main.hx-folded-tree .hx-fold.tree::after,
+body.fct-phone .fct-phone-panel .hx-main.hx-folded-side .hx-fold.side::after {
+  content: "BE";
 }
 
 /* The title bar had the same problem one line up: two 190px inputs and a Close

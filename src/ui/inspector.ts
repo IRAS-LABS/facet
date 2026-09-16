@@ -60,6 +60,11 @@ export class Inspector {
   private readonly root = document.createElement("div");
   private readonly title = document.createElement("div");
   private readonly tree = document.createElement("div");
+  private main!: HTMLDivElement;
+  private treeFold!: HTMLButtonElement;
+  private sideFold!: HTMLButtonElement;
+  /** Whether the byte inspector has already opened itself once. See `unfoldSide`. */
+  private sideNudged = false;
   private readonly scroll = document.createElement("div");
   private readonly spacer = document.createElement("div");
   private readonly rowLayer = document.createElement("div");
@@ -168,7 +173,33 @@ export class Inspector {
 
     const main = document.createElement("div");
     main.className = "hx-main";
-    main.append(this.tree, this.scroll, side);
+    this.main = main;
+
+    // The dump is the thing. On a phone the three panes stack, and with the
+    // structure tree and the byte inspector both open all the time the dump was
+    // left 370 px of a 740 px panel -- nine rows of eight bytes, seventy-two
+    // bytes of a ninety-kilobyte file on screen at once. Folded, it gets 650 px
+    // and sixteen rows, and neither pane is more than one tap away.
+    //
+    // Folded is the state they start in, and the classes go on unconditionally:
+    // the desktop layout is three columns side by side with room for all of it,
+    // so its stylesheet ignores both the classes and the two headers.
+    const fold = (label: string, cls: string): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.className = `hx-fold ${cls}`;
+      b.type = "button";
+      b.textContent = label;
+      b.setAttribute("aria-expanded", "false");
+      b.addEventListener("click", () => {
+        const now = main.classList.toggle(`hx-folded-${cls}`);
+        b.setAttribute("aria-expanded", String(!now));
+      });
+      return b;
+    };
+    this.treeFold = fold("Structure", "tree");
+    this.sideFold = fold("Byte details", "side");
+    main.classList.add("hx-folded-tree", "hx-folded-side");
+    main.append(this.treeFold, this.tree, this.scroll, this.sideFold, side);
 
     this.root.append(bar, main);
     document.body.append(this.root);
@@ -598,7 +629,23 @@ export class Inspector {
 
   private setCursor(off: number): void {
     this.cursor = Math.max(0, Math.min(off, Math.max(0, this.size - 1)));
+    this.unfoldSide();
     this.paint();
+  }
+
+  /**
+   * Tapping a byte is the question the inspector answers, so it opens itself.
+   *
+   * Only the first time. Fold it away again and it stays away -- someone who
+   * has just closed a pane does not want it back on the next tap, which is
+   * exactly the loop that makes a panel feel like it is fighting you.
+   */
+  private unfoldSide(): void {
+    if (this.sideNudged) return;
+    this.sideNudged = true;
+    if (!this.main.classList.contains("hx-folded-side")) return;
+    this.main.classList.remove("hx-folded-side");
+    this.sideFold.setAttribute("aria-expanded", "true");
   }
 
   /** Move the cursor and bring it on screen, centring only when it is not. */
