@@ -24,6 +24,10 @@
  * a cover that is too big spoils a photograph, and a cover that is too small
  * hands over a VIN.
  *
+ * Which is an argument for a generous band, not for an unmeasured one. The
+ * first numbers here were neither measured nor checked against a photograph,
+ * and they missed in both directions at once -- see the note on `TOP`.
+ *
  * Front and rear screens are not distinguished, for the same reason -- and it
  * does not matter, because the rear screen carries the permits and stickers
  * just as often.
@@ -50,16 +54,28 @@ export const WINDSHIELD_DEFAULTS: WindshieldOptions = { minVehicle: 72, conf: 0.
 /**
  * Where the glass sits inside a vehicle's box, as fractions of it.
  *
- * Measured off photographs rather than derived: on a car seen head-on the
- * screen occupies roughly the top third and nearly the full width; in
- * three-quarter view it slides back and shrinks; side-on it is a wedge in the
- * upper middle. `TOP` starts just under the roofline and `BOTTOM` ends at the
- * scuttle, which is where the VIN plate lives — the single most important
- * thing on the whole car to cover, and the lowest, so the band is generous
- * downward rather than upward.
+ * Now actually measured. On `fixtures/_autoblurcheck/autoblur-car.jpg` the
+ * saloon's box runs y 100..560 and its windscreen y 115..200 — the glass
+ * occupies 0.03 to 0.22 of the box, tucked right under the roofline. The old
+ * 0.12..0.58 put the band at y 153..365 on that car, which is the wrong band
+ * twice over: it started *below* the top of the glass, leaving the upper third
+ * of the windscreen and anything stuck to it in plain view, and it ran on down
+ * past the scuttle to cover the bonnet, the grille and the headlights. 27% of
+ * the whole photograph came back solid black and the VIN was still showing.
+ *
+ * So the band is anchored at the roofline rather than under it, and stops at
+ * the third rather than past the middle. The margin that used to be spent
+ * below the scuttle, where there is nothing to hide, is spent above the glass,
+ * where the tax disc and the permits actually are.
+ *
+ * Width is left at nearly the full box on purpose. Horizontally the view angle
+ * decides where in the box the glass sits and the box does not say which angle
+ * this is, so there is nothing to narrow towards; and a band that spans a car
+ * but sits in its top third is a far smaller thing than one that spans its top
+ * half, which is what made the old one read as a blackout.
  */
-const TOP = 0.12;
-const BOTTOM = 0.58;
+const TOP = 0;
+const BOTTOM = 0.34;
 const INSET = 0.06;
 
 /**
