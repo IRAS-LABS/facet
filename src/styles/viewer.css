@@ -251,8 +251,24 @@
 
 .vp-tools {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* `minmax(0, …)` and not `1fr`: a grid track's floor is its content, so one
+     long word ("Windscreens") pushes every column wider than a quarter and the
+     whole row hangs off the side of the panel, taking the last chip with it. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
+}
+
+/* The auto-blur chips are phrases, not glyphs. Four across gives each of them
+   about sixty pixels, which is not a column, it is a stack of fragments. */
+.vp-auto-picks {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.vp-auto-picks .vp-tool {
+  font-size: 12px;
+  line-height: 1.25;
+  padding: 7px 6px;
+  overflow-wrap: anywhere;
 }
 
 .vp-tool {

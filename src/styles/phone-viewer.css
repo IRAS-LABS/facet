@@ -631,7 +631,9 @@ div.phv-grab {
 .phv-facts { display: grid; gap: var(--fct-sp-2); padding: var(--fct-sp-2); margin: 0; }
 .phv-fact {
   display: grid;
-  grid-template-columns: 8.5rem 1fr;
+  /* `minmax(0, …)`: a track's floor is its content, and one unbreakable run in
+     the value column would otherwise push the row wider than the sheet. */
+  grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr);
   gap: var(--fct-sp-3);
   font-size: var(--fct-fs-sm);
 }
