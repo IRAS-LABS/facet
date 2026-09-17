@@ -31,6 +31,27 @@
  */
 
 import {
+  clamp,
+  dualAvailable,
+  dualBoxes,
+  dualHit,
+  dualPhoto,
+  dualPlace,
+  dualRecordStart,
+  dualRecordStop,
+  dualRects,
+  dualStart,
+  dualStop,
+  DUAL_START,
+  INSET_MAX,
+  INSET_MIN,
+  SHARE_MAX,
+  SHARE_MIN,
+  type DualLayout,
+  type Lens as DualLens,
+  type Stage as DualStage,
+} from "@core/capture/dual";
+import {
   allPresets,
   bestVideoMime,
   clock,
@@ -266,6 +287,39 @@ export class CameraView {
   private counting: number | null = null;
   private unwatch: (() => void) | null = null;
 
+  /**
+   * The dual viewfinder: non-null exactly while both cameras are running.
+   *
+   * It holds where the two pictures are, not what they are -- the pictures
+   * themselves are native views behind the page, and this layout is the only
+   * thing that decides where they land. See `@core/capture/dual`.
+   */
+  private dual: DualLayout | null = null;
+  private dualBtn!: HTMLButtonElement;
+  /** The transparent layer that catches taps and drags over the two previews. */
+  private readonly dualPad = document.createElement("div");
+  private readonly dualHit0 = document.createElement("div");
+  private readonly dualHit1 = document.createElement("div");
+  private dualRec = false;
+  /**
+   * What `dual_available` answered, asked once.
+   *
+   * It is a question for the camera service, not a capability of the browser,
+   * and the answer cannot change while the app is running.
+   */
+  private dualOk: boolean | null = null;
+  private dualDrag: { kind: "tap" | "move" | "resize" | "divider"; x: number; y: number; ok: boolean } | null =
+    null;
+  /**
+   * Keeps the previews on the stage when the stage moves.
+   *
+   * The native views know nothing about the page: turn the phone, open the
+   * settings panel, let the address bar come and go, and they stay exactly
+   * where they were told to be, which is now the wrong place. Watching the
+   * layer they are supposed to be under covers all of those with one rule.
+   */
+  private dualWatch: ResizeObserver | null = null;
+
   constructor(private readonly host: CameraHost) {
     this.root = document.createElement("div");
     this.root.className = "cam";
@@ -296,7 +350,25 @@ export class CameraView {
     this.frame.append(this.video, this.guides);
     this.wireEv();
     this.wirePro();
-    stage.append(this.frame, this.flash, this.count, this.ring, this.evRail, this.proBar, this.zoomBar);
+    this.dualPad.className = "cam-dualpad";
+    this.dualPad.hidden = true;
+    for (const [pad, n] of [[this.dualHit0, 0], [this.dualHit1, 1]] as const) {
+      pad.className = "cam-dualhit";
+      pad.dataset["n"] = String(n);
+      pad.append(document.createElement("span"));
+    }
+    this.dualPad.append(this.dualHit0, this.dualHit1);
+    this.wireDual();
+    stage.append(
+      this.frame,
+      this.dualPad,
+      this.flash,
+      this.count,
+      this.ring,
+      this.evRail,
+      this.proBar,
+      this.zoomBar,
+    );
     this.wireStage(stage);
     // The strip and the status line both describe a frame whose size is not
     // known until the first metadata arrives, and on a cold open that is after
@@ -391,6 +463,14 @@ export class CameraView {
     this.torchBtn.dataset["fctShort"] = "Light";
     this.torchBtn.hidden = true;
 
+    this.dualBtn = this.btn("⧉", "Show both cameras at once", () => void this.toggleDual());
+    this.dualBtn.dataset["fctShort"] = "Both";
+    this.dualBtn.setAttribute("aria-pressed", "false");
+    // Hidden until the camera service says this phone will really run two at
+    // once. Most will not, and a button that explains itself by failing is
+    // worse than no button.
+    this.dualBtn.hidden = true;
+
     const shut = this.btn("✕", "Close  (Esc)", () => this.close());
     const look = this.btn("✦ Look", "Filters  (F)", () => this.togglePanel());
     look.classList.add("cam-look");
@@ -403,11 +483,11 @@ export class CameraView {
     // it -- so the bar carries glyphs and nothing else, and the words they
     // would have had are on `title` and `aria-label`, where a screen reader
     // still reads them and the picture does not have to make room.
-    for (const b of [shut, this.torchBtn, this.flip, this.moreBtn, look, this.proBtn]) {
+    for (const b of [shut, this.torchBtn, this.flip, this.dualBtn, this.moreBtn, look, this.proBtn]) {
       b.dataset["fctLabelled"] = "";
       delete b.dataset["fctShort"];
     }
-    bar.append(shut, spacer(), this.torchBtn, this.flip, this.proBtn, look, this.moreBtn);
+    bar.append(shut, spacer(), this.torchBtn, this.flip, this.dualBtn, this.proBtn, look, this.moreBtn);
 
     const foot = document.createElement("footer");
     foot.className = "cam-foot";
@@ -476,6 +556,9 @@ export class CameraView {
     // unplugging the one in use should not leave a frozen frame on screen
     // claiming to be live.
     this.unwatch = this.host.source.onChange?.(() => void this.listDevices()) ?? null;
+    // Asked once per run, before the viewfinder starts so the button is
+    // already in place when the bar first draws.
+    await this.offerDual();
     await this.start();
   }
 
@@ -487,6 +570,7 @@ export class CameraView {
       // user's, and closing a window is not a decision to throw it away.
       this.recorder.stop();
     }
+    if (this.dual) void this.leaveDual(false);
     this.stop();
     this.unwatch?.();
     this.unwatch = null;
@@ -903,6 +987,330 @@ export class CameraView {
     this.guides.style.display = lines.length ? "" : "none";
   }
 
+  // ── Both cameras ────────────────────────────────────────────────────────
+
+  /**
+   * Ask, once, whether this phone will run two cameras at once.
+   *
+   * Nothing is shown while the answer is unknown: the button appearing a
+   * second after the viewfinder is a smaller oddity than one that is there
+   * from the start and then turns out to be a lie on this hardware.
+   */
+  private async offerDual(): Promise<void> {
+    if (this.dualOk !== null) return;
+    if (this.stream) return;
+    this.dualOk = await dualAvailable();
+    this.dualBtn.hidden = !this.dualOk;
+  }
+
+  private async toggleDual(): Promise<void> {
+    if (this.dual) {
+      await this.leaveDual(true);
+      return;
+    }
+    await this.enterDual();
+  }
+
+  /**
+   * Hand the cameras over to the native side and go see-through.
+   *
+   * The web stream has to be released first and completely. One process holds
+   * one camera on Android: leave `getUserMedia` running and Camera2 is refused
+   * the very lens it is being asked to pair, and the failure arrives as a
+   * driver error rather than as the ordinary thing it is.
+   */
+  private async enterDual(): Promise<void> {
+    if (this.recorder && this.recorder.state !== "inactive") {
+      this.say("Stop the recording first");
+      return;
+    }
+    this.stop();
+    this.dual = { ...DUAL_START, inset: { ...DUAL_START.inset } };
+    // Stopping the tracks asks the platform to close the device; it does not
+    // wait for it to happen. Camera2 arriving while the old handle is still
+    // being torn down is refused with "camera in use", which is true for
+    // another moment and then is not, so it is worth asking twice.
+    let trouble: unknown = null;
+    for (const wait of [0, 450]) {
+      if (wait) await new Promise((go) => setTimeout(go, wait));
+      try {
+        await dualStart();
+        trouble = null;
+        break;
+      } catch (err) {
+        trouble = err;
+      }
+    }
+    if (trouble) {
+      this.dual = null;
+      this.say(reason(trouble));
+      // Whatever went wrong, the single camera was working a moment ago.
+      await this.start();
+      return;
+    }
+    document.body.classList.add("cam-seethru");
+    this.root.classList.add("cam-both");
+    this.dualPad.hidden = false;
+    this.dualWatch ??= new ResizeObserver(() => {
+      this.applyDual();
+    });
+    this.dualWatch.observe(this.dualPad);
+    this.dualBtn.setAttribute("aria-pressed", "true");
+    this.dualBtn.title = "Back to one camera";
+    this.applyDual();
+    // The size is the one thing about dual mode that is worse rather than
+    // different, so it is said rather than discovered later in the file.
+    this.say("Both cameras · 2.8 MP each — tap a picture to make it the big one");
+  }
+
+  /** Give the cameras back. `resume` reopens the ordinary single viewfinder. */
+  private async leaveDual(resume: boolean): Promise<void> {
+    if (!this.dual) return;
+    if (this.dualRec) await this.dualToggleRecord();
+    this.dual = null;
+    this.dualRec = false;
+    this.dualWatch?.disconnect();
+    this.dualPad.hidden = true;
+    document.body.classList.remove("cam-seethru");
+    this.root.classList.remove("cam-both");
+    this.dualBtn.setAttribute("aria-pressed", "false");
+    this.dualBtn.title = "Show both cameras at once";
+    await dualStop();
+    if (resume) await this.start();
+  }
+
+  /** The stage in page coordinates, which is what the native side is told. */
+  private stageBox(): DualStage {
+    const r = (this.dualPad.parentElement ?? this.root).getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  }
+
+  /**
+   * Put the previews where the layout says, and the touch targets on top.
+   *
+   * One function for both, from one set of numbers, so what a finger lands on
+   * is exactly what the eye sees -- the two drifting apart is the classic way
+   * for a native view under a web page to feel broken.
+   */
+  /**
+   * Keep the small picture out from under the top buttons and the shutter.
+   *
+   * On a phone the stage runs the full height of the screen with the bars laid
+   * over it, so a corner that is "near the top" of the stage is under the close
+   * button -- and the inset's touch pad would then sit in the way of it.
+   */
+  private keepInsetClear(layout: DualLayout, stage: DualStage): void {
+    const bar = this.root.querySelector(".cam-bar")?.getBoundingClientRect();
+    const foot = this.root.querySelector(".cam-foot")?.getBoundingClientRect();
+    const gap = 8;
+    const top = bar ? Math.max(0, bar.bottom - stage.top + gap) : 0;
+    const bottom = foot ? Math.min(stage.height, foot.top - stage.top - gap) : stage.height;
+    // In pip the inset's height is its width fraction times the stage height.
+    const room = (bottom - top) / stage.height;
+    const w = clamp(layout.inset.w, INSET_MIN, Math.max(INSET_MIN, Math.min(INSET_MAX, room)));
+    layout.inset.w = w;
+    layout.inset.y = clamp(layout.inset.y, top / stage.height, Math.max(top / stage.height, bottom / stage.height - w));
+  }
+
+  private applyDual(): void {
+    const layout = this.dual;
+    if (!layout) return;
+    const stage = this.stageBox();
+    const dpr = window.devicePixelRatio || 1;
+    this.keepInsetClear(layout, stage);
+    void dualPlace(dualRects(layout, stage, dpr)).catch((err: unknown) => {
+      this.say(reason(err));
+    });
+    const boxes = dualBoxes(layout, stage, dpr);
+    for (const [pad, box] of [[this.dualHit0, boxes[0]], [this.dualHit1, boxes[1]]] as const) {
+      if (!box) continue;
+      pad.style.left = `${box.cssX}px`;
+      pad.style.top = `${box.cssY}px`;
+      pad.style.width = `${box.cssW}px`;
+      pad.style.height = `${box.cssH}px`;
+      pad.dataset["cam"] = box.cam;
+      pad.classList.toggle("cam-dualsmall", layout.shape === "pip" && box.z > 0);
+      pad.classList.toggle("cam-dualhalf", layout.shape === "split");
+      // The name goes against the divider: the bottom edge of the first half,
+      // the top edge of the second (or right/left side by side).
+      const first = box.cssY < 1 && box.cssX < 1;
+      const tall = stage.height >= stage.width;
+      pad.dataset["edge"] = first ? (tall ? "bottom" : "right") : "";
+      const name = box.cam === "back" ? "Back" : "Front";
+      const span = pad.firstElementChild;
+      if (span) span.textContent = name;
+      pad.setAttribute(
+        "aria-label",
+        box.cam === layout.big
+          ? `${name} camera, showing large. Tap for half and half.`
+          : `${name} camera. Tap to make it the big one.`,
+      );
+    }
+  }
+
+  /**
+   * Taps and drags over the two pictures.
+   *
+   * A tap on the smaller one makes it the big one -- which is the swap, since
+   * there are only two. A tap on the big one goes to half and half and back.
+   * Dragging moves the inset, or the divider in a split, and dragging the
+   * inset's bottom-right corner resizes it, so "bigger", "smaller" and
+   * "however I want it" are all the same gesture with different starting
+   * points rather than a menu of named layouts.
+   *
+   * The listener is on the layer, not on the two pads, because a drag that
+   * leaves the rectangle it started in is still that drag.
+   */
+  private wireDual(): void {
+    const at = (e: PointerEvent): { x: number; y: number } => {
+      const r = this.dualPad.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+
+    this.dualPad.addEventListener("pointerdown", (e) => {
+      const layout = this.dual;
+      if (!layout) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.dualPad.setPointerCapture(e.pointerId);
+      const p = at(e);
+      const stage = this.stageBox();
+      const boxes = dualBoxes(layout, stage, window.devicePixelRatio || 1);
+      const small = boxes.find((b) => b.z > 0);
+      const edge = layout.shape === "split" ? boxes[1] : undefined;
+      const along = stage.height >= stage.width;
+      let kind: "tap" | "move" | "resize" | "divider" = "tap";
+      if (edge && Math.abs((along ? p.y - edge.cssY : p.x - edge.cssX)) <= 28) {
+        kind = "divider";
+      } else if (small) {
+        const corner =
+          p.x >= small.cssX + small.cssW - 40 &&
+          p.y >= small.cssY + small.cssH - 40 &&
+          p.x <= small.cssX + small.cssW &&
+          p.y <= small.cssY + small.cssH;
+        const inside =
+          p.x >= small.cssX &&
+          p.x <= small.cssX + small.cssW &&
+          p.y >= small.cssY &&
+          p.y <= small.cssY + small.cssH;
+        if (corner) kind = "resize";
+        else if (inside) kind = "move";
+      }
+      this.dualDrag = { kind, x: p.x, y: p.y, ok: false };
+    });
+
+    this.dualPad.addEventListener("pointermove", (e) => {
+      const drag = this.dualDrag;
+      const layout = this.dual;
+      if (!drag || !layout) return;
+      const p = at(e);
+      const dx = p.x - drag.x;
+      const dy = p.y - drag.y;
+      // Under this, it is a tap with a shaky hand rather than a drag.
+      if (!drag.ok && Math.hypot(dx, dy) < 8) return;
+      drag.ok = true;
+      if (drag.kind === "tap") return;
+      const stage = this.stageBox();
+      const along = stage.height >= stage.width;
+      if (drag.kind === "divider") {
+        const t = along ? p.y / stage.height : p.x / stage.width;
+        layout.share = clamp(t, SHARE_MIN, SHARE_MAX);
+      } else if (drag.kind === "move") {
+        layout.inset.x = clamp(layout.inset.x + dx / stage.width, 0, 1);
+        layout.inset.y = clamp(layout.inset.y + dy / stage.height, 0, 1);
+        drag.x = p.x;
+        drag.y = p.y;
+      } else {
+        // Sized from the corner the finger is holding, so the inset grows
+        // under it rather than away from it.
+        const w = (p.x - layout.inset.x * stage.width) / stage.width;
+        layout.inset.w = clamp(w, INSET_MIN, INSET_MAX);
+      }
+      this.applyDual();
+    });
+
+    const end = (e: PointerEvent): void => {
+      const drag = this.dualDrag;
+      const layout = this.dual;
+      this.dualDrag = null;
+      if (!drag || !layout) return;
+      if (this.dualPad.hasPointerCapture(e.pointerId)) {
+        this.dualPad.releasePointerCapture(e.pointerId);
+      }
+      if (drag.ok) return;
+      const p = at(e);
+      const boxes = dualBoxes(layout, this.stageBox(), window.devicePixelRatio || 1);
+      const hit: DualLens | null = dualHit(boxes, p.x, p.y);
+      if (!hit) return;
+      if (layout.shape === "split") {
+        // Out of half and half: the one tapped fills the screen.
+        layout.shape = "pip";
+        layout.big = hit;
+      } else if (hit !== layout.big) {
+        layout.big = hit;
+      } else {
+        // Into half and half, and actually half: a divider dragged last time
+        // is not what "view both equally" means.
+        layout.shape = "split";
+        layout.share = 0.5;
+      }
+      this.applyDual();
+      this.say(
+        layout.shape === "split"
+          ? "Half and half — drag the line to resize, tap one to make it full screen"
+          : `${layout.big === "back" ? "Back" : "Front"} camera large — drag the small one to move it, its corner to resize`,
+      );
+    };
+    this.dualPad.addEventListener("pointerup", end);
+    this.dualPad.addEventListener("pointercancel", end);
+  }
+
+  /** One photograph from each camera, combined the way the screen looks. */
+  private async dualShoot(): Promise<void> {
+    this.blink();
+    try {
+      const path = await dualPhoto();
+      this.say(`Saved ${base(path)}`);
+      this.host.refresh();
+    } catch (err) {
+      this.say(reason(err));
+    }
+  }
+
+  /**
+   * Film on both, then combine.
+   *
+   * The combining is the slow part and it is said out loud: there is no
+   * hardware video encoder reachable from the bundled ffmpeg, so a clip takes
+   * about twice its own length to put together. Silence for that long reads as
+   * a camera that has hung.
+   */
+  private async dualToggleRecord(): Promise<void> {
+    if (this.dualRec) {
+      this.dualRec = false;
+      this.recBtn.classList.remove("cam-on");
+      this.stopTicker();
+      this.say("Combining the two pictures into one video…");
+      try {
+        const path = await dualRecordStop();
+        this.say(`Saved ${base(path)}`);
+        this.host.refresh();
+      } catch (err) {
+        this.say(reason(err));
+      }
+      return;
+    }
+    try {
+      await dualRecordStart();
+    } catch (err) {
+      this.say(reason(err));
+      return;
+    }
+    this.dualRec = true;
+    this.recBtn.classList.add("cam-on");
+    this.startTicker();
+  }
+
   // ── Stills ──────────────────────────────────────────────────────────────
 
   private async shoot(): Promise<void> {
@@ -916,7 +1324,14 @@ export class CameraView {
     const wait = this.prefs.countdown;
     if (wait > 0) {
       await this.countdown(wait);
-      if (!this.isOpen || !this.stream) return;
+      // In dual mode there is no stream here at all -- the cameras are open on
+      // the native side -- so the guard asks whether there is still something
+      // to photograph, not whether there is a `MediaStream`.
+      if (!this.isOpen || (!this.stream && !this.dual)) return;
+    }
+    if (this.dual) {
+      await this.dualShoot();
+      return;
     }
     await this.capture();
   }
@@ -1659,6 +2074,10 @@ export class CameraView {
   // ── Clips ───────────────────────────────────────────────────────────────
 
   private async toggleRecord(): Promise<void> {
+    if (this.dual) {
+      await this.dualToggleRecord();
+      return;
+    }
     if (this.recorder && this.recorder.state !== "inactive") {
       this.recorder.stop();
       return;

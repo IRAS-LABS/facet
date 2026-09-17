@@ -753,3 +753,16 @@ body.fct-phone .fct-phone-panel .cam-pro-chip {
 body.fct-phone .fct-phone-panel .cam-pro-slide {
   height: 42px;
 }
+
+/* A slim top row, the way a phone camera does it: the controls take one thin
+   strip under the status bar and the picture keeps the rest. */
+body.fct-phone .fct-phone-panel .cam-bar {
+  padding: calc(env(safe-area-inset-top) + 2px) var(--fct-sp-2) var(--fct-sp-2);
+  gap: 2px;
+}
+body.fct-phone .fct-phone-panel .cam-bar .cam-btn {
+  height: 36px;
+  min-width: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+}

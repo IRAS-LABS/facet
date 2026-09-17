@@ -664,6 +664,33 @@ export function settleDuration(el: HTMLMediaElement): Promise<number> {
   });
 }
 
+/** A 1x1 transparent GIF. */
+const NO_POSTER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+/**
+ * Take away Android's grey play-triangle placeholder from every `<video>`.
+ *
+ * The WebView paints it on any element with no `poster` of its own: the camera
+ * before its stream arrives, a clip whose autoplay was refused, an editor still
+ * loading. It is drawn by the platform, so CSS cannot reach it -- but a poster
+ * of our own replaces it, and a transparent one means whatever is behind the
+ * element shows instead. Every element, including ones added later, so no
+ * screen has to remember. Android only: elsewhere a poster would hold back a
+ * first frame that the browser shows by itself.
+ */
+export function hideAndroidPoster(): void {
+  if (!/Android/i.test(navigator.userAgent)) return;
+  const fix = (node: Node): void => {
+    if (!(node instanceof Element)) return;
+    const all = node instanceof HTMLVideoElement ? [node] : node.querySelectorAll("video");
+    for (const v of all) if (!v.hasAttribute("poster")) v.poster = NO_POSTER;
+  };
+  fix(document.documentElement);
+  new MutationObserver((changes) => {
+    for (const c of changes) for (const n of c.addedNodes) fix(n);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+}
+
 /**
  * Make a `<video>` show its own first frame instead of Android's placeholder.
  *

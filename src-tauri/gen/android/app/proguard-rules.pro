@@ -60,3 +60,19 @@
     public static java.lang.String drain();
     public static void shutdown();
 }
+
+# DualBridge is reached only from Rust over JNI (dual.rs) and from MainActivity.
+# Same trap as the others: on 2026-09-17 "available" was stripped and dual
+# camera reported itself unsupported on a phone that runs it fine.
+-keep class com.iraslabs.facet.DualBridge {
+    public static void attach(android.app.Activity, android.webkit.WebView);
+    public static boolean available(android.content.Context);
+    public static boolean running();
+    public static java.lang.String start();
+    public static void stop();
+    public static java.lang.String place(java.lang.String);
+    public static java.lang.String photo();
+    public static java.lang.String startRecording();
+    public static java.lang.String stopRecording();
+    public static boolean recording();
+}

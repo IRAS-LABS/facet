@@ -105,7 +105,7 @@ import { CanvasView } from "@ui/canvas-view";
 import { ColumnsView } from "@ui/columns-view";
 import { GalleryView } from "@ui/gallery-view";
 import { ListView } from "@ui/list-view";
-import { MediaPlayer } from "@ui/media";
+import { hideAndroidPoster, MediaPlayer } from "@ui/media";
 import { Inspector } from "@ui/inspector";
 import { MetaPanel } from "@ui/metadata";
 import { Palette, type Command } from "@ui/palette";
@@ -135,6 +135,8 @@ import { MenuPanel } from "@ui/menu-panel";
 import { OpensPanel } from "@ui/opens-panel";
 import { FilterBar } from "@ui/filter-bar";
 import { KeysPanel } from "@ui/keys";
+
+hideAndroidPoster();
 
 /**
  * Real files natively, the mock in a plain browser tab.

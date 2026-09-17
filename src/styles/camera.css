@@ -720,3 +720,115 @@
   background: #fde68a;
   box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
 }
+
+/* ── Both cameras ───────────────────────────────────────────────────────────
+ *
+ * The two pictures are not in the page. They are Android views sitting behind
+ * the WebView, so everything between them and the eye has to actually be
+ * transparent -- one opaque background anywhere in that stack and the phone
+ * shows a blank screen with working buttons on it, which is the whole feature
+ * failing in the least obvious way. `body` is the only element that paints a
+ * background by default (see base.css), but `.cam` and `.cam-stage` set their
+ * own, and `.cam-frame` holds the single-camera <video>, which is stopped in
+ * this mode and would otherwise sit there as a black rectangle. */
+body.cam-seethru,
+body.cam-seethru #app,
+body.cam-seethru .cam.cam-both,
+body.cam-seethru .cam.cam-both .cam-stage {
+  background: transparent;
+}
+
+/* The glass and edge skins give every phone panel a backdrop blur and a wash,
+ * and the camera is a phone panel. Over the page that is the look; over the two
+ * native previews the WebView really does blur them, and the result was a
+ * sharp camera shown as smeared colour. `html` in the selector so it outranks
+ * the skin's `:root[data-skin]` rules. */
+html body.cam-seethru .cam.cam-both.fct-phone-panel {
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+body.cam-seethru .cam.cam-both .cam-frame {
+  display: none;
+}
+
+
+.cam-dualpad {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  touch-action: none;
+}
+
+/* Only the outline is drawn here -- the picture inside it belongs to the
+ * camera service. It is what makes the small one look placed rather than
+ * pasted, and it is what a finger is aiming at. */
+.cam-dualhit {
+  position: absolute;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cam-dualhit.cam-dualsmall {
+  border: 2px solid rgb(255 255 255 / 85%);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 55%);
+}
+
+/* The corner that resizes the inset. A drawn grip rather than an invisible
+ * one: a hit area you cannot see is a hit area nobody uses. */
+.cam-dualhit.cam-dualsmall::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 18px;
+  height: 18px;
+  border-right: 3px solid rgb(255 255 255 / 85%);
+  border-bottom: 3px solid rgb(255 255 255 / 85%);
+  border-bottom-right-radius: 8px;
+}
+
+.cam-dualhit > span {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+/* Only the camera panel stays on screen. Transparent is not enough on its own:
+   the photo grid under the panel then shows through, and on the phone it read
+   as a badly blurred camera. `visibility` rather than `display` so nothing
+   under it re-lays out and scrolls when the mode ends. */
+html:has(body.cam-seethru) { background: transparent; }
+body.cam-seethru > *:not(.cam) { visibility: hidden; }
+/* The zoom steps drive the single-camera stream, which is stopped here. */
+.cam-both .cam-zoom { display: none; }
+
+/* The big picture's name is not drawn: it runs under the status bar and the
+   top buttons, and the one that is full screen needs no label. In half and
+   half each name sits against the divider, clear of both bars. */
+.cam-dualhit:not(.cam-dualsmall):not(.cam-dualhalf) > span { display: none; }
+.cam-dualhit.cam-dualhalf[data-edge="bottom"] > span { top: auto; bottom: 8px; }
+.cam-dualhit.cam-dualhalf[data-edge="right"] > span { left: auto; right: 8px; }
+
+/* The line between the halves, which is also the thing to drag. */
+.cam-dualhit.cam-dualhalf[data-edge="bottom"] { box-shadow: inset 0 -2px 0 rgb(255 255 255 / 80%); }
+.cam-dualhit.cam-dualhalf[data-edge="right"] { box-shadow: inset -2px 0 0 rgb(255 255 255 / 80%); }
+
+/* The touch pad covers the whole stage, and the stage comes after the top bar
+   in the page, so without this the pad took every tap meant for the close,
+   flash, Both and Pro buttons. */
+html body .cam.cam-both .cam-bar,
+html body .cam.cam-both .cam-foot {
+  z-index: 5;
+}
+.cam-dualhit.cam-dualhalf { border-radius: 0; }

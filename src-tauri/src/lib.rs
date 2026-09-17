@@ -17,6 +17,7 @@ mod ffmpeg;
 mod fsx;
 mod media;
 mod openwith;
+mod dual;
 mod speech;
 mod thumbs;
 mod share;
@@ -178,6 +179,14 @@ pub fn run() {
             speech::speech_voices,
             speech::speech_speak,
             speech::speech_stop,
+            dual::dual_available,
+            dual::dual_start,
+            dual::dual_stop,
+            dual::dual_place,
+            dual::dual_photo,
+            dual::dual_record_start,
+            dual::dual_record_stop,
+            dual::dual_recording,
             share::share_files,
             share::copy_files,
             ffmpeg::media_ready,
@@ -255,6 +264,14 @@ pub fn run() {
         speech::speech_voices,
         speech::speech_speak,
         speech::speech_stop,
+        dual::dual_available,
+        dual::dual_start,
+        dual::dual_stop,
+        dual::dual_place,
+        dual::dual_photo,
+        dual::dual_record_start,
+        dual::dual_record_stop,
+        dual::dual_recording,
         share::share_files,
         share::copy_files,
         media_server::media_url,

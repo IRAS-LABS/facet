@@ -65,6 +65,21 @@ class MainActivity : TauriActivity() {
   }
 
   /**
+   * The moment there is a web view to sit behind.
+   *
+   * Dual camera draws its two previews natively rather than pushing frames
+   * through the JS bridge, which means it needs a view underneath the page and
+   * a page that is see-through where it shows. This is wry's own hook for
+   * exactly that -- `WryActivity` and `TauriActivity` are generated files
+   * stamped "DO NOT MODIFY", and overriding here is how they expect to be
+   * extended. Nothing is built yet; this only hands over the reference.
+   */
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    DualBridge.attach(this, webView)
+  }
+
+  /**
    * "Open with FACET" while FACET is already running.
    *
    * The activity is `singleTask`, so a second tap on a file in another app
@@ -87,6 +102,7 @@ class MainActivity : TauriActivity() {
    * a sentence finishing itself over whatever the user opened next.
    */
   override fun onDestroy() {
+    DualBridge.stop()
     SpeechBridge.shutdown()
     super.onDestroy()
   }
