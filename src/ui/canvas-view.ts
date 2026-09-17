@@ -72,9 +72,10 @@ export interface CanvasCallbacks {
   onWantPreview?(entry: FileEntry): void;
   /**
    * Right-click (item 39). `entry` is null on bare canvas. As in the list, the
-   * selection is already correct by the time this fires.
+   * selection is already correct by the time this fires. `shift` is whether
+   * Shift was held; see `ListCallbacks.onMenu` for what the shell does with it.
    */
-  onMenu?(entry: FileEntry | null, x: number, y: number): void;
+  onMenu?(entry: FileEntry | null, x: number, y: number, shift?: boolean): void;
 }
 
 interface Cell {
@@ -475,7 +476,7 @@ export class CanvasView {
       this.#selected.clear();
       this.#syncSelection();
     }
-    this.#cb.onMenu?.(cell?.entry ?? null, ev.clientX, ev.clientY);
+    this.#cb.onMenu?.(cell?.entry ?? null, ev.clientX, ev.clientY, ev.shiftKey);
   }
 
   #syncSelection(): void {

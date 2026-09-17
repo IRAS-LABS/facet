@@ -24,6 +24,9 @@ serde_json = "1"
 # shim, and putting files on the clipboard is CF_HDROP — neither has a
 # crates.io wrapper worth the dependency. Same `windows` version Tauri already
 # pulls in, so this adds features, not a second copy of the bindings.
+# Graphics_Gdi and Shell_Common are for the Explorer right-click menu
+# (shellmenu.rs): `ClientToScreen` lives in the first, item ID lists in the
+# second.
 # The Android share sheet is an Intent the activity has to raise, and wry's
 # dispatch pipe is the sanctioned way onto that thread from a Tauri command.
 # Same wry version Tauri already builds — a second name for it, not a second
@@ -61,10 +64,12 @@ windows = { version = "0.61", features = [
   "Storage_Streams",
   "Storage_Search",
   "Win32_Foundation",
+  "Win32_Graphics_Gdi",
   "Win32_System_Com",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
   "Win32_UI_WindowsAndMessaging",
 ] }
 

@@ -426,6 +426,28 @@ export class TauriFs implements FsAdapter {
     return invoke("copy_files", { paths });
   }
 
+  /**
+   * Explorer's own right-click menu for `paths`, shown by Windows at `x`, `y`,
+   * with whatever the user picks run by Windows too.
+   *
+   * `x` and `y` are *physical* pixels from the window's top-left, not CSS
+   * pixels: the page is the only side that knows its zoom, so the caller
+   * multiplies by `devicePixelRatio` before asking. Every path must be in the
+   * same folder, as in Explorer, where a selection always is.
+   *
+   * Resolves once the menu has closed — to the verb that ran (which can be
+   * empty; not every extension names its commands), or `null` when the user
+   * dismissed it. Rejects on anything but Windows.
+   */
+  shellMenu(
+    paths: readonly string[],
+    x: number,
+    y: number,
+    extended: boolean,
+  ): Promise<string | null> {
+    return invoke<string | null>("shell_menu", { paths, x, y, extended });
+  }
+
   // ── ffmpeg (items 4, 5, 12) ────────────────────────────────────────────
   //
   // The front end never assembles a command line; it hands over a typed job and

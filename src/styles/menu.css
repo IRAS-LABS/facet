@@ -88,7 +88,8 @@
   background: var(--fct-border);
 }
 
-.ctx-edit {
+.ctx-edit,
+.ctx-more {
   color: var(--fct-text-muted);
   font-size: var(--fct-fs-xs);
 }

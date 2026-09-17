@@ -88,8 +88,13 @@ export interface ListCallbacks {
    * The view has already fixed the selection before this fires — see
    * `#onMenu` — so the shell can build the menu from `selection` and does not
    * need to know that a right-click on an unselected row is also a click.
+   *
+   * `shift` is whether Shift was held. The view does not decide what that
+   * means — on Windows the shell takes it as "skip FACET's menu and show
+   * Explorer's", which is what Shift+right-click means in Explorer itself —
+   * it only reports it, because the event is gone by the time anyone asks.
    */
-  onMenu?(entry: FileEntry | null, x: number, y: number): void;
+  onMenu?(entry: FileEntry | null, x: number, y: number, shift?: boolean): void;
   /**
    * The folder being listed.
    *
@@ -854,7 +859,7 @@ export class ListView {
       this.#selected.clear();
       this.#syncSelection(true);
     }
-    this.#cb.onMenu?.(i >= 0 ? this.#entries[i]! : null, ev.clientX, ev.clientY);
+    this.#cb.onMenu?.(i >= 0 ? this.#entries[i]! : null, ev.clientX, ev.clientY, ev.shiftKey);
   }
 
   #onKey(ev: KeyboardEvent): void {

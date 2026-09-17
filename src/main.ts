@@ -1114,7 +1114,14 @@ const shared = {
    * so there is nothing to do here but open the menu where the pointer is —
    * which is also why both views can share one handler.
    */
-  onMenu(_entry: FileEntry | null, x: number, y: number) {
+  onMenu(_entry: FileEntry | null, x: number, y: number, shift = false) {
+    // Shift+right-click goes straight to Explorer's menu, as it does in
+    // Explorer on Windows 11. Only where there is one to show; anywhere else
+    // Shift changes nothing and FACET's own menu opens as usual.
+    if (shift && shellMenuReady()) {
+      void showShellMenu(x, y, true);
+      return;
+    }
     openContextMenu(x, y);
   },
   /*
@@ -3421,7 +3428,74 @@ function openContextMenu(x: number, y: number): void {
     line: settings.get<string>(PREF.menu),
     commands: commands(),
     edit: openMenuBuilder,
+    ...(shellMenuReady()
+      ? { more: { hint: "Shift+right-click", run: () => void showShellMenu(x, y, false) } }
+      : {}),
   });
+}
+
+/**
+ * Explorer's own right-click menu, for what is selected.
+ *
+ * FACET's menu is FACET's commands. What it cannot hold is everything other
+ * programs have put into Explorer's — 7-Zip, "Send with Tailscale", a Git
+ * client, the real Open with and Properties — and people who live in those
+ * reach for them from any file manager. So on Windows the full menu is one row
+ * away ("Show more options", where Windows 11 puts it) or one modifier away
+ * (Shift+right-click). The native side shows it and runs the pick; see
+ * `src-tauri/src/shellmenu.rs`.
+ *
+ * Windows only, and desktop only: there is no such menu anywhere else, and the
+ * command says so rather than pretending. Not offered on empty space either —
+ * the menu is *about* items, and a folder background's menu is a different
+ * object this does not build.
+ */
+const SHELL_MENU = native !== null && !IS_ANDROID && /windows/i.test(navigator.userAgent);
+
+function shellMenuReady(): boolean {
+  return SHELL_MENU && selection.length > 0;
+}
+
+/**
+ * Whether the folder should be re-read the next time the window comes back
+ * to the front. See `showShellMenu`.
+ */
+let reloadOnReturn = false;
+window.addEventListener("focus", () => {
+  if (!reloadOnReturn) return;
+  reloadOnReturn = false;
+  reload();
+});
+
+/**
+ * Show the Windows menu at `x`, `y` (CSS pixels, as the event gave them).
+ *
+ * Anything picked may have changed the folder — Delete, Paste, "Extract here"
+ * — so it is re-read as soon as the menu hands back. Once is not always
+ * enough: a lot of these commands finish somewhere else, in 7-Zip's progress
+ * window or a Properties sheet the user is still looking at, and the change
+ * lands after the call returned. Those all take the focus away, so the folder
+ * is read once more when FACET gets it back. A command that never left the
+ * window (Copy) costs one extra re-read later, which is nothing.
+ */
+async function showShellMenu(x: number, y: number, extended: boolean): Promise<void> {
+  if (native === null || !shellMenuReady()) return;
+  // The native side places the menu in physical pixels, and only the page
+  // knows how many of those a CSS pixel is right now.
+  const dpr = window.devicePixelRatio || 1;
+  try {
+    const ran = await native.shellMenu(
+      selection.map((e) => e.path),
+      Math.round(x * dpr),
+      Math.round(y * dpr),
+      extended,
+    );
+    if (ran === null) return;
+    reloadOnReturn = true;
+    reload();
+  } catch (e) {
+    flash(`Windows menu unavailable — ${String(e)}`);
+  }
 }
 
 /**
