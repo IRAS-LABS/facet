@@ -183,6 +183,11 @@ export class CameraView {
   private readonly frame = document.createElement("div");
   private readonly evRail = document.createElement("div");
   private readonly evDot = document.createElement("div");
+  /** The manual row, its slider, and the button that brings both. */
+  private readonly proBar = document.createElement("div");
+  private readonly proRow = document.createElement("div");
+  private readonly proSlide = document.createElement("input");
+  private proBtn!: HTMLButtonElement;
   private torchBtn!: HTMLButtonElement;
   /** What the open lens will do, re-read on every `start` — it is per lens. */
   private able: LensCaps = {};
@@ -193,6 +198,22 @@ export class CameraView {
   private dig = 1;
   /** Where the brightness rail is, in the units the driver uses. */
   private evVal = 0;
+  /** True when the manual row is showing. */
+  private pro = false;
+  /** The dials this lens actually offers, rebuilt per lens. */
+  private dials: Dial[] = [];
+  /** Which dial the slider is currently driving; -1 for none. */
+  private dialAt = -1;
+  /**
+   * Keeps the row's numbers live while it is open.
+   *
+   * Most of what the row shows is not what was set but what the camera is
+   * doing: on automatic the ISO and the shutter move with every change in the
+   * light, and a readout that answered once when the row opened would sit at a
+   * number that stopped being true seconds ago. Half a second is slow enough
+   * to read and fast enough to believe.
+   */
+  private proTimer = 0;
   /**
    * True once a person has chosen a lens rather than been given one.
    *
@@ -274,7 +295,8 @@ export class CameraView {
     this.frame.className = "cam-frame";
     this.frame.append(this.video, this.guides);
     this.wireEv();
-    stage.append(this.frame, this.flash, this.count, this.ring, this.evRail, this.zoomBar);
+    this.wirePro();
+    stage.append(this.frame, this.flash, this.count, this.ring, this.evRail, this.proBar, this.zoomBar);
     this.wireStage(stage);
     // The strip and the status line both describe a frame whose size is not
     // known until the first metadata arrives, and on a cold open that is after
@@ -372,16 +394,20 @@ export class CameraView {
     const shut = this.btn("✕", "Close  (Esc)", () => this.close());
     const look = this.btn("✦ Look", "Filters  (F)", () => this.togglePanel());
     look.classList.add("cam-look");
+    this.proBtn = this.btn("Pro", "Manual ISO, shutter, focus and white balance", () => this.togglePro());
+    this.proBtn.classList.add("cam-look");
+    this.proBtn.setAttribute("aria-pressed", "false");
+    this.proBtn.hidden = true;
     // A viewfinder is the picture. Four bordered cards with a word under each,
     // across the top of it, is a toolbar that happens to have a camera behind
     // it -- so the bar carries glyphs and nothing else, and the words they
     // would have had are on `title` and `aria-label`, where a screen reader
     // still reads them and the picture does not have to make room.
-    for (const b of [shut, this.torchBtn, this.flip, this.moreBtn, look]) {
+    for (const b of [shut, this.torchBtn, this.flip, this.moreBtn, look, this.proBtn]) {
       b.dataset["fctLabelled"] = "";
       delete b.dataset["fctShort"];
     }
-    bar.append(shut, spacer(), this.torchBtn, this.flip, look, this.moreBtn);
+    bar.append(shut, spacer(), this.torchBtn, this.flip, this.proBtn, look, this.moreBtn);
 
     const foot = document.createElement("footer");
     foot.className = "cam-foot";
@@ -608,6 +634,8 @@ export class CameraView {
   }
 
   private stop(): void {
+    window.clearInterval(this.proTimer);
+    this.proTimer = 0;
     this.stopDrawing();
     this.unwatchOrientation();
     // Every track, not just the video one: a stopped camera with a live
@@ -983,7 +1011,177 @@ export class CameraView {
     this.torchBtn.hidden = this.able.torch !== true;
     this.paintTorch();
     this.syncEv();
+    this.syncPro();
     this.buildZoom();
+  }
+
+  // -- Manual controls --------------------------------------------------------
+  //
+  // Everything Samsung keeps behind a mode called Pro, and the half of a phone
+  // camera the web actually gets: the Image Capture *extensions* -- zoom,
+  // torch, points of interest -- are absent from the system web view, but ISO,
+  // shutter, manual focus and white balance are all here and all settable. The
+  // row is built from what the open lens reports rather than from a list
+  // written here, so a front camera that meters but does not focus gets the
+  // controls it has and no dead buttons beside them.
+
+  private wirePro(): void {
+    this.proBar.className = "cam-pro";
+    this.proBar.hidden = true;
+    this.proRow.className = "cam-pro-row";
+    this.proSlide.type = "range";
+    this.proSlide.className = "cam-pro-slide";
+    this.proSlide.hidden = true;
+    // `input`, not `change`: a value that only lands when the finger lifts is a
+    // guess, and the point of a manual control is watching it happen.
+    this.proSlide.addEventListener("input", () => void this.setDial(Number(this.proSlide.value)));
+    // The whole bar sits on the stage, where a press is a tap-to-focus and a
+    // drag is a pinch. None of it is either -- and a chip that focused the
+    // camera behind itself as it was pressed would undo the manual focus the
+    // chip beside it had just set.
+    for (const kind of ["pointerdown", "pointermove", "pointerup"]) {
+      this.proBar.addEventListener(kind, (e) => e.stopPropagation());
+    }
+    this.proBar.append(this.proSlide, this.proRow);
+  }
+
+  /** Rebuild the row for the open lens, and hide the button if it offers none. */
+  private syncPro(): void {
+    this.dials = DIALS.filter((d) => {
+      const span = this.able[d.key];
+      return !!span && span.max > span.min;
+    });
+    this.proBtn.hidden = this.dials.length === 0;
+    if (!this.dials.length) this.pro = false;
+    this.dialAt = -1;
+    this.proSlide.hidden = true;
+    this.buildPro();
+  }
+
+  private buildPro(): void {
+    this.proBar.hidden = !this.pro;
+    window.clearInterval(this.proTimer);
+    if (this.pro) this.proTimer = window.setInterval(() => this.paintDials(), 500);
+    this.proBtn.setAttribute("aria-pressed", String(this.pro));
+    this.proBtn.classList.toggle("on", this.pro);
+    const auto = document.createElement("button");
+    auto.type = "button";
+    auto.className = "cam-pro-chip cam-pro-auto";
+    auto.dataset["fctLabelled"] = "";
+    auto.textContent = "Auto";
+    auto.title = "Give every control back to the camera";
+    auto.setAttribute("aria-label", auto.title);
+    auto.addEventListener("click", () => void this.autoAll());
+    this.proRow.replaceChildren(auto, ...this.dials.map((d, i) => this.dialChip(d, i)));
+    this.paintDials();
+  }
+
+  private dialChip(d: Dial, i: number): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "cam-pro-chip";
+    b.dataset["fctLabelled"] = "";
+    b.textContent = d.name;
+    b.title = d.name;
+    b.setAttribute("aria-label", d.name);
+    b.addEventListener("click", () => void this.openDial(i));
+    return b;
+  }
+
+  /** What the lens says a value is right now, or nothing if it will not say. */
+  private live(key: string): number | undefined {
+    const seen = this.track()?.getSettings() as Record<string, unknown> | undefined;
+    const v = seen?.[key];
+    return typeof v === "number" ? v : undefined;
+  }
+
+  /** Put the slider on a dial, or take it off the one it is already on. */
+  private async openDial(i: number): Promise<void> {
+    if (this.dialAt === i) {
+      this.dialAt = -1;
+      this.proSlide.hidden = true;
+      this.paintDials();
+      return;
+    }
+    const d = this.dials[i];
+    const span = d ? this.able[d.key] : undefined;
+    if (!d || !span) return;
+    this.dialAt = i;
+    if (d.mode) await this.ask({ [d.mode.of]: d.mode.to } as LensAsk);
+    const w = d.warp;
+    const ends = w ? [w.in(span.min), w.in(span.max)] : [span.min, span.max];
+    const lo = Math.min(ends[0] as number, ends[1] as number);
+    const hi = Math.max(ends[0] as number, ends[1] as number);
+    // A driver that names no step still has to be given one, or the slider
+    // moves in whole units across a range measured in thousands. A warped dial
+    // has no step worth carrying over, because the step is not in its units.
+    const step = !w && span.step && span.step > 0 ? span.step : (hi - lo) / 100;
+    const now = this.live(d.key) ?? (span.min + span.max) / 2;
+    this.proSlide.min = String(lo);
+    this.proSlide.max = String(hi);
+    this.proSlide.step = String(step);
+    this.proSlide.value = String(w ? w.in(now) : now);
+    this.proSlide.setAttribute("aria-label", d.name);
+    this.proSlide.hidden = false;
+    this.paintDials();
+  }
+
+  private async setDial(t: number): Promise<void> {
+    const d = this.dials[this.dialAt];
+    const span = d ? this.able[d.key] : undefined;
+    if (!d || !span) return;
+    // Back through the warp and then held to the ends the driver gave, because
+    // one over a number is not exact and a value a hair past the limit is not
+    // a near miss -- `applyConstraints` refuses it outright.
+    const raw = d.warp ? d.warp.out(t) : t;
+    const v = Math.min(span.max, Math.max(span.min, raw));
+    await this.ask({ [d.key]: v } as LensAsk);
+    // The tap-to-focus rail and the EV dial are the same number reached two
+    // ways, so moving either has to move the other.
+    if (d.key === "exposureCompensation") {
+      this.evVal = v;
+      this.paintEv();
+    }
+    this.paintDials();
+  }
+
+  /** Hand every control back to the camera. */
+  private async autoAll(): Promise<void> {
+    this.dialAt = -1;
+    this.proSlide.hidden = true;
+    // One at a time. An `advanced` entry is applied only if *every* constraint
+    // in it can be met, so folding these into one request would let a lens with
+    // no white balance control throw away the exposure reset beside it.
+    for (const of of ["exposureMode", "focusMode", "whiteBalanceMode"] as const) {
+      if (this.able[of]?.includes("continuous")) await this.ask({ [of]: "continuous" } as LensAsk);
+    }
+    this.paintDials();
+  }
+
+  /** Write the live value onto each chip, and mark the one being driven. */
+  private paintDials(): void {
+    const chips = Array.from(this.proRow.children);
+    this.dials.forEach((d, i) => {
+      const el = chips[i + 1];
+      if (!(el instanceof HTMLElement)) return;
+      // White balance reads back 0 K while the camera is choosing it, and 0 K
+      // is not a colour -- it is the driver saying it has no answer. A chip
+      // that prints it is worse than one that admits to knowing nothing.
+      const span = this.able[d.key];
+      const v = this.live(d.key);
+      const known = v !== undefined && (!span || (v >= span.min && v <= span.max));
+      el.textContent = known && v !== undefined ? `${d.name} ${d.show(v)}` : d.name;
+      el.classList.toggle("on", i === this.dialAt);
+    });
+  }
+
+  private togglePro(): void {
+    this.pro = !this.pro;
+    // Leaving the row is leaving manual: a camera that stayed on a hand-set
+    // shutter after its controls were put away would look simply broken.
+    if (!this.pro) void this.autoAll();
+    this.buildPro();
+    this.say(this.pro ? "Manual controls on" : "Back to automatic");
   }
 
   /**
@@ -1729,20 +1927,117 @@ export class CameraView {
  * here rather than cast at each call site, so there is one place that says
  * what is being assumed and one place to delete when the types catch up.
  */
+interface Span {
+  min: number;
+  max: number;
+  step?: number;
+}
+
 interface LensCaps {
-  zoom?: { min: number; max: number; step?: number };
+  zoom?: Span;
   torch?: boolean;
   focusMode?: string[];
-  exposureCompensation?: { min: number; max: number; step?: number };
+  exposureMode?: string[];
+  whiteBalanceMode?: string[];
+  exposureCompensation?: Span;
+  exposureTime?: Span;
+  iso?: Span;
+  focusDistance?: Span;
+  colorTemperature?: Span;
 }
 
 interface LensAsk {
   zoom?: number;
   torch?: boolean;
   focusMode?: string;
+  exposureMode?: string;
+  whiteBalanceMode?: string;
   exposureCompensation?: number;
+  exposureTime?: number;
+  iso?: number;
+  focusDistance?: number;
+  colorTemperature?: number;
   pointsOfInterest?: Array<{ x: number; y: number }>;
 }
+
+/** The capability keys a dial reads its range from. */
+type DialKey = "iso" | "exposureTime" | "exposureCompensation" | "focusDistance" | "colorTemperature";
+
+/** The mode keys that have to be taken off automatic before a dial will bite. */
+type ModeKey = "exposureMode" | "focusMode" | "whiteBalanceMode";
+
+/** One manual control: what it is called, what it moves, and how it reads. */
+interface Dial {
+  key: DialKey;
+  name: string;
+  /**
+   * The automatic behaviour that has to be switched off first, if any.
+   *
+   * An ISO set while the camera is still metering for itself is a number the
+   * driver is free to overwrite on the next frame, and does -- the control
+   * appears to work for an instant and then undoes itself, which is worse than
+   * one that plainly does nothing.
+   */
+  mode?: { of: ModeKey; to: string };
+  show: (v: number) => string;
+  /**
+   * How the slider's travel maps onto the value, where even travel is wrong.
+   *
+   * Distance is the case that needs it. A lens that focuses from 9 cm to 4.5 m
+   * spends nine tenths of a linear slider between two and four metres, where
+   * nothing changes, and squeezes everything from macro to half a metre -- the
+   * whole reason to focus by hand -- into the first centimetre of travel. A
+   * focus ring on a real lens is not marked evenly either; it is marked in
+   * diopters, which is one over the distance, and that is what this is.
+   */
+  warp?: { in: (v: number) => number; out: (t: number) => number };
+}
+
+/**
+ * A shutter speed, written the way a camera writes it.
+ *
+ * The unit on the web is hundreds of microseconds -- `exposureTime: 166` is
+ * a sixtieth of a second -- which is a number nobody has ever seen on a dial.
+ */
+function shutterLabel(units: number): string {
+  const s = units / 10000;
+  if (!(s > 0)) return "\u2014";
+  if (s >= 1) return `${s.toFixed(1)}\u2033`;
+  return `1/${Math.round(1 / s)}`;
+}
+
+/**
+ * The manual controls, in the order a photographer reaches for them.
+ *
+ * Only the ones the open lens actually reports are built, because the set
+ * differs per camera and per phone: the system web view ships no `zoom` or
+ * `torch` extension at all but does offer this whole row, which is the half of
+ * a phone camera Samsung keeps behind a mode called Pro.
+ */
+const DIALS: readonly Dial[] = [
+  { key: "iso", name: "ISO", mode: { of: "exposureMode", to: "manual" }, show: (v) => String(Math.round(v)) },
+  { key: "exposureTime", name: "Shutter", mode: { of: "exposureMode", to: "manual" }, show: shutterLabel },
+  { key: "exposureCompensation", name: "EV", show: (v) => `${v > 0 ? "+" : ""}${v.toFixed(1)}` },
+  {
+    key: "focusDistance",
+    name: "Focus",
+    mode: { of: "focusMode", to: "manual" },
+    // Metres, and checked rather than assumed: on an S21+ a keyboard a foot
+    // away comes up sharp at 0.25 and is bokeh at 4.0, so Chromium is doing the
+    // conversion from the diopters Android's HAL speaks. Worth re-checking on
+    // any new device -- if close things read as large numbers, it did not.
+    show: (v) => (v >= 10 ? "\u221e" : `${v.toFixed(2)} m`),
+    // Negated so that the distance still grows left to right; a focus control
+    // that ran backwards would be right and still feel broken.
+    warp: { in: (m) => (m > 0 ? -1 / m : -1e4), out: (t) => (t < 0 ? -1 / t : 1e4) },
+  },
+  {
+    key: "colorTemperature",
+    name: "WB",
+    mode: { of: "whiteBalanceMode", to: "manual" },
+    show: (v) => `${Math.round(v)}K`,
+  },
+];
 
 /**
  * A stop on the zoom strip: a lens to be on, and how far to crop into it.

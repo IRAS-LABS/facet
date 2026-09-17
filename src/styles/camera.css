@@ -594,3 +594,129 @@
   box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
   pointer-events: none;
 }
+
+/* The manual row, stacked above the zoom strip: the two are read together --
+   a lens and what it is set to -- and a person switching between them should
+   not have to look anywhere else. */
+.cam-pro {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 24px);
+  max-width: 560px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.cam-pro[hidden] {
+  display: none;
+}
+
+/* The chips wrap rather than scroll. Six of them carrying live numbers --
+   `Shutter 1/24`, not `Shutter` -- come to about 560 px, which a phone does not
+   have, and the two that fell off the end were the two nobody would find: a
+   sideways scroll over a viewfinder is also a pinch and a tap-to-focus, so the
+   gesture that reveals them is the one that refocuses the picture. Growing a
+   second line costs nothing instead, because the bar is anchored by its bottom
+   edge and rises away from the zoom strip. */
+.cam-pro-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 22px;
+  background: rgb(0 0 0 / 45%);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.cam-pro-chip {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+}
+
+.cam-pro-chip:hover {
+  background: rgb(255 255 255 / 18%);
+}
+
+.cam-pro-chip.on {
+  background: #fde68a;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+/* Auto is the way out of every other chip, so it reads as a different kind of
+   control rather than a sixth setting. */
+.cam-pro-auto {
+  background: rgb(255 255 255 / 14%);
+}
+
+/* Drawn by hand rather than left native: a system range control on Android is
+   a thin grey line that disappears against a viewfinder, and its thumb is too
+   small to find with a thumb. */
+.cam-pro-slide {
+  width: 100%;
+  height: 34px;
+  margin: 0;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 45%);
+  backdrop-filter: blur(6px);
+  appearance: none;
+  touch-action: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.cam-pro-slide[hidden] {
+  display: none;
+}
+
+.cam-pro-slide::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 55%);
+}
+
+.cam-pro-slide::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 55%);
+}
+
+.cam-pro-slide::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  margin-top: -9.5px;
+  border: 0;
+  border-radius: 50%;
+  background: #fde68a;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
+  appearance: none;
+}
+
+.cam-pro-slide::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: #fde68a;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
+}

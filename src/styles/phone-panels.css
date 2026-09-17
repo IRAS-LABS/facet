@@ -727,3 +727,29 @@ body.fct-phone .fct-phone-panel .cam-chip {
 body.fct-phone .fct-phone-panel .cam-chip.on {
   font-size: var(--fct-fs);
 }
+
+/* The manual row clears the taller zoom strip a phone gets, and its chips take
+   the same 42 px as the lens chips below them -- the two rows are read as one
+   control surface, so they are sized as one. */
+/* Above the zoom strip, which on a phone is itself pushed up to 142px to
+   clear the shutter row -- the stage here is the whole screen, not the box
+   between the bars, so a gap measured off the desktop stage put this row
+   underneath the shutter button. 142 + the strip's own 48 + a gap. */
+body.fct-phone .fct-phone-panel .cam-pro {
+  bottom: 198px;
+  gap: 6px;
+}
+
+body.fct-phone .fct-phone-panel .cam-pro-row {
+  border-radius: 26px;
+}
+
+body.fct-phone .fct-phone-panel .cam-pro-chip {
+  height: 42px;
+  padding: 0 12px;
+  font-size: var(--fct-fs-sm);
+}
+
+body.fct-phone .fct-phone-panel .cam-pro-slide {
+  height: 42px;
+}
