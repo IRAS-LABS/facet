@@ -91,6 +91,17 @@
   background: #000;
 }
 
+/* The box the picture lives in. It clips, so the video inside it can be
+   scaled for a digital zoom without spilling over the stage, and it is never
+   itself transformed -- `shown` and the tap-to-focus maths both measure it,
+   and a transformed element reports the enlarged picture rather than the
+   window onto it. */
+.cam-frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
 .cam-video {
   position: absolute;
   inset: 0;
@@ -98,6 +109,7 @@
   height: 100%;
   object-fit: contain;
   background: #000;
+  transform-origin: center;
 }
 
 /*
@@ -374,4 +386,211 @@
 .cam-plain:hover {
   background: var(--fct-card-hover);
   color: var(--fct-text);
+}
+
+/* ── The settings tray ─────────────────────────────────────────────────────
+   Everything that is a setting rather than a shot. A row on the desktop, a
+   sheet on a phone -- see phone-panels.css. */
+.cam-more {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--fct-surface-raised);
+  border-bottom: 1px solid var(--fct-border);
+}
+
+.cam-more[hidden] {
+  display: none;
+}
+
+/* The lens switch is the one bar control that is pressed while looking at the
+   picture rather than at the button, so it is round and thumb-sized wherever
+   it appears. */
+.cam-flip {
+  width: 34px;
+  height: 34px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.05rem;
+}
+
+.cam-flip[hidden] {
+  display: none;
+}
+
+/* ── Zoom, focus ──────────────────────────────────────────────────────────── */
+
+/* A row of round chips floating over the bottom of the picture, the way every
+   phone camera shows its lenses. It sits on the stage rather than in the footer
+   because it belongs to the picture -- it appears only when the open lens
+   reports a zoom range, and a control that comes and goes must not reflow the
+   controls that do not. */
+.cam-zoom {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 45%);
+  backdrop-filter: blur(6px);
+}
+
+.cam-zoom[hidden] {
+  display: none;
+}
+
+.cam-chip {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: var(--fct-fs-sm);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--fct-t-fast), color var(--fct-t-fast);
+}
+
+.cam-chip:hover {
+  background: rgb(255 255 255 / 18%);
+}
+
+.cam-chip.on {
+  background: #fff;
+  color: #000;
+  font-weight: 600;
+}
+
+/* Where the tap landed. Centred on the point, so its own size is subtracted
+   back out here rather than at every call site. */
+.cam-ring {
+  position: absolute;
+  z-index: 3;
+  width: 74px;
+  height: 74px;
+  margin: -37px 0 0 -37px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 45%), inset 0 0 0 1px rgb(0 0 0 / 45%);
+  pointer-events: none;
+}
+
+.cam-ring[hidden] {
+  display: none;
+}
+
+/* Snaps in, then fades, so a tap that changed nothing visible still reads as a
+   tap that was received. */
+.cam-ring.go {
+  animation: cam-ring-go 1.4s ease-out forwards;
+}
+
+@keyframes cam-ring-go {
+  0% {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+
+  12% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  70% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cam-ring.go {
+    animation: none;
+  }
+}
+
+/* A toggle that is on -- the light, so far. */
+.cam-btn.on {
+  border-color: var(--fct-accent);
+  background: var(--fct-accent);
+  color: #fff;
+}
+
+/* The chosen shape, set on the frame so the picture and the guides over it
+   take the same box and one rule decides both. Centred with `margin: auto`
+   inside the absolute inset rather than a transform, because the video's
+   transform is spoken for by the mirror and the zoom. */
+.cam-frame.cam-crop {
+  inset: 0;
+  margin: auto;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: var(--cam-aspect, 1);
+}
+
+.cam-frame.cam-crop .cam-video {
+  object-fit: cover;
+}
+
+/* The brightness rail, beside the focus ring: vertical, because the drag that
+   sets it starts at the ring and goes up for brighter, which is the gesture
+   every phone camera uses for it. Centred on the point it was given, so its
+   own size is subtracted back out here rather than at the call site. */
+.cam-ev {
+  position: absolute;
+  z-index: 4;
+  width: 30px;
+  height: 168px;
+  margin: -84px 0 0 -15px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 38%);
+  backdrop-filter: blur(6px);
+  touch-action: none;
+}
+
+.cam-ev::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: rgb(255 255 255 / 55%);
+}
+
+.cam-ev[hidden] {
+  display: none;
+}
+
+.cam-ev-dot {
+  position: absolute;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  margin: 0 0 -13px -13px;
+  border-radius: 50%;
+  background: #fde68a;
+  color: #1a1a1a;
+  font-size: 14px;
+  line-height: 26px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
+  pointer-events: none;
 }

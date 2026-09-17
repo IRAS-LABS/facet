@@ -185,6 +185,7 @@ const PREFS: CameraPrefs = {
   height: 1080,
   mirror: false,
   grid: "thirds",
+  aspect: "full",
   countdown: 0,
   sound: false,
 };

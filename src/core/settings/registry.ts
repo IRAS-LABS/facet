@@ -78,6 +78,7 @@ export const PREF = {
   cameraHeight: "camera.height",
   cameraMirror: "camera.mirror",
   cameraGrid: "camera.grid",
+  cameraAspect: "camera.aspect",
   cameraCountdown: "camera.countdown",
   cameraSound: "camera.sound",
   cameraFolder: "camera.folder",
@@ -727,6 +728,22 @@ const cameraGrid: ChoiceSetting = {
   default: "none",
 };
 
+const cameraAspect: ChoiceSetting = {
+  kind: "choice",
+  id: PREF.cameraAspect,
+  group: "Camera",
+  label: "Shape",
+  help: "Crops the preview and the file together, so what you framed is what you get. Full uses the whole screen; the named shapes turn with the device, so 4:3 is a tall 3:4 when you hold it upright.",
+  keywords: ["camera", "aspect", "ratio", "shape", "square", "crop", "4:3", "16:9"],
+  choices: [
+    ["full", "Full"],
+    ["4:3", "4:3"],
+    ["1:1", "Square"],
+    ["16:9", "16:9"],
+  ],
+  default: "full",
+};
+
 const cameraCountdown: ChoiceSetting = {
   kind: "choice",
   id: PREF.cameraCountdown,
@@ -1245,6 +1262,7 @@ export const ALL_SETTINGS = [
   cameraHeight,
   cameraMirror,
   cameraGrid,
+  cameraAspect,
   cameraCountdown,
   cameraSound,
   cameraFolder,

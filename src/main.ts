@@ -111,7 +111,7 @@ import { MetaPanel } from "@ui/metadata";
 import { Palette, type Command } from "@ui/palette";
 import { QuickLook, type QuickAction } from "@ui/quicklook";
 import { SceneView } from "@ui/scene-view";
-import { CameraView } from "@ui/camera-view";
+import { CameraView, type AspectKind } from "@ui/camera-view";
 import { ScanView } from "@ui/scan-view";
 import { RecorderView } from "@ui/recorder-view";
 import { TranscribeView } from "@ui/transcribe-view";
@@ -378,6 +378,7 @@ const camera = new CameraView({
     height: Number(settings.get<string>(PREF.cameraHeight)),
     mirror: settings.get<boolean>(PREF.cameraMirror),
     grid: settings.get<string>(PREF.cameraGrid) as GridKind,
+    aspect: settings.get<string>(PREF.cameraAspect) as AspectKind,
     countdown: Number(settings.get<string>(PREF.cameraCountdown)),
     sound: settings.get<boolean>(PREF.cameraSound),
   }),

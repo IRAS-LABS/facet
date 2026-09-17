@@ -395,6 +395,15 @@ export interface FrameWanted {
   portrait?: boolean;
   /** Which lens, when no specific device was chosen. */
   facing?: Facing | null;
+  /**
+   * Ask for the zoom control as well as the picture.
+   *
+   * Zoom is behind its own permission in Chromium: a track opened without
+   * asking for it reports no zoom range at all, which reads exactly like a
+   * camera that cannot zoom. `true` here is not a value -- it is the request,
+   * and it is the only way the range ever appears.
+   */
+  ptz?: boolean;
 }
 
 export function videoConstraints(
@@ -413,11 +422,25 @@ export function videoConstraints(
   // `ideal`, not `exact`: a laptop with one webcam has no "environment" camera
   // and `exact` there is an OverconstrainedError and a black preview.
   else if (opts.facing) c.facingMode = { ideal: opts.facing };
+  // Not in `lib.dom.d.ts`: Chromium implements pan/tilt/zoom, the type
+  // definitions have not caught up, and a bare `true` is the spelling the
+  // permission request uses rather than a number the lens has to match.
+  if (opts.ptz) (c as Record<string, unknown>)["zoom"] = true;
   return c;
 }
 
 /** The heights offered, largest first — a camera app should open on its best. */
-export const HEIGHTS: readonly number[] = [2160, 1440, 1080, 720, 480];
+/**
+ * The frame heights worth asking a camera for, largest first.
+ *
+ * 3024 is on the list because a phone sensor is 4:3 and a 4K mode is not: an
+ * S21+ asked for 2160 hands back a 3840 x 2160 frame, which is the 12 MP
+ * sensor with the top and bottom thrown away, and on a phone held upright that
+ * discarded strip is most of the picture. The camera gives the nearest mode it
+ * has, so a webcam that has never heard of 3024 simply lands on its own
+ * largest -- the same answer it gave before.
+ */
+export const HEIGHTS: readonly number[] = [3024, 2160, 1440, 1080, 720, 480];
 
 /**
  * The best container this browser will actually record.
