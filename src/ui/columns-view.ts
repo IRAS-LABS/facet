@@ -69,7 +69,8 @@ export interface ColumnsCallbacks {
   onWantPreview?(entry: FileEntry): void;
   /** Peek-level ask: always made for the file that is showing. */
   onWantFullPreview?(entry: FileEntry): void;
-  onMenu?(entry: FileEntry | null, x: number, y: number): void;
+  /** Right-click, with whether Shift was held; see `ListCallbacks.onMenu`. */
+  onMenu?(entry: FileEntry | null, x: number, y: number, shift?: boolean): void;
   /**
    * Files were dropped on a folder (item 6). Every column is a drop target of
    * its own, which is what this view is *for*: the folder you are dropping
@@ -667,7 +668,7 @@ export class ColumnsView {
     // Right-clicking inside a selection acts on all of it; right-clicking
     // outside one makes what you clicked the selection first.
     if (e !== undefined && !col.sel.has(e.path)) this.#choose(col, i, "set");
-    this.#cb.onMenu(e ?? null, ev.clientX, ev.clientY);
+    this.#cb.onMenu(e ?? null, ev.clientX, ev.clientY, ev.shiftKey);
   }
 
   #key(ev: KeyboardEvent): void {

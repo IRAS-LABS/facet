@@ -69,8 +69,19 @@ export interface MenuOptions {
   line: string;
   /** Everything on offer for what is selected right now. */
   commands: readonly RunnableCommand[];
-  /** Opens the builder. Adds the last row when supplied. */
+  /** Opens the builder. Adds a row to the footer when supplied. */
   edit?(): void;
+  /**
+   * Hands over to the operating system's own menu for the selection. Adds
+   * "Show more options" as the very last row when supplied.
+   *
+   * Last, and worded exactly as Windows 11 words it, because that is where the
+   * hand already goes: anyone who has used Explorer since 2021 knows the full
+   * menu with every program's entries in it is one row below the short one.
+   * The shell only supplies this on Windows, and only when something is
+   * selected — on empty space there is no item for Windows to describe.
+   */
+  more?: { hint: string; run(): void };
 }
 
 export class ContextMenu {
@@ -154,9 +165,14 @@ export class ContextMenu {
       this.root.append(this.row(cmd));
     }
 
-    if (opts.edit !== undefined) {
+    // The footer: rows about the menu rather than about the files. One
+    // separator for both, so a menu offering both does not draw two lines.
+    if (opts.edit !== undefined || opts.more !== undefined) {
       const hr = document.createElement("div");
       hr.className = "ctx-sep";
+      this.root.append(hr);
+    }
+    if (opts.edit !== undefined) {
       const edit = document.createElement("button");
       edit.type = "button";
       edit.className = "ctx-row ctx-edit";
@@ -165,8 +181,35 @@ export class ContextMenu {
         this.close();
         opts.edit?.();
       });
-      this.root.append(hr, edit);
+      this.root.append(edit);
       this.rows.push(edit);
+    }
+    if (opts.more !== undefined) {
+      const more = opts.more;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "ctx-row ctx-more";
+      b.setAttribute("role", "menuitem");
+      const name = document.createElement("span");
+      name.className = "ctx-name";
+      name.textContent = "Show more options";
+      const hint = document.createElement("span");
+      hint.className = "ctx-hint";
+      hint.textContent = more.hint;
+      b.append(name, hint);
+      b.addEventListener("click", () => {
+        // Closed first, and without waiting: the Windows menu is a native
+        // popup drawn over the page, and this one still being on screen
+        // underneath it reads as two menus open at once.
+        this.close();
+        more.run();
+      });
+      b.addEventListener("pointerenter", () => {
+        this.active = this.rows.indexOf(b);
+        this.paint();
+      });
+      this.root.append(b);
+      this.rows.push(b);
     }
 
     this.root.hidden = false;

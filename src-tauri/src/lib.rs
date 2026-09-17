@@ -33,6 +33,11 @@ mod cli;
 mod pip;
 #[cfg(desktop)]
 mod pip_layout;
+// Desktop only: Explorer's own right-click menu for the files FACET shows, with
+// every shell extension's entries in it. Windows builds it; other desktops get
+// a command that says it does not exist there.
+#[cfg(desktop)]
+mod shellmenu;
 // Desktop only: FACET as an MCP server, so a model can drive the same engine
 // over stdio that the window drives over IPC. Reached by `facet mcp` in `run()`
 // below, before any window exists.
@@ -189,6 +194,7 @@ pub fn run() {
             dual::dual_recording,
             share::share_files,
             share::copy_files,
+            shellmenu::shell_menu,
             ffmpeg::media_ready,
             ffmpeg::probe_media,
             ffmpeg::keyframes,

@@ -83,8 +83,11 @@ export interface GalleryCallbacks {
   onSelect(entries: FileEntry[]): void;
   /** Asked once per entry, when its tile is mounted. Every kind, see header. */
   onWantPreview?(entry: FileEntry): void;
-  /** Right-click. The selection is already correct when this fires. */
-  onMenu?(entry: FileEntry | null, x: number, y: number): void;
+  /**
+   * Right-click. The selection is already correct when this fires. `shift` is
+   * whether Shift was held; see `ListCallbacks.onMenu`.
+   */
+  onMenu?(entry: FileEntry | null, x: number, y: number, shift?: boolean): void;
   /**
    * The user asked for bigger or smaller tiles. The shell owns the setting —
    * writing it here would make the gallery a second writer of a preference the
@@ -737,7 +740,7 @@ export class GalleryView {
       this.#selected.clear();
       this.#syncSelection(true);
     }
-    this.#cb.onMenu?.(i >= 0 ? this.#entries[i]! : null, ev.clientX, ev.clientY);
+    this.#cb.onMenu?.(i >= 0 ? this.#entries[i]! : null, ev.clientX, ev.clientY, ev.shiftKey);
   }
 
   #onWheel(ev: WheelEvent): void {

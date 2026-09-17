@@ -621,6 +621,23 @@ async function main(): Promise<void> {
     ok("…and is absent when it does not",
       menu.element.querySelector(".ctx-edit") === null);
     menu.close();
+
+    // "Show more options" — the hand-over to the Windows menu. Last, below the
+    // edit row, where Windows 11 puts it; and only when the shell offers it.
+    let more = 0;
+    menu.open({
+      x: 40, y: 40, line: "file.open", commands: runnable,
+      edit: () => {}, more: { hint: "Shift+right-click", run: () => { more++; } },
+    });
+    const rows = [...menu.element.querySelectorAll(".ctx-row")];
+    ok("the more-options row is the last one", rows[rows.length - 1]?.classList.contains("ctx-more") === true);
+    ok("…under a single footer separator", menu.element.querySelectorAll(".ctx-sep").length === 1);
+    (menu.element.querySelector(".ctx-more") as HTMLElement | null)?.click();
+    ok("…runs the hand-over and closes the menu", more === 1 && menu.isOpen === false);
+    menu.open({ x: 40, y: 40, line: "file.open", commands: runnable });
+    ok("…and is absent when the shell does not offer it",
+      menu.element.querySelector(".ctx-more") === null);
+    menu.close();
     ok("closing a closed menu is quiet", menu.isOpen === false);
     menu.element.remove();
   }
