@@ -724,6 +724,10 @@ export class Inspector {
    * window boundary is still found — the bug every from-scratch search has
    * the first time, and the one that makes it quietly useless rather than
    * obviously broken.
+   *
+   * Past the end it wraps, like every editor's find: the rest of the file is
+   * scanned first, then the part behind the cursor. Each byte is read at most
+   * once either way, so "no match" still costs exactly one pass.
    */
   private async search(backwards: boolean): Promise<void> {
     const entry = this.entry;
@@ -733,26 +737,23 @@ export class Inspector {
     this.searching = true;
     this.note.textContent = "Searching…";
 
-    const WINDOW = 1 << 20;
     try {
-      if (!backwards) {
-        for (let at = this.cursor + 1; at < this.size; at += WINDOW) {
-          const len = Math.min(WINDOW + pat.length - 1, this.size - at);
-          const buf = new Uint8Array(await this.host.readRange(entry.path, at, len));
-          if (this.token !== mine) return;
-          const hit = indexOf(buf, pat, 0);
-          if (hit >= 0) { this.found(at + hit, pat.length); return; }
-        }
-      } else {
-        for (let end = this.cursor; end > 0; end -= WINDOW) {
-          const from = Math.max(0, end - WINDOW);
-          const buf = new Uint8Array(await this.host.readRange(entry.path, from, end - from + pat.length - 1));
-          if (this.token !== mine) return;
-          const hit = lastIndexOf(buf, pat, Math.min(buf.length, end - from) - 1);
-          if (hit >= 0) { this.found(from + hit, pat.length); return; }
-        }
-      }
-      this.note.textContent = backwards ? "No earlier match." : "No further match.";
+      const path = entry.path;
+      const here = this.cursor;
+      let hit = backwards
+        ? await this.scanBack(path, pat, 0, here, mine)
+        : await this.scanFore(path, pat, here + 1, this.size, mine);
+      if (hit === null) return;
+      if (hit >= 0) { this.found(hit, pat.length); return; }
+      // The wrapped half includes the cursor itself, so a file whose only
+      // match is the one already selected lands back on it instead of
+      // claiming there is none.
+      hit = backwards
+        ? await this.scanBack(path, pat, here, this.size, mine)
+        : await this.scanFore(path, pat, 0, here + 1, mine);
+      if (hit === null) return;
+      if (hit >= 0) { this.found(hit, pat.length, backwards ? "Wrapped to end." : "Wrapped to start."); return; }
+      this.note.textContent = "No match in this file.";
     } catch (e) {
       this.note.textContent = String(e);
     } finally {
@@ -760,8 +761,34 @@ export class Inspector {
     }
   }
 
-  private found(at: number, len: number): void {
-    this.note.textContent = `Match at 0x${at.toString(16)} (${len} bytes). Enter for the next, Shift+Enter back.`;
+  /** First match starting in [from, stop), or -1; null if the inspector moved on to another file. */
+  private async scanFore(path: string, pat: Uint8Array, from: number, stop: number, mine: number): Promise<number | null> {
+    const WINDOW = 1 << 20;
+    for (let at = from; at < Math.min(stop, this.size); at += WINDOW) {
+      const len = Math.min(WINDOW + pat.length - 1, this.size - at);
+      const buf = new Uint8Array(await this.host.readRange(path, at, len));
+      if (this.token !== mine) return null;
+      const hit = indexOf(buf, pat, 0);
+      if (hit >= 0) return at + hit < stop ? at + hit : -1;
+    }
+    return -1;
+  }
+
+  /** Last match starting in [floor, end), or -1; null if the inspector moved on to another file. */
+  private async scanBack(path: string, pat: Uint8Array, floor: number, end: number, mine: number): Promise<number | null> {
+    const WINDOW = 1 << 20;
+    for (let top = end; top > floor; top -= WINDOW) {
+      const from = Math.max(floor, top - WINDOW);
+      const buf = new Uint8Array(await this.host.readRange(path, from, Math.min(top - from + pat.length - 1, this.size - from)));
+      if (this.token !== mine) return null;
+      const hit = lastIndexOf(buf, pat, Math.min(buf.length, top - from) - 1);
+      if (hit >= 0) return from + hit;
+    }
+    return -1;
+  }
+
+  private found(at: number, len: number, lead = ""): void {
+    this.note.textContent = `${lead ? `${lead} ` : ""}Match at 0x${at.toString(16)} (${len} bytes). Enter for the next, Shift+Enter back.`;
     this.jump(at);
   }
 

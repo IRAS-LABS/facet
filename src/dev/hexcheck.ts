@@ -207,7 +207,7 @@ async function run(): Promise<void> {
   find.value = "de ad be ef de ad be ef de ad be ef";
   enter();
   await settle(900);
-  ok("a pattern that is not there says so", text(".hx-note").includes("No further match"), text(".hx-note"));
+  ok("a pattern that is not there says so", text(".hx-note").includes("No match"), text(".hx-note"));
 
   // ── Windowing: the claim the whole design rests on ────────────────────────
   served = 0;
