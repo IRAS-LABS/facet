@@ -1103,13 +1103,18 @@ export class CameraView {
     const bar = this.root.querySelector(".cam-bar")?.getBoundingClientRect();
     const foot = this.root.querySelector(".cam-foot")?.getBoundingClientRect();
     const gap = 8;
+    // Turned sideways the footer is a column down the right edge, not a row
+    // along the bottom, so it bounds the inset from the side instead.
+    const side = !!foot && foot.height > stage.height * 0.6;
     const top = bar ? Math.max(0, bar.bottom - stage.top + gap) : 0;
-    const bottom = foot ? Math.min(stage.height, foot.top - stage.top - gap) : stage.height;
+    const bottom = foot && !side ? Math.min(stage.height, foot.top - stage.top - gap) : stage.height;
+    const right = foot && side ? Math.min(stage.width, foot.left - stage.left - gap) : stage.width;
     // In pip the inset's height is its width fraction times the stage height.
-    const room = (bottom - top) / stage.height;
+    const room = Math.min((bottom - top) / stage.height, right / stage.width);
     const w = clamp(layout.inset.w, INSET_MIN, Math.max(INSET_MIN, Math.min(INSET_MAX, room)));
     layout.inset.w = w;
     layout.inset.y = clamp(layout.inset.y, top / stage.height, Math.max(top / stage.height, bottom / stage.height - w));
+    layout.inset.x = clamp(layout.inset.x, 0, Math.max(0, right / stage.width - w));
   }
 
   private applyDual(): void {
@@ -1269,8 +1274,8 @@ export class CameraView {
   private async dualShoot(): Promise<void> {
     this.blink();
     try {
-      const path = await dualPhoto();
-      this.say(`Saved ${base(path)}`);
+      await dualPhoto();
+      this.say("Photo saved");
       this.host.refresh();
     } catch (err) {
       this.say(reason(err));
@@ -1278,22 +1283,22 @@ export class CameraView {
   }
 
   /**
-   * Film on both, then combine.
+   * Film on both.
    *
-   * The combining is the slow part and it is said out loud: there is no
-   * hardware video encoder reachable from the bundled ffmpeg, so a clip takes
-   * about twice its own length to put together. Silence for that long reads as
-   * a camera that has hung.
+   * Normally the two are drawn into one video as they film and stopping is
+   * instant. A device that cannot do that films two clips and combines them
+   * afterwards, which takes about twice the clip's length -- so the wait is
+   * still said out loud, since silence for that long reads as a hung camera.
    */
   private async dualToggleRecord(): Promise<void> {
     if (this.dualRec) {
       this.dualRec = false;
       this.recBtn.classList.remove("cam-on");
       this.stopTicker();
-      this.say("Combining the two pictures into one video…");
+      this.say("Saving the video…");
       try {
-        const path = await dualRecordStop();
-        this.say(`Saved ${base(path)}`);
+        await dualRecordStop();
+        this.say("Video saved");
         this.host.refresh();
       } catch (err) {
         this.say(reason(err));
@@ -2045,22 +2050,104 @@ export class CameraView {
       this.say("No camera is open");
       return;
     }
-    if (!this.paint()) {
+    const format = this.prefs.format;
+    const full = await this.stillCanvas();
+    if (!full && !this.paint()) {
       this.say("The camera has not produced a frame yet");
       return;
     }
-    const format = this.prefs.format;
+    const target = full ?? this.canvas;
     const blob = await new Promise<Blob | null>((resolve) => {
       // Quality is ignored for PNG by every browser, which is correct — it is
       // lossless — so it is passed unconditionally rather than branched on.
-      this.canvas.toBlob(resolve, mimeOf(format), this.prefs.quality);
+      target.toBlob(resolve, mimeOf(format), this.prefs.quality);
     });
+    if (full) full.width = full.height = 0;
     if (!blob) {
       this.say("The frame could not be encoded");
       return;
     }
     this.blink();
     await this.deliver(blob, extOf(format));
+  }
+
+  /**
+   * The photo at the sensor's full resolution, cropped and styled the way the
+   * preview shows it, or null where the engine cannot take one.
+   *
+   * A frame of the preview stream tops out at the stream's size -- about 2 MP
+   * once it is cropped to a phone screen -- while `takePhoto` runs a real still
+   * capture: the whole sensor, through the camera's own still processing. The
+   * crop is the preview's crop carried across as fractions, because the still
+   * and the stream share a centre but not an aspect ratio.
+   */
+  private async stillCanvas(): Promise<HTMLCanvasElement | null> {
+    const track = this.stream?.getVideoTracks()[0];
+    const Capture = (window as unknown as { ImageCapture?: ImageCaptureCtor }).ImageCapture;
+    const vw = this.video.videoWidth;
+    const vh = this.video.videoHeight;
+    if (!track || !Capture || !vw || !vh) return null;
+    let bmp: ImageBitmap;
+    try {
+      const cap = new Capture(track);
+      const caps = await cap.getPhotoCapabilities().catch(() => null);
+      const settings: Record<string, number> = {};
+      if (caps?.imageWidth?.max && caps.imageHeight?.max) {
+        settings["imageWidth"] = caps.imageWidth.max;
+        settings["imageHeight"] = caps.imageHeight.max;
+      }
+      const shot = await cap.takePhoto(settings);
+      bmp = await createImageBitmap(shot, { imageOrientation: "from-image" });
+    } catch {
+      return null;
+    }
+    // A still whose long side runs the other way from the stream's has come
+    // back in sensor orientation; turn it to match what the preview shows.
+    const turn = vw > vh !== bmp.width > bmp.height;
+    const pw = turn ? bmp.height : bmp.width;
+    const ph = turn ? bmp.width : bmp.height;
+    if (pw * ph <= vw * vh) {
+      bmp.close();
+      return null;
+    }
+    // The stream's view inside the still: its aspect, centred.
+    let bw = pw;
+    let bh = Math.round(pw * (vh / vw));
+    if (bh > ph) {
+      bh = ph;
+      bw = Math.round(ph * (vw / vh));
+    }
+    const bx = (pw - bw) / 2;
+    const by = (ph - bh) / 2;
+    const { sx, sy, sw, sh } = this.shown(vw, vh);
+    const k = bw / vw;
+    const cx = bx + sx * k;
+    const cy = by + sy * (bh / vh);
+    const dw = Math.max(1, Math.round(sw * k));
+    const dh = Math.max(1, Math.round(sh * (bh / vh)));
+    const out = document.createElement("canvas");
+    out.width = dw;
+    out.height = dh;
+    const ctx = out.getContext("2d");
+    if (!ctx) {
+      bmp.close();
+      return null;
+    }
+    if (this.prefs.mirror) {
+      ctx.translate(dw, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.filter = filterOf(this.look);
+    // Crop coordinates are in the turned picture; draw the turned picture with
+    // its origin shifted so the crop lands at the canvas origin.
+    ctx.translate(-cx, -cy);
+    if (turn) {
+      ctx.translate(pw, 0);
+      ctx.rotate(Math.PI / 2);
+    }
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close();
+    return out;
   }
 
   private blink(): void {
@@ -2208,12 +2295,10 @@ export class CameraView {
   // ── Saving ──────────────────────────────────────────────────────────────
 
   /**
-   * Write it, show it, and say where it went.
+   * Write it, show it, and say it saved -- by kind, not file name.
    *
-   * Never over an existing file, and the name that comes *back* is the one
-   * reported — `writeFree` steps to `facet-… (2).jpg` when a second capture
-   * lands in the same second, and a camera that told you the wrong name would
-   * be a camera that appears to have lost a photo.
+   * Never over an existing file: `writeFree` steps to `facet-… (2).jpg` when a
+   * second capture lands in the same second.
    *
    * It used to call `writeFile(…, false)` under a comment claiming the shell
    * picked the next free name. Nothing did — `write_file` refuses a taken name
@@ -2226,8 +2311,8 @@ export class CameraView {
     const path = join(folder, name);
     const bytes = new Uint8Array(await blob.arrayBuffer());
     try {
-      const written = await writeFree(this.host, path, bytes);
-      this.say(`Saved ${base(written)} — ${(bytes.length / 1e6).toFixed(1)} MB`);
+      await writeFree(this.host, path, bytes);
+      this.say(blob.type.startsWith("image/") ? "Photo saved" : "Video saved");
       this.host.refresh();
     } catch (err) {
       this.say(`Could not save: ${reason(err)}`);
@@ -2346,6 +2431,12 @@ export class CameraView {
  * here rather than cast at each call site, so there is one place that says
  * what is being assumed and one place to delete when the types catch up.
  */
+/** The Image Capture constructor, which the DOM typings do not carry. */
+type ImageCaptureCtor = new (track: MediaStreamTrack) => {
+  getPhotoCapabilities(): Promise<{ imageWidth?: Span; imageHeight?: Span }>;
+  takePhoto(settings?: Record<string, number>): Promise<Blob>;
+};
+
 interface Span {
   min: number;
   max: number;
@@ -2573,9 +2664,6 @@ function join(folder: string, name: string): string {
   return /[\\/]$/.test(folder) ? `${folder}${name}` : `${folder}/${name}`;
 }
 
-function base(path: string): string {
-  return path.split(/[\\/]/).pop() ?? path;
-}
 
 /**
  * Upright, by the window rather than by `screen.orientation`.

@@ -236,7 +236,7 @@ export async function dualRecordStart(): Promise<void> {
   await invoke("dual_record_start");
 }
 
-/** Stop filming and combine the two clips. Slow: see `camera-view`. */
+/** Stop filming. Instant when combined live; slow on the two-clip fallback. */
 export async function dualRecordStop(): Promise<string> {
   const invoke = await invoker();
   return await invoke<string>("dual_record_stop");

@@ -109,6 +109,11 @@ object DualBridge {
   private val recs = HashMap<String, MediaRecorder>()
   private val clips = HashMap<String, File>()
 
+  /** The live combiner and its one recorder, while a combined recording runs. */
+  private var mixer: DualMixer? = null
+  private var mixRec: MediaRecorder? = null
+  private var mixOut: File? = null
+
   /** Set while both cameras are recording, so a second tap does not restart. */
   @Volatile private var taping = false
   private var tapeStart = 0L
@@ -461,13 +466,16 @@ object DualBridge {
           "front" -> pair[1]
           else -> continue
         }
-        spots[id] = Spot(
-          o.optInt("x"),
-          o.optInt("y"),
-          o.optInt("w").coerceAtLeast(1),
-          o.optInt("h").coerceAtLeast(1),
-          o.optInt("z"),
-        )
+        // Read from the combiner's thread on every frame while filming.
+        synchronized(spots) {
+          spots[id] = Spot(
+            o.optInt("x"),
+            o.optInt("y"),
+            o.optInt("w").coerceAtLeast(1),
+            o.optInt("h").coerceAtLeast(1),
+            o.optInt("z"),
+          )
+        }
       }
       act?.runOnUiThread { applySpots() }
       ""
@@ -526,18 +534,26 @@ object DualBridge {
     val vw = (view.layoutParams?.width ?: view.width).toFloat()
     val vh = (view.layoutParams?.height ?: view.height).toFloat()
     if (vw <= 0f || vh <= 0f) return
-    // The driver reports sizes landscape; the view is portrait.
+    // The driver reports sizes landscape; the frame, once the surface's own
+    // transform has run, is upright for the phone's natural way up.
     val sw = src.height.toFloat()
     val sh = src.width.toFloat()
-    val scale = maxOf(vw / sw, vh / sh)
-    val dw = sw * scale
-    val dh = sh * scale
+    // That transform knows the sensor but not the screen. Turned sideways, the
+    // page is laid out landscape while the frame is still upright for portrait,
+    // so it is turned back here -- the same quarter the camera sample code
+    // applies -- or the room in the viewfinder lies on its side.
+    val turn = screenTurn()
+    val cx = vw / 2f
+    val cy = vh / 2f
+    val shownW = if (turn % 2 == 1) sh else sw
+    val shownH = if (turn % 2 == 1) sw else sh
+    val scale = maxOf(vw / shownW, vh / shownH)
     val m = Matrix()
-    m.setRectToRect(
-      RectF(0f, 0f, vw, vh),
-      RectF((vw - dw) / 2f, (vh - dh) / 2f, (vw + dw) / 2f, (vh + dh) / 2f),
-      Matrix.ScaleToFit.FILL,
-    )
+    // A texture view stretches the frame to fill it: undo that first, turn it,
+    // then scale it up until it covers the view without distorting.
+    m.setScale(sw / vw, sh / vh, cx, cy)
+    if (turn != 0) m.postRotate(-90f * turn, cx, cy)
+    m.postScale(scale, scale, cx, cy)
     view.setTransform(m)
   }
 
@@ -552,7 +568,11 @@ object DualBridge {
     // "the app closed" into two watchable clips. They are not combined here:
     // this runs on the way out, sometimes from `onDestroy`, and ffmpeg takes
     // longer than Android will wait.
-    if (taping) {
+    if (taping && mixer != null) {
+      // Quick, unlike the old combining: stopping one recorder finishes the
+      // file. The cameras are closing, so there is no session to put back.
+      stopMixed(restore = false)
+    } else if (taping) {
       taping = false
       if (stopRecorders()) {
         for (f in clips.values) { keep(f); Log.i(TAG, "kept ${f.name}") }
@@ -570,7 +590,7 @@ object DualBridge {
     for (v in surfs.values) try { v.release() } catch (_: Throwable) {}
     surfs.clear()
     sizes.clear()
-    spots.clear()
+    synchronized(spots) { spots.clear() }
     val box = host
     host = null
     views.clear()
@@ -687,6 +707,9 @@ object DualBridge {
     val mx = Matrix()
     mx.postRotate(deg.toFloat())
     if (isFront(id)) mx.postScale(-1f, 1f)
+    // Held sideways, turned the same way the viewfinder is in `shape`.
+    val turn = screenTurn()
+    if (turn != 0) mx.postRotate(-90f * turn)
     val out = Bitmap.createBitmap(src, 0, 0, src.width, src.height, mx, true)
     if (out !== src) src.recycle()
     return out
@@ -719,8 +742,12 @@ object DualBridge {
     // enough to keep every real pixel the biggest camera contributes, and not
     // so much that the inset gets blown up past what its own sensor gave.
     var k = laid.minOf { (shots[it.key]?.width ?: 1).toFloat() / it.value.w }
-    if (spanW * k > OUT_MAX) k = OUT_MAX.toFloat() / spanW
-    if (spanH * k > OUT_MAX * 2) k = (OUT_MAX * 2).toFloat() / spanH
+    // Capped by short and long side rather than by width and height, so a phone
+    // held sideways keeps the same detail as one held upright.
+    val shortSide = minOf(spanW, spanH)
+    val longSide = maxOf(spanW, spanH)
+    if (shortSide * k > OUT_MAX) k = OUT_MAX.toFloat() / shortSide
+    if (longSide * k > OUT_MAX * 2) k = (OUT_MAX * 2).toFloat() / longSide
     val outW = (spanW * k).toInt().coerceAtLeast(1)
     val outH = (spanH * k).toInt().coerceAtLeast(1)
 
@@ -782,6 +809,17 @@ object DualBridge {
     if (ids.size != 2) return "No camera pair."
     val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
       .format(java.util.Date())
+
+    val live = startMixed(stamp)
+    if (live.isEmpty()) {
+      taping = true
+      tapeStart = System.currentTimeMillis()
+      Log.i(TAG, "dual recording started, combined live")
+      return ""
+    }
+    // Two clips and a combine afterwards is slow, but it is a video; a device
+    // whose GPU or encoder will not take the live route still gets one.
+    Log.w(TAG, "live combining unavailable, filming two clips: $live")
 
     for ((n, id) in ids.withIndex()) {
       val size = sizes[id] ?: return "Camera $id has no size."
@@ -873,6 +911,7 @@ object DualBridge {
   @JvmStatic
   fun stopRecording(): String {
     if (!taping) return "!Not recording."
+    if (mixer != null) return stopMixed(restore = true)
     taping = false
     val brief = System.currentTimeMillis() - tapeStart < 900
     val ids = pair
@@ -904,6 +943,197 @@ object DualBridge {
     Log.i(TAG, "dual video -> ${out.absolutePath} (combined in ${System.currentTimeMillis() - began} ms)")
     return out.absolutePath
   }
+
+  /**
+   * Start one recorder and draw both cameras into it as they stream.
+   *
+   * Returns "" once filming, or why not -- in which case everything it set up
+   * has been put back, and the two-clip route can start from a clean slate.
+   */
+  private fun startMixed(stamp: String): String {
+    val laid = synchronized(spots) {
+      spots.entries.filter { pair.contains(it.key) }.map { it.key to it.value }
+    }
+    if (laid.size != 2) return "nothing is placed"
+    val left = laid.minOf { it.second.x }
+    val top = laid.minOf { it.second.y }
+    val spanW = (laid.maxOf { it.second.x + it.second.w } - left).coerceAtLeast(1)
+    val spanH = (laid.maxOf { it.second.y + it.second.h } - top).coerceAtLeast(1)
+    val turn = screenTurn()
+
+    val sources = ArrayList<DualMixer.Source>()
+    for (id in pair) {
+      val s = sizes[id] ?: return "camera $id has no size"
+      sources.add(DualMixer.Source(id, s.width, s.height, orientation(id) / 90))
+    }
+
+    // Enough that the larger rectangle is drawn from its camera at about 1:1 --
+    // 1440 across, upright -- and then the long side capped, which is the rule
+    // that usually binds.
+    var k = 0f
+    for ((id, spot) in laid) {
+      val size = sizes[id] ?: return "camera $id has no size"
+      val across = if ((orientation(id) / 90 + turn) % 2 == 1) size.height else size.width
+      val f = across.toFloat() / spot.w
+      if (k == 0f || f < k) k = f
+    }
+    val long = maxOf(spanW, spanH)
+    if (long * k > VID_SIDE) k = VID_SIDE.toFloat() / long
+    var outW = align16((spanW * k).toInt())
+    var outH = align16((spanH * k).toInt())
+    var tries = 0
+    while (!encodes(outW, outH) && tries < 12) {
+      k *= 0.9f
+      outW = align16((spanW * k).toInt())
+      outH = align16((spanH * k).toInt())
+      tries++
+    }
+    if (!encodes(outW, outH)) return "no encoder takes ${outW}x$outH"
+
+    val out = File(dcim(), "facet_dual_$stamp.mp4")
+    // Hidden until it is finished: the gallery and the media scanner both watch
+    // this folder, and a video that appears half-written stays broken there.
+    val part = File(out.parentFile, ".${out.name}")
+    val rec = try {
+      sized(outW, outH, part, mic())
+    } catch (e: Throwable) {
+      if (part.isFile) part.delete()
+      return "recorder: ${e.message}"
+    }
+
+    val kx = outW.toFloat() / spanW
+    val ky = outH.toFloat() / spanH
+    // Read on every frame, so moving or swapping the two while filming is
+    // filmed too -- the recording is what the screen showed.
+    val mix = DualMixer(outW, outH, rec.surface, sources, turn) {
+      synchronized(spots) {
+        spots.entries.filter { pair.contains(it.key) }.sortedBy { it.value.z }.map {
+          val s = it.value
+          DualMixer.Placed(it.key, (s.x - left) * kx, (s.y - top) * ky, s.w * kx, s.h * ky)
+        }
+      }
+    }
+    val why = mix.start()
+    if (why.isNotEmpty()) {
+      try { rec.release() } catch (_: Throwable) {}
+      if (part.isFile) part.delete()
+      return "compositor: $why"
+    }
+    var fail = ""
+    for (id in pair) {
+      val input = mix.input(id)
+      fail = if (input == null) "camera $id has no input" else configure(id, input, true)
+      if (fail.isNotEmpty()) break
+    }
+    if (fail.isEmpty()) {
+      try {
+        rec.start()
+      } catch (e: Throwable) {
+        fail = "recorder would not start: ${e.message}"
+      }
+    }
+    if (fail.isNotEmpty()) {
+      // The sessions go back to the still readers before the textures they
+      // point at are released, or the cameras error out on a dead surface.
+      restorePhotoSessions()
+      mix.release()
+      try { rec.release() } catch (_: Throwable) {}
+      if (part.isFile) part.delete()
+      return fail
+    }
+    mix.rolling = true
+    mixer = mix
+    mixRec = rec
+    mixOut = out
+    Log.i(TAG, "combining live at ${outW}x$outH, turn $turn")
+    return ""
+  }
+
+  /** Finish a live-combined recording. Returns the path, or "!" and why not. */
+  private fun stopMixed(restore: Boolean): String {
+    val mix = mixer
+    val rec = mixRec
+    val out = mixOut
+    mixer = null
+    mixRec = null
+    mixOut = null
+    taping = false
+    val brief = System.currentTimeMillis() - tapeStart < 900
+    mix?.halt()
+    var ok = rec != null
+    try {
+      rec?.stop()
+    } catch (e: Throwable) {
+      // As with the two-clip recorders: no frames reached the encoder.
+      Log.w(TAG, "combined recorder stop: ${e.message}")
+      ok = false
+    }
+    try { rec?.release() } catch (_: Throwable) {}
+    if (restore) restorePhotoSessions()
+    val frames = mix?.frames ?: 0
+    mix?.release()
+    if (out == null) return "!The recording has nowhere to go."
+    val part = File(out.parentFile, ".${out.name}")
+    if (!ok || frames == 0) {
+      if (part.isFile) part.delete()
+      return "!The recording was too short to save."
+    }
+    if (brief) Log.w(TAG, "very short recording; the result may be a single frame")
+    if (!part.renameTo(out)) return "!Could not move the video into place."
+    scan(out)
+    Log.i(TAG, "dual video -> ${out.absolutePath} ($frames frames, combined live)")
+    return out.absolutePath
+  }
+
+  /** A recorder for a picture already combined and upright: one size, sound if allowed. */
+  private fun sized(w: Int, h: Int, out: File, withSound: Boolean): MediaRecorder {
+    val a = act
+    @Suppress("DEPRECATION")
+    val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && a != null) {
+      MediaRecorder(a)
+    } else {
+      MediaRecorder()
+    }
+    if (withSound) r.setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
+    r.setVideoSource(MediaRecorder.VideoSource.SURFACE)
+    r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+    r.setOutputFile(out.absolutePath)
+    r.setVideoSize(w, h)
+    r.setVideoFrameRate(30)
+    r.setVideoEncodingBitRate(w * h * 6)
+    r.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+    if (withSound) {
+      r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+      r.setAudioEncodingBitRate(128_000)
+      r.setAudioSamplingRate(44_100)
+    }
+    r.prepare()
+    return r
+  }
+
+  /** Whether an H.264 encoder on this device takes this frame size. */
+  private fun encodes(w: Int, h: Int): Boolean =
+    try {
+      android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+        info.isEncoder &&
+          info.supportedTypes.any { it.equals("video/avc", ignoreCase = true) } &&
+          info.getCapabilitiesForType("video/avc").videoCapabilities?.isSizeSupported(w, h) == true
+      }
+    } catch (_: Throwable) {
+      false
+    }
+
+  /** Multiples of sixteen: what every H.264 encoder takes without padding. */
+  private fun align16(v: Int): Int = (v / 16 * 16).coerceAtLeast(16)
+
+  /** How far the screen has turned from the phone's natural way up, in quarters. */
+  private fun screenTurn(): Int =
+    try {
+      @Suppress("DEPRECATION")
+      act?.windowManager?.defaultDisplay?.rotation ?: 0
+    } catch (_: Throwable) {
+      0
+    }
 
   /** Whether both cameras are filming right now. */
   @JvmStatic
@@ -998,7 +1228,14 @@ object DualBridge {
       // flip after it is the same mirror the preview and the stills use.
       val turn = if (orientation(id) == 270) "transpose=2," else "transpose=1,"
       val flip = if (front1) "hflip," else ""
-      filter.append(";[$n:v]$turn${flip}scale=$w:$h:force_original_aspect_ratio=increase")
+      // Filmed sideways: the screen's quarter turn, as `shape` gives the preview.
+      val side = when (screenTurn()) {
+        1 -> "transpose=2,"
+        2 -> "hflip,vflip,"
+        3 -> "transpose=1,"
+        else -> ""
+      }
+      filter.append(";[$n:v]$turn$flip${side}scale=$w:$h:force_original_aspect_ratio=increase")
       filter.append(",crop=$w:$h,setsar=1[v$n]")
       val tag = if (n == laid.size - 1) "out" else "s$n"
       // `shortest=1` on the first overlay is what makes this finish. The black

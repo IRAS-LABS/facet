@@ -766,3 +766,47 @@ body.fct-phone .fct-phone-panel .cam-bar .cam-btn {
   padding: 0 10px;
   font-size: 14px;
 }
+
+/* Turned sideways: the shutter column moves to the right edge, where the thumb
+   holding the phone already is, and the picture keeps the full height. The top
+   row stops short of that column so its buttons stay pressable. */
+@media (orientation: landscape) {
+  body.fct-phone .fct-phone-panel .cam-bar {
+    padding-right: calc(120px + env(safe-area-inset-right));
+  }
+  body.fct-phone .fct-phone-panel .cam-foot {
+    top: 0;
+    bottom: 0;
+    left: auto;
+    right: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--fct-sp-5);
+    padding: var(--fct-sp-3) calc(var(--fct-sp-4) + env(safe-area-inset-right)) var(--fct-sp-3) var(--fct-sp-6, 32px);
+    background: linear-gradient(to left, rgb(0 0 0 / 72%), rgb(0 0 0 / 0%));
+  }
+  body.fct-phone .fct-phone-panel .cam-foot .cam-status {
+    left: auto;
+    right: 100%;
+    bottom: calc(var(--fct-sp-3) + env(safe-area-inset-bottom));
+    width: max-content;
+    max-width: 60vw;
+  }
+  body.fct-phone .fct-phone-panel .cam-thumb {
+    left: auto;
+    right: calc(var(--fct-sp-4) + env(safe-area-inset-right) + 10px);
+    bottom: calc(var(--fct-sp-4) + env(safe-area-inset-bottom));
+  }
+  body.fct-phone .fct-phone-panel .cam-zoom {
+    bottom: calc(var(--fct-sp-4) + env(safe-area-inset-bottom));
+  }
+  body.fct-phone .fct-phone-panel .cam-pro {
+    bottom: calc(var(--fct-sp-4) + env(safe-area-inset-bottom) + 56px);
+  }
+  body.fct-phone .fct-phone-panel .cam-more {
+    left: auto;
+    width: min(420px, 60vw);
+    max-height: 100%;
+    border-radius: var(--fct-radius) 0 0 0;
+  }
+}
