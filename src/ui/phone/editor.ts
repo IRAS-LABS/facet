@@ -1545,11 +1545,16 @@ export class PhoneEditor {
     }
     frag.append(this.divider());
     frag.append(this.caption("Look"));
+    // The look of the blur you tapped, not the one armed for the next drawing.
+    // Lit from `this.style` alone, tapping an auto-blur Pixelate patch left
+    // Redact lit, so the row claimed the patch was something it was not.
+    const picked = this.selected ? this.regions.find((r) => r.id === this.selected && !this.isPen(r)) : undefined;
+    const lit = picked ? picked.kind : this.style;
     for (const { tool, enabled, why } of groupTools("blur", this.kind, have).filter((g) => g.applies)) {
       if (!tool.id.startsWith("blur.kind.")) continue;
       const id = tool.id.slice(10) as BlurKind;
       frag.append(this.chip(tool.label, () => this.setStyle(id), {
-        icon: tool.icon, tool: tool.id, on: this.style === id, disabled: !enabled, why,
+        icon: tool.icon, tool: tool.id, on: lit === id, disabled: !enabled, why,
       }));
     }
     frag.append(this.divider());

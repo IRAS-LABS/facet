@@ -21,7 +21,9 @@ import type { PrefsStorage } from "./prefs";
 
 export const STORAGE_KEY = "fct.autoblur.v1";
 
-export const BLUR_KINDS: readonly BlurKind[] = ["gaussian", "box", "pixelate", "mosaic", "motion", "radial", "frosted", "solid"];
+// "redact" was missing, so a category set to Redact in Settings read back as
+// its default on the next launch. Harmless while every default was redact.
+export const BLUR_KINDS: readonly BlurKind[] = ["redact", "gaussian", "box", "pixelate", "mosaic", "motion", "radial", "frosted", "solid"];
 
 function oneOf<T>(list: readonly T[], v: unknown, fallback: T): T {
   return (list as readonly unknown[]).includes(v) ? (v as T) : fallback;

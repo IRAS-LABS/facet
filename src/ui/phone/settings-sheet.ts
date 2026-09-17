@@ -55,7 +55,7 @@ const CATEGORY_ICON: Record<AutoCategory, string> = {
 const CATEGORY_HINT: Record<AutoCategory, string> = {
   faces: "On-device face model, with the classic detector as a fallback.",
   plates: "Number plates, on vehicles or on their own.",
-  windshields: "A band across the glass of every car found, covering the VIN plate, the tax disc, permits and toll tags. None of those can be read by the text reader, so this is the only thing that hides them \u2014 and it is a big, obvious change to a photo, so it is off until you switch it on.",
+  windshields: "A patch on the bottom-right corner of every car's windscreen, where the VIN plate sits. The text reader cannot read a VIN through glass, so this is the only thing that hides it. Off until you switch it on; move or resize the patch if the car faces the other way.",
   screens: "Monitors, laptops and TVs. Phones are a switch below.",
   terminals: "Only screens showing a terminal or code: dark, monospaced text. Needs the text reader.",
   cards: "Bank cards, IDs and documents: dense printed text in a card shape. Catches posters too, so it is off until you switch it on.",

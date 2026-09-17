@@ -21,7 +21,7 @@ export const AUTO_CATEGORIES: readonly AutoCategory[] = [
 export const CATEGORY_NAMES: Record<AutoCategory, { one: string; many: string; title: string }> = {
   faces: { one: "face", many: "faces", title: "Faces" },
   plates: { one: "plate", many: "plates", title: "Licence plates" },
-  windshields: { one: "windscreen", many: "windscreens", title: "Windscreens (VIN & permits)" },
+  windshields: { one: "VIN plate", many: "VIN plates", title: "VIN plates" },
   screens: { one: "screen", many: "screens", title: "Screens" },
   terminals: { one: "terminal", many: "terminals", title: "Terminals" },
   cards: { one: "card", many: "cards", title: "Cards & documents" },
@@ -119,15 +119,18 @@ export const AUTO_DEFAULTS: AutoBlurConfig = Object.freeze({
     faces: cat("redact", 0.05, 0.35, 12, 0.6),
     // 0.45, not 0.4: on the office test picture a power strip on the floor scored 0.42 as a plate; real plates score 0.8+.
     plates: cat("redact", 0.06, 0.15, 12, 0.45),
-    // Off by default, and the only category that is. It covers a band across
-    // the top half of every car in the picture, which on a street scene or a
-    // photograph of somebody's own car is a large and obvious change to the
-    // image -- unreasonable to do to a holiday snap without being asked. It
-    // matters when it matters: the VIN plate at the base of the screen, the
-    // permit and the toll tag are the things that identify a vehicle after
-    // the plate is covered, and none of them can be read by OCR from a photo.
-    // `conf` is low and `minSize` counts the whole car, not the band.
-    windshields: cat("redact", 0.06, 0.02, 72, 0.3, false),
+    // Off by default, and the only category that is. It covers the bottom-right
+    // corner of every car's windscreen, where the VIN plate sits -- the thing
+    // that identifies a vehicle after the plate is covered, and one OCR cannot
+    // read from a photo. On a street scene that is a patch on every car, which
+    // is not something to do to a holiday snap without being asked.
+    // `conf` is low and `minSize` counts the whole car, not the patch.
+    // Pixelated at full strength rather than blacked out, the one exception
+    // to the rule below: the patch is far bigger than the plate inside it, so
+    // the cells (six across the patch at most) are wider than the characters
+    // and there is no text left to match -- and a black box on every
+    // windscreen was the complaint.
+    windshields: cat("pixelate", 0.5, 0.02, 72, 0.3, false),
     // Screens pad more than anything else: the detector fits the glass, and the
     // bezel plus reflections are where a stray line of text survives.
     screens: cat("redact", 0.08, 0.12, 24, 0.35),

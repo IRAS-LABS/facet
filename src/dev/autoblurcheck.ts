@@ -174,11 +174,17 @@ function ruleTests(): void {
   const car = { x: 100, y: 100, w: 400, h: 300, score: 0.9, cls: COCO.indexOf("car") };
   const moto = COCO.indexOf("motorcycle");
   const glass = windshieldBoxes([car], 1000, 1000, moto);
-  ok("a car gets a windscreen band", glass.length === 1, String(glass.length));
-  ok("the band sits in the upper half of the car",
-    !!glass[0] && glass[0].y > car.y && glass[0].y + glass[0].h < car.y + car.h, JSON.stringify(glass[0]));
-  ok("and reaches the scuttle, where the VIN plate is",
-    !!glass[0] && glass[0].y + glass[0].h > car.y + car.h * 0.5, JSON.stringify(glass[0]));
+  ok("a car gets a VIN patch", glass.length === 1, String(glass.length));
+  ok("the patch sits in the car's upper third",
+    !!glass[0] && glass[0].y > car.y && glass[0].y + glass[0].h < car.y + car.h / 3, JSON.stringify(glass[0]));
+  ok("on the right of the car, where the VIN corner of the glass is",
+    !!glass[0] && glass[0].x > car.x + car.w / 2 && glass[0].x + glass[0].w < car.x + car.w, JSON.stringify(glass[0]));
+  ok("and is a patch, not a band",
+    !!glass[0] && glass[0].w * glass[0].h < car.w * car.h * 0.05, JSON.stringify(glass[0]));
+  const nose = { x: 0, y: 150, w: 190, h: 170, score: 0.5, cls: car.cls };
+  const behind = windshieldBoxes([{ ...car, x: 90, y: 100, w: 880, h: 450 }, nose], 1000, 1000, moto);
+  ok("a car mostly hidden behind a bigger one gets nothing, not a patch on its headlight",
+    behind.length === 1, JSON.stringify(behind));
   ok("a motorcycle gets nothing",
     windshieldBoxes([{ ...car, cls: moto }], 1000, 1000, moto).length === 0);
   ok("a car too small to read gets nothing",
@@ -188,8 +194,9 @@ function ruleTests(): void {
   const edge = windshieldBoxes([{ ...car, x: -200, y: -50 }], 1000, 1000, moto);
   ok("a vehicle half off the frame is clamped to it",
     !!edge[0] && edge[0].x >= 0 && edge[0].y >= 0 && edge[0].x + edge[0].w <= 1000, JSON.stringify(edge[0]));
-  ok("windscreens are off until asked for", AUTO_DEFAULTS.categories.windshields.on === false);
-  ok("and when asked for, they cannot be undone", AUTO_DEFAULTS.categories.windshields.kind === "redact");
+  ok("VIN plates are off until asked for", AUTO_DEFAULTS.categories.windshields.on === false);
+  ok("and when asked for, they are pixelated at full strength", AUTO_DEFAULTS.categories.windshields.kind === "pixelate"
+    && AUTO_DEFAULTS.categories.windshields.amount === 0.5);
 
   // Cards: six words in two lines making a 1.6:1 block, plus a far-off word.
   const card = pageOf(1000, 1000, [
@@ -456,7 +463,7 @@ async function uiTests(): Promise<void> {
   mount.remove();
 }
 function sanitizeTitle(c: string): string {
-  return { faces: "Faces", plates: "Licence plates", windshields: "Windscreens", screens: "Screens", terminals: "Terminals", cards: "Cards", codes: "QR", text: "Text by rule" }[c] ?? c;
+  return { faces: "Faces", plates: "Licence plates", windshields: "VIN plates", screens: "Screens", terminals: "Terminals", cards: "Cards", codes: "QR", text: "Text by rule" }[c] ?? c;
 }
 
 // ── Real models on the bundled pictures ────────────────────────────────────

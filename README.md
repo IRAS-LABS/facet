@@ -72,7 +72,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
   ISO, shutter, focus and white balance. The sideways, mirrored and wrong-lens
   preview is fixed.
 - **Auto-blur for what you did not mean to share** — faces, licence plates,
-  windscreens, screens, QR codes, and text that reads like an email, phone
+  VIN plates, screens, QR codes, and text that reads like an email, phone
   number or card number, found and blurred in one pass. Each kind gets its own
   blur style and strength, and a large photo is searched again tile by tile, so
   small faces and plates in the background are found too.

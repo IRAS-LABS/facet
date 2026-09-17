@@ -243,10 +243,10 @@ export async function detectAll(
         // already found by the COCO pass that the plate stage needs anyway,
         // so this stage is arithmetic and costs nothing measurable.
         if (!coco) break;
-        tick("Covering windscreens…");
+        tick("Covering VIN plates…");
         const moto = COCO.indexOf("motorcycle");
         for (const b of windshieldBoxes(coco.vehicles, width, height, moto, { conf: cc.conf, minVehicle: floorOf(cc) })) {
-          out.detections.push({ category: c, label: "windscreen", box: b });
+          out.detections.push({ category: c, label: "VIN plate", box: b });
         }
         break;
       }

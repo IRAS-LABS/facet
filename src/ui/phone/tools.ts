@@ -351,8 +351,8 @@ const REST: readonly PhoneTool[] = [
     need: "none", hint: "Find every number plate and blur it. Stills and video",
   },
   {
-    id: "ai.windshields", label: "Blur windscreens", icon: "car", group: "ai", kinds: VISUAL,
-    need: "none", hint: "A band across the glass of every car — the VIN plate, tax disc, permits and toll tags",
+    id: "ai.windshields", label: "Blur VIN plates", icon: "car", group: "ai", kinds: VISUAL,
+    need: "none", hint: "The bottom-right corner of every car's windscreen, where the VIN plate sits",
   },
   {
     id: "ai.screens", label: "Blur screens", icon: "monitor", group: "ai", kinds: VISUAL,
