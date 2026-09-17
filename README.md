@@ -47,28 +47,53 @@ TypeScript on top.
 
 ## Download
 
+Facet will be out on the **Play Store and the App Store in the near future**.
+Until then, 0.1.6 is here:
+
 | | | |
 | --- | --- | --- |
-| **Windows 10/11 (x64)** | [`Facet_0.1.5_x64-setup.exe`](https://github.com/IRAS-LABS/facet/releases/latest/download/Facet_0.1.5_x64-setup.exe) | 26 MB — run it, it installs like any other app |
-| **Android 7.0+ (arm64)** | [`facet-0.1.5-arm64.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.5-arm64.apk) | 51 MB — your phone will ask you to allow the install once |
+| **Windows 10/11 (x64)** | [`Facet_0.1.6_x64-setup.exe`](https://github.com/IRAS-LABS/facet/releases/latest/download/Facet_0.1.6_x64-setup.exe) | run it, it installs like any other app |
+| **Android 7.0+ (arm64)** | [`facet-0.1.6-arm64.apk`](https://github.com/IRAS-LABS/facet/releases/latest/download/facet-0.1.6-arm64.apk) | your phone will ask you to allow the install once |
 
 The Windows installer is not code-signed, so SmartScreen will say "Windows
-protected your PC" — **More info**, then **Run anyway**. On desktop, put
-`ffmpeg` and `ffprobe` on your `PATH` for the video and audio features;
-everything else works without them. On Android, FFmpeg is already inside the
-APK.
-
-`universal` in the APK's name is the Gradle output directory, not the
-contents: it holds one ABI, `arm64-v8a`. See
-[Installing the APK](#installing-the-apk-on-android) for what that covers.
+protected your PC" — **More info**, then **Run anyway**. FFmpeg, which the
+video and audio features run on, is inside the installer and inside the APK;
+there is nothing else to install.
 
 Prefer to build it yourself? See [Build from source](#build-from-source).
 
+### New in 0.1.6
+
+- **Both phone cameras at once.** Front and back together, for photos and for
+  video, saved as one picture or one clip laid out the way you framed it. Tap
+  the small view to swap, drag the divider, move and resize the inset.
+- **A phone camera that behaves.** It shoots on the main lens rather than the
+  ultrawide, with a .5x–3x zoom strip, tap-to-expose, and a Pro row for manual
+  ISO, shutter, focus and white balance. The sideways, mirrored and wrong-lens
+  preview is fixed.
+- **Auto-blur for what you did not mean to share** — faces, licence plates,
+  windscreens, screens, QR codes, and text that reads like an email, phone
+  number or card number, found and blurred in one pass. Each kind gets its own
+  blur style and strength, and a large photo is searched again tile by tile, so
+  small faces and plates in the background are found too.
+- **Signing, reworked.** Type a signature instead of drawing it, pick its size
+  and colour, resize any mark from its corners, rename or delete saved ones.
+  Scan a document straight to a PDF or a searchable OCR PDF.
+- **One save bar on every editor** — "Save a copy", or "Overwrite original",
+  which keeps the previous version beside the file.
+- **Pop-out windows** on desktop: float any file above your other windows, up
+  to twelve at once.
+- **Live transcription** while recording, PDFs open in Facet's own reader,
+  select and copy text straight off a picture, and 3D models play their
+  animations.
+- **Fixed:** every video and audio export failed with "Unable to choose an
+  output format". Release builds no longer carry the build machine's paths.
+
 ### Installing the APK on Android
 
-There is no Play Store listing — sideload it.
+Until the Play Store listing is out, sideload it.
 
-1. Download `facet-0.1.5-arm64.apk` onto the phone.
+1. Download `facet-0.1.6-arm64.apk` onto the phone.
 2. Open it. Android asks permission to install from this source; grant it, and
    revoke it afterwards if you prefer.
 3. Launch Facet. It asks for storage on first run — see
@@ -84,7 +109,7 @@ The APK is signed with the project key. Check the *certificate*, rather than
 trusting the file or wherever you got it:
 
 ```
-apksigner verify --print-certs facet-0.1.5-arm64.apk
+apksigner verify --print-certs facet-0.1.6-arm64.apk
 ```
 
 ```
@@ -97,16 +122,9 @@ there. The certificate digest is the part that matters and it does not change
 between releases — an APK signed with any other key did not come from this
 project, whoever handed it to you.
 
-File hashes do change every release. For 0.1.5:
-
-```
-0655c5ba5845993989c77e8794b898718dc8c0f09ab842f63728ca267487d87b  facet-0.1.5-arm64.apk
-fbd969e565803d89a815b06e9cb47a294a836c02a54f74d27d1ff94d14e7c7c1  Facet_0.1.5_x64-setup.exe
-```
-
-Both are published as
-[`SHA256SUMS.txt`](https://github.com/IRAS-LABS/facet/releases/latest/download/SHA256SUMS.txt)
-on the release, so `sha256sum -c SHA256SUMS.txt` checks them together.
+File hashes do change every release. Each release publishes them as
+[`SHA256SUMS.txt`](https://github.com/IRAS-LABS/facet/releases/latest/download/SHA256SUMS.txt),
+so `sha256sum -c SHA256SUMS.txt` checks both downloads together.
 
 ### Upgrading
 
@@ -186,7 +204,7 @@ run against a real photograph, and Android home-screen widgets are not started.
 - **Speed** — 1/16× to 16× in the player; export at ten stops from 0.25× to 60×,
   with pitch-corrected audio up to 4×.
 - **Face blur over video**, from the same detectors as stills.
-- **Staged output** — exports write `<name>.facet-part` and rename only on
+- **Staged output** — exports write `<name>.facet-part.<ext>` and rename only on
   success, so a cancelled or crashed export never leaves a half-file wearing a
   real name.
 
@@ -531,7 +549,7 @@ should be fine; these are the ones that are known to work.
 | Node | 24.18.0 (npm 12) |
 | Rust | 1.96.1 |
 | Python | 3.12 (invoked as `py` on Windows) |
-| ffmpeg / ffprobe on `PATH` | 8.1.2 (Gyan full build) — desktop only |
+| ffmpeg / ffprobe on `PATH` | 8.1.2 (Gyan full build) — desktop dev only; the installer bundles its own |
 | JDK | 17 (Temurin) — Android only |
 | Android SDK / NDK | compileSdk 36, NDK 27.2.12479018 — Android only |
 
@@ -557,10 +575,12 @@ rather than shipping. Use it for anything anyone else will run.
 For development instead: `npx tauri dev` runs the app against a live frontend,
 and `npm run dev` serves the frontend alone on `http://127.0.0.1:8183`.
 
-`ffmpeg` and `ffprobe` must be on `PATH` — the desktop build execs whatever is
-there rather than bundling its own. Video editing, audio editing, noise
-filtering, subtitle burn-in and recording all go through them. Note that the
-Gyan full build has no HEIF muxer, so it cannot *write* HEIC.
+The script downloads a pinned FFmpeg 8.1 build and puts it in the installer,
+next to `facet.exe`; `-NoFfmpeg` leaves it out. Without it — and under
+`npx tauri dev` — the app execs whatever `ffmpeg` and `ffprobe` are on `PATH`.
+Video editing, audio editing, noise filtering, subtitle burn-in and recording
+all go through them. Note that the Gyan full build has no HEIF muxer, so it
+cannot *write* HEIC.
 
 ### Android
 
@@ -616,7 +636,11 @@ obligation, at the cost of H.264 encoding.
 
 ### Signing
 
-Release APKs come out unsigned. Sign them with your own key:
+A release APK is signed if Gradle finds a `keystore.properties` at
+`$env:FACET_SIGNING` or `~/.facet-signing/keystore.properties` — outside the
+repository, never inside it (see the top of
+`src-tauri/gen/android/app/build.gradle.kts`). Without one it comes out
+unsigned. Sign it with your own key:
 
 ```powershell
 zipalign -f -p 4 app-universal-release-unsigned.apk facet.apk
@@ -661,8 +685,9 @@ afterwards the same way.
 The `dev/*check.html` pages are self-contained test harnesses for individual
 subsystems, served by `npm run dev`. Open
 [`http://localhost:8183/dev/allcheck.html`](http://localhost:8183/dev/allcheck.html)
-to run them all in sequence. They are dev-server only: the build's single
-input is `index.html`, so nothing in `dev/` reaches a release artifact.
+to run them all in sequence. They are dev-server only: the build's inputs
+are `index.html` and `pip.html`, so nothing in `dev/` reaches a release
+artifact.
 
 Some of them read real photographs and spreadsheets over HTTP, because a
 decoder tested only on bytes it generated itself proves nothing but its own
