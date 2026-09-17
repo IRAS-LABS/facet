@@ -714,7 +714,7 @@ export class PhoneEditor {
    *
    * The strip is a stack the shell could not see. A slider, the layers list,
    * a swatch, the discard question -- each replaces the group's own chips and
-   * each has its own little back chevron, and the hardware back press knew
+   * each has its own way back to them, and the hardware back press knew
    * about none of them. Backing out of the strength slider went straight to
    * "discard 3 edits?", two screens past where anyone meant to stop.
    *
@@ -1021,6 +1021,24 @@ export class PhoneEditor {
     return b;
   }
 
+  /**
+   * The way out of a sub-panel -- a slider, swatches, layers, history -- to
+   * the group's own chips.
+   *
+   * Not called "Back". The top bar's arrow is Back, and it leaves the editor;
+   * this chevron sat under it with the same name doing something else, so
+   * which one you got was a guess. It says where it goes instead, in words,
+   * and it only exists inside a sub-panel because only a sub-panel builds it.
+   */
+  private allTools(onTap: () => void): HTMLButtonElement {
+    const group = RAIL.find(([id]) => id === this.group)?.[1] ?? "this group";
+    const b = this.chip("All tools", onTap, { icon: "chevron-left" });
+    b.removeAttribute("aria-pressed");
+    b.title = `All tools in ${group}`;
+    b.setAttribute("aria-label", `All tools in ${group}`);
+    return b;
+  }
+
   private divider(): HTMLElement {
     return el("span.phe-divider", { "aria-hidden": true });
   }
@@ -1043,7 +1061,7 @@ export class PhoneEditor {
    *
    * One shared offset was wrong the moment a sheet opened another one. Going
    * from the blur row into the auto-blur sheet carried the blur row's offset
-   * across, and the auto sheet's first two chips -- Back, and Go -- were
+   * across, and the auto sheet's first two chips -- All tools, and Go -- were
    * already off the left-hand edge when it appeared. Every sheet keeps its
    * own place instead, so a new one starts where it starts and coming back to
    * an old one lands where you left it.
@@ -1110,7 +1128,7 @@ export class PhoneEditor {
   }
 
   /**
-   * The one big slider. Takes the whole strip; a chevron returns to the chips.
+   * The one big slider. Takes the whole strip; "All tools" returns to the chips.
    *
    * One undo entry per drag: the state is snapped on the first input and
    * committed on release, so Undo returns to how the picture looked before
@@ -1177,7 +1195,7 @@ export class PhoneEditor {
     range.addEventListener("change", settle);
     range.addEventListener("pointercancel", settle);
 
-    const back = this.iconBtn("chevron-left", "Back to options", o.back);
+    const back = this.allTools(o.back);
     back.classList.add("phe-slider-back");
 
     const row = el("div.phe-slider", {},
@@ -1704,7 +1722,7 @@ export class PhoneEditor {
       : what === "text" ? (this.textTarget()?.color ?? this.textColor)
       : this.frame.color;
 
-    const back = this.iconBtn("chevron-left", "Back to options", () => this.open(this.group));
+    const back = this.allTools(() => this.open(this.group));
     const frag = document.createDocumentFragment();
     frag.append(back);
     for (const [name, hex] of SWATCHES) {
@@ -1775,7 +1793,7 @@ export class PhoneEditor {
   }
 
   private showLayers(): void {
-    const back = this.iconBtn("chevron-left", "Back to options", () => this.showBlur());
+    const back = this.allTools(() => this.showBlur());
     const frag = document.createDocumentFragment();
     frag.append(back);
     if (!this.regions.some((r) => !this.isPen(r))) {
@@ -1879,7 +1897,7 @@ export class PhoneEditor {
     if (!this.autoPick) this.autoPick = loadAutoPick();
     const pick = this.autoPick;
     const frag = document.createDocumentFragment();
-    const back = this.iconBtn("chevron-left", "Back to blur options", () => this.showBlur());
+    const back = this.allTools(() => this.showBlur());
     back.classList.add("phe-slider-back");
     frag.append(back);
     frag.append(this.chip("Go", () => void this.runAuto([...AUTO_CATEGORIES].filter((c) => pick.has(c))), {
@@ -2634,7 +2652,7 @@ export class PhoneEditor {
 
   /** The edits so far, as a row you can tap to jump back and forward in. */
   private showHistory(): void {
-    const back = this.iconBtn("chevron-left", "Back to options", () => this.open(this.group));
+    const back = this.allTools(() => this.open(this.group));
     const frag = document.createDocumentFragment();
     frag.append(back);
     const total = this.history.length + this.future.length;

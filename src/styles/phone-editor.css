@@ -534,7 +534,7 @@
 }
 .phe-field:focus { outline: 2px solid var(--fct-accent); outline-offset: -1px; }
 
-/* One slider fills the row: back chevron, label, the track, the readout. */
+/* One slider fills the row: All tools, label, the track, the readout. */
 .phe-slider {
   flex: 1 0 100%;
   display: flex;
@@ -544,7 +544,11 @@
 }
 /* The strip's trailing spacer is for chip rows; a slider wants the width. */
 .phe-strip:has(.phe-slider)::after { display: none; }
-.phe-slider-back { width: 40px; height: 40px; }
+/* On a narrow phone the words would leave the track about 100 px long, so a
+   slider row keeps just the chevron; the name stays in its title and label. */
+@media (max-width: 430px) {
+  .phe-slider > .phe-chip .phe-chip-label { display: none; }
+}
 .phe-slider-label {
   flex: 0 0 auto;
   font: 600 var(--fct-fs-sm) var(--fct-font-ui);
