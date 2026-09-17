@@ -9,6 +9,12 @@
 # skip. `cargo check` rather than a full `tauri build`: it catches every
 # compile error in a couple of minutes instead of bundling an installer no
 # one downloads from CI.
+#
+# Both jobs fetch the models and OCR data first. Those are large binaries kept
+# out of the repo (`.gitignore`), so a fresh checkout does not have them, and
+# the build asserts they are present rather than shipping an app that degrades
+# quietly. `fetch-models.py` pins every file by sha256 and is a no-op when the
+# cache already holds a matching copy.
 
 name: CI
 
@@ -29,6 +35,22 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # Pinned rather than trusting whatever `python` the runner image happens
+      # to expose; the two runners do not agree on the name.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            public/models
+            public/tessdata
+          key: facet-assets-${{ hashFiles('scripts/fetch-models.py') }}
+
+      - name: Fetch models and OCR data
+        run: python scripts/fetch-models.py
 
       - name: Type-check and bundle
         run: npm run build
@@ -52,6 +74,22 @@ jobs:
       # tauri-build reads ../dist at compile time, so the front end has to
       # exist before cargo runs.
       - run: npm ci
+
+      # Pinned rather than trusting whatever `python` the runner image happens
+      # to expose; the two runners do not agree on the name.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            public/models
+            public/tessdata
+          key: facet-assets-${{ hashFiles('scripts/fetch-models.py') }}
+
+      - name: Fetch models and OCR data
+        run: python scripts/fetch-models.py
 
       - run: npm run build
 
